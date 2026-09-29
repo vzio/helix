@@ -1,0 +1,6 @@
+target
+.direnv
+vortex-term/rustfmt.toml
+result
+runtime/grammars
+.DS_Store

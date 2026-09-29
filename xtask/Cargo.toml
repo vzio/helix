@@ -1,0 +1,21 @@
+[package]
+name = "xtask"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+categories.workspace = true
+repository.workspace = true
+homepage.workspace = true
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+vortex-term = { path = "../vortex-term" }
+vortex-core = { path = "../vortex-core" }
+vortex-view = { path = "../vortex-view" }
+vortex-loader = { path = "../vortex-loader" }
+vortex-stdx = { path = "../vortex-stdx" }
+ropey.workspace = true
+toml.workspace = true
