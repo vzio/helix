@@ -608,6 +608,7 @@ impl MappableCommand {
         suspend, "Suspend and return to shell",
         git_diff_view, "Open a side by side git diff of the current file",
         commit_picker, "Open the git commit log picker",
+        toggle_explorer, "Toggle the file explorer side panel",
         rename_symbol, "Rename symbol",
         increment, "Increment item under cursor",
         decrement, "Decrement item under cursor",
@@ -6785,6 +6786,14 @@ fn commit_picker(cx: &mut Context) {
     if let Some(picker) = git_log::commit_picker(cx.editor) {
         cx.push_layer(Box::new(overlaid(picker)));
     }
+}
+
+fn toggle_explorer(cx: &mut Context) {
+    cx.callback.push(Box::new(|compositor, cx| {
+        if let Some(editor_view) = compositor.find::<ui::EditorView>() {
+            ui::explorer::toggle(editor_view, cx.editor)
+        }
+    }));
 }
 
 fn suspend(_cx: &mut Context) {
