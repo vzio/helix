@@ -1,4 +1,5 @@
 pub(crate) mod dap;
+pub(crate) mod diff_view;
 pub(crate) mod lsp;
 pub(crate) mod syntax;
 pub(crate) mod typed;
@@ -604,6 +605,7 @@ impl MappableCommand {
         shell_append_output, "Append shell command output after selections",
         shell_keep_pipe, "Filter selections with shell predicate",
         suspend, "Suspend and return to shell",
+        git_diff_view, "Open a side by side git diff of the current file",
         rename_symbol, "Rename symbol",
         increment, "Increment item under cursor",
         decrement, "Decrement item under cursor",
@@ -3557,7 +3559,8 @@ fn changed_file_picker(cx: &mut Context) {
             }
         },
     )
-    .with_preview(|_editor, meta| Some((meta.path().into(), None)));
+    .with_preview(|_editor, meta| Some((meta.path().into(), None)))
+    .with_key_handler(crate::ctrl!('g'), diff_view::open_from_picker);
     let injector = picker.injector();
 
     let trust_full = cx
@@ -6760,6 +6763,12 @@ fn shell_prompt_for_behavior(cx: &mut Context, prompt: Cow<'static, str>, behavi
     shell_prompt(cx, prompt, move |cx, args| {
         shell(cx, args.join(" ").as_str(), &behavior)
     })
+}
+
+fn git_diff_view(cx: &mut Context) {
+    cx.callback.push(Box::new(|compositor, cx| {
+        diff_view::open_current(cx.editor, compositor)
+    }));
 }
 
 fn suspend(_cx: &mut Context) {
