@@ -5956,7 +5956,9 @@ fn jump_view_right(cx: &mut Context) {
 }
 
 fn jump_view_left(cx: &mut Context) {
-    cx.editor.focus_direction(tree::Direction::Left)
+    if !ui::explorer::jump_left(cx) {
+        cx.editor.focus_direction(tree::Direction::Left)
+    }
 }
 
 fn jump_view_up(cx: &mut Context) {
