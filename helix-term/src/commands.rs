@@ -1,5 +1,6 @@
 pub(crate) mod dap;
 pub(crate) mod diff_view;
+pub(crate) mod git_log;
 pub(crate) mod lsp;
 pub(crate) mod syntax;
 pub(crate) mod typed;
@@ -606,6 +607,7 @@ impl MappableCommand {
         shell_keep_pipe, "Filter selections with shell predicate",
         suspend, "Suspend and return to shell",
         git_diff_view, "Open a side by side git diff of the current file",
+        commit_picker, "Open the git commit log picker",
         rename_symbol, "Rename symbol",
         increment, "Increment item under cursor",
         decrement, "Decrement item under cursor",
@@ -3481,29 +3483,23 @@ fn jumplist_picker(cx: &mut Context) {
     cx.push_layer(Box::new(overlaid(picker)));
 }
 
-fn changed_file_picker(cx: &mut Context) {
-    pub struct FileChangeData {
-        cwd: PathBuf,
-        style_untracked: Style,
-        style_modified: Style,
-        style_conflict: Style,
-        style_deleted: Style,
-        style_renamed: Style,
-    }
+pub(crate) struct FileChangeData {
+    cwd: PathBuf,
+    style_untracked: Style,
+    style_modified: Style,
+    style_conflict: Style,
+    style_deleted: Style,
+    style_renamed: Style,
+}
 
-    let cwd = helix_stdx::env::current_working_dir();
-    if !cwd.exists() {
-        cx.editor
-            .set_error("Current working directory does not exist");
-        return;
-    }
-
-    let added = cx.editor.theme.get("diff.plus");
-    let modified = cx.editor.theme.get("diff.delta");
-    let conflict = cx.editor.theme.get("diff.delta.conflict");
-    let deleted = cx.editor.theme.get("diff.minus");
-    let renamed = cx.editor.theme.get("diff.delta.moved");
-
+/// The "change" and "path" columns of a picker of changed files, and their data.
+pub(crate) fn file_change_columns(
+    editor: &Editor,
+    cwd: PathBuf,
+) -> (
+    [PickerColumn<FileChange, FileChangeData>; 2],
+    FileChangeData,
+) {
     let columns = [
         PickerColumn::new("change", |change: &FileChange, data: &FileChangeData| {
             match change {
@@ -3536,19 +3532,31 @@ fn changed_file_picker(cx: &mut Context) {
             .into()
         }),
     ];
+    let data = FileChangeData {
+        cwd,
+        style_untracked: editor.theme.get("diff.plus"),
+        style_modified: editor.theme.get("diff.delta"),
+        style_conflict: editor.theme.get("diff.delta.conflict"),
+        style_deleted: editor.theme.get("diff.minus"),
+        style_renamed: editor.theme.get("diff.delta.moved"),
+    };
+    (columns, data)
+}
 
+fn changed_file_picker(cx: &mut Context) {
+    let cwd = helix_stdx::env::current_working_dir();
+    if !cwd.exists() {
+        cx.editor
+            .set_error("Current working directory does not exist");
+        return;
+    }
+
+    let (columns, data) = file_change_columns(cx.editor, cwd.clone());
     let picker = Picker::new(
         columns,
         1, // path
         [],
-        FileChangeData {
-            cwd: cwd.clone(),
-            style_untracked: added,
-            style_modified: modified,
-            style_conflict: conflict,
-            style_deleted: deleted,
-            style_renamed: renamed,
-        },
+        data,
         |cx, meta: &FileChange, action| {
             let path_to_open = meta.path();
             if let Err(e) = cx.editor.open(path_to_open, action) {
@@ -6771,6 +6779,12 @@ fn git_diff_view(cx: &mut Context) {
     cx.callback.push(Box::new(|compositor, cx| {
         diff_view::open_current(cx.editor, compositor)
     }));
+}
+
+fn commit_picker(cx: &mut Context) {
+    if let Some(picker) = git_log::commit_picker(cx.editor) {
+        cx.push_layer(Box::new(overlaid(picker)));
+    }
 }
 
 fn suspend(_cx: &mut Context) {
