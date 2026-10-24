@@ -225,7 +225,8 @@ pub fn default() -> HashMap<Mode, KeyTrie> {
         "space" => { "Space"
             "f" => file_picker,
             "F" => file_picker_in_current_directory,
-            "e" => file_explorer,
+            "e" => toggle_explorer_root,
+            "E" => toggle_explorer,
             "." => file_explorer_in_current_buffer_directory,
             "b" => buffer_picker,
             "j" => jumplist_picker,
@@ -234,7 +235,9 @@ pub fn default() -> HashMap<Mode, KeyTrie> {
             "d" => diagnostics_picker,
             "D" => workspace_diagnostics_picker,
             "g" => changed_file_picker,
+            "l" => commit_picker,
             "a" => code_action,
+            "=" => git_diff_view,
             "'" => last_picker,
             "G" => { "Debug (experimental)" sticky=true
                 "l" => dap_launch,

@@ -1,4 +1,6 @@
 pub(crate) mod dap;
+pub(crate) mod diff_view;
+pub(crate) mod git_log;
 pub(crate) mod lsp;
 pub(crate) mod syntax;
 pub(crate) mod typed;
@@ -604,6 +606,10 @@ impl MappableCommand {
         shell_append_output, "Append shell command output after selections",
         shell_keep_pipe, "Filter selections with shell predicate",
         suspend, "Suspend and return to shell",
+        git_diff_view, "Open a side by side git diff of the current file",
+        commit_picker, "Open the git commit log picker",
+        toggle_explorer, "Toggle the file explorer side panel, revealing the current file",
+        toggle_explorer_root, "Toggle the file explorer side panel at the workspace root",
         rename_symbol, "Rename symbol",
         increment, "Increment item under cursor",
         decrement, "Decrement item under cursor",
@@ -3479,33 +3485,28 @@ fn jumplist_picker(cx: &mut Context) {
     cx.push_layer(Box::new(overlaid(picker)));
 }
 
-fn changed_file_picker(cx: &mut Context) {
-    pub struct FileChangeData {
-        cwd: PathBuf,
-        style_untracked: Style,
-        style_modified: Style,
-        style_conflict: Style,
-        style_deleted: Style,
-        style_renamed: Style,
-    }
+pub(crate) struct FileChangeData {
+    cwd: PathBuf,
+    style_untracked: Style,
+    style_modified: Style,
+    style_conflict: Style,
+    style_deleted: Style,
+    style_renamed: Style,
+}
 
-    let cwd = helix_stdx::env::current_working_dir();
-    if !cwd.exists() {
-        cx.editor
-            .set_error("Current working directory does not exist");
-        return;
-    }
-
-    let added = cx.editor.theme.get("diff.plus");
-    let modified = cx.editor.theme.get("diff.delta");
-    let conflict = cx.editor.theme.get("diff.delta.conflict");
-    let deleted = cx.editor.theme.get("diff.minus");
-    let renamed = cx.editor.theme.get("diff.delta.moved");
-
+/// The "change" and "path" columns of a picker of changed files, and their data.
+pub(crate) fn file_change_columns(
+    editor: &Editor,
+    cwd: PathBuf,
+) -> (
+    [PickerColumn<FileChange, FileChangeData>; 2],
+    FileChangeData,
+) {
     let columns = [
         PickerColumn::new("change", |change: &FileChange, data: &FileChangeData| {
             match change {
                 FileChange::Untracked { .. } => Span::styled("+ untracked", data.style_untracked),
+                FileChange::Added { .. } => Span::styled("+ added", data.style_untracked),
                 FileChange::Modified { .. } => Span::styled("~ modified", data.style_modified),
                 FileChange::Conflict { .. } => Span::styled("x conflict", data.style_conflict),
                 FileChange::Deleted { .. } => Span::styled("- deleted", data.style_deleted),
@@ -3522,6 +3523,7 @@ fn changed_file_picker(cx: &mut Context) {
             };
             match change {
                 FileChange::Untracked { path } => display_path(path),
+                FileChange::Added { path } => display_path(path),
                 FileChange::Modified { path } => display_path(path),
                 FileChange::Conflict { path } => display_path(path),
                 FileChange::Deleted { path } => display_path(path),
@@ -3532,19 +3534,31 @@ fn changed_file_picker(cx: &mut Context) {
             .into()
         }),
     ];
+    let data = FileChangeData {
+        cwd,
+        style_untracked: editor.theme.get("diff.plus"),
+        style_modified: editor.theme.get("diff.delta"),
+        style_conflict: editor.theme.get("diff.delta.conflict"),
+        style_deleted: editor.theme.get("diff.minus"),
+        style_renamed: editor.theme.get("diff.delta.moved"),
+    };
+    (columns, data)
+}
 
+fn changed_file_picker(cx: &mut Context) {
+    let cwd = helix_stdx::env::current_working_dir();
+    if !cwd.exists() {
+        cx.editor
+            .set_error("Current working directory does not exist");
+        return;
+    }
+
+    let (columns, data) = file_change_columns(cx.editor, cwd.clone());
     let picker = Picker::new(
         columns,
         1, // path
         [],
-        FileChangeData {
-            cwd: cwd.clone(),
-            style_untracked: added,
-            style_modified: modified,
-            style_conflict: conflict,
-            style_deleted: deleted,
-            style_renamed: renamed,
-        },
+        data,
         |cx, meta: &FileChange, action| {
             let path_to_open = meta.path();
             if let Err(e) = cx.editor.open(path_to_open, action) {
@@ -3557,7 +3571,8 @@ fn changed_file_picker(cx: &mut Context) {
             }
         },
     )
-    .with_preview(|_editor, meta| Some((meta.path().into(), None)));
+    .with_preview(|_editor, meta| Some((meta.path().into(), None)))
+    .with_stacked_key_handler(crate::ctrl!('g'), diff_view::open_from_picker);
     let injector = picker.injector();
 
     let trust_full = cx
@@ -5942,7 +5957,9 @@ fn jump_view_right(cx: &mut Context) {
 }
 
 fn jump_view_left(cx: &mut Context) {
-    cx.editor.focus_direction(tree::Direction::Left)
+    if !ui::explorer::jump_left(cx) {
+        cx.editor.focus_direction(tree::Direction::Left)
+    }
 }
 
 fn jump_view_up(cx: &mut Context) {
@@ -6760,6 +6777,34 @@ fn shell_prompt_for_behavior(cx: &mut Context, prompt: Cow<'static, str>, behavi
     shell_prompt(cx, prompt, move |cx, args| {
         shell(cx, args.join(" ").as_str(), &behavior)
     })
+}
+
+fn git_diff_view(cx: &mut Context) {
+    cx.callback.push(Box::new(|compositor, cx| {
+        diff_view::open_current(cx.editor, compositor)
+    }));
+}
+
+fn commit_picker(cx: &mut Context) {
+    if let Some(picker) = git_log::commit_picker(cx.editor) {
+        cx.push_layer(Box::new(overlaid(picker)));
+    }
+}
+
+fn toggle_explorer(cx: &mut Context) {
+    toggle_explorer_impl(cx, true);
+}
+
+fn toggle_explorer_root(cx: &mut Context) {
+    toggle_explorer_impl(cx, false);
+}
+
+fn toggle_explorer_impl(cx: &mut Context, reveal: bool) {
+    cx.callback.push(Box::new(move |compositor, cx| {
+        if let Some(editor_view) = compositor.find::<ui::EditorView>() {
+            ui::explorer::toggle(editor_view, cx.editor, reveal)
+        }
+    }));
 }
 
 fn suspend(_cx: &mut Context) {

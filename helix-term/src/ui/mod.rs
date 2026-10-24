@@ -1,6 +1,8 @@
 mod completion;
+pub mod diff_view;
 mod document;
 pub(crate) mod editor;
+pub mod explorer;
 mod info;
 pub mod lsp;
 mod markdown;

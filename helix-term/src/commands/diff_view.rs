@@ -1,0 +1,206 @@
+use std::path::{Path, PathBuf};
+
+use helix_vcs::{CommitInfo, FileChange};
+use helix_view::Editor;
+
+use crate::compositor::Compositor;
+use crate::ui::diff_view::{DiffView, Side};
+use crate::ui::picker;
+
+/// A side by side diff between the HEAD version of `base_path` and the current contents of
+/// `path` (they only differ for renamed files), or `None` if they are the same.
+fn head_diff(
+    editor: &mut Editor,
+    base_path: &Path,
+    path: &Path,
+) -> anyhow::Result<Option<DiffView>> {
+    let relative = |path: &Path| {
+        helix_stdx::path::get_relative_path(path)
+            .display()
+            .to_string()
+    };
+
+    let workspace = helix_loader::find_workspace_in(path.parent().unwrap_or(path)).0;
+    let trust_full = editor
+        .workspace_trust
+        .query(&workspace, helix_loader::workspace_trust::TrustQuery::Git)
+        .is_trusted();
+    let base = editor.diff_providers.get_diff_base(base_path, trust_full);
+    let left_title = match &base {
+        Some(_) => format!("HEAD: {}", relative(base_path)),
+        None => "HEAD: (new file)".to_string(),
+    };
+    let base = String::from_utf8(base.unwrap_or_default())
+        .map_err(|_| anyhow::anyhow!("{} is a binary file", relative(base_path)))?;
+
+    // an open buffer may have unsaved changes: show those
+    let (current, right_title, tab_width, exists) = match editor.document_by_path(path) {
+        Some(doc) => {
+            let modified = if doc.is_modified() { " [modified]" } else { "" };
+            (
+                doc.text().to_string(),
+                format!("Buffer: {}{modified}", relative(path)),
+                doc.tab_width(),
+                true,
+            )
+        }
+        None => match std::fs::read(path) {
+            Ok(bytes) => (
+                String::from_utf8(bytes)
+                    .map_err(|_| anyhow::anyhow!("{} is a binary file", relative(path)))?,
+                format!("Working tree: {}", relative(path)),
+                4,
+                true,
+            ),
+            Err(err) if err.kind() == std::io::ErrorKind::NotFound => (
+                String::new(),
+                format!("Working tree: {} (deleted)", relative(path)),
+                4,
+                false,
+            ),
+            Err(err) => anyhow::bail!("failed to read {}: {err}", relative(path)),
+        },
+    };
+
+    let left = Side::new(left_title, base, base_path, editor);
+    let right = Side::new(right_title, current, path, editor);
+    let view = DiffView::new(left, right, exists.then(|| path.to_path_buf()), tab_width)
+        .with_soft_wrap(soft_wrap(editor, path));
+    if !view.has_changes() {
+        editor.set_status(format!("No changes in {}", relative(path)));
+        return Ok(None);
+    }
+    Ok(Some(view))
+}
+
+/// The HEAD path and the current path to diff for an entry of the changed files picker.
+pub(crate) fn paths_of(change: &FileChange) -> (PathBuf, PathBuf) {
+    match change {
+        FileChange::Renamed { from_path, to_path } => (from_path.clone(), to_path.clone()),
+        change => (change.path().to_path_buf(), change.path().to_path_buf()),
+    }
+}
+
+/// Opens the diff for an entry of the changed files picker, on top of the picker. Opening the
+/// file from the diff closes the picker too.
+pub(crate) fn open_from_picker(cx: &mut crate::compositor::Context, change: &FileChange) {
+    let (base_path, path) = paths_of(change);
+    cx.jobs.callback(async move {
+        let call = move |editor: &mut Editor, compositor: &mut Compositor| match head_diff(
+            editor, &base_path, &path,
+        ) {
+            Ok(Some(view)) => compositor.push(Box::new(view.with_on_open(|compositor| {
+                compositor.remove(picker::ID);
+            }))),
+            Ok(None) => {}
+            Err(err) => editor.set_error(err.to_string()),
+        };
+        Ok(crate::job::Callback::EditorCompositor(Box::new(call)))
+    });
+}
+
+/// Opens the diff for the file of the current buffer.
+pub(crate) fn open_current(editor: &mut Editor, compositor: &mut Compositor) {
+    let Some(path) = helix_view::doc!(editor).path().map(Path::to_path_buf) else {
+        editor.set_error("The current buffer has no file");
+        return;
+    };
+    match head_diff(editor, &path, &path) {
+        Ok(Some(view)) => compositor.push(Box::new(view)),
+        Ok(None) => {}
+        Err(err) => editor.set_error(err.to_string()),
+    }
+}
+
+/// Opens the diff of `change` in `commit` against the commit's first parent, on top of the
+/// commit pickers. Opening the file from the diff closes those pickers too.
+pub(crate) fn open_commit(
+    editor: &mut Editor,
+    compositor: &mut Compositor,
+    cwd: &Path,
+    commit: &CommitInfo,
+    change: &FileChange,
+) -> anyhow::Result<()> {
+    let relative = |path: &Path| {
+        helix_stdx::path::get_relative_path(path)
+            .display()
+            .to_string()
+    };
+    let trust_full = editor
+        .workspace_trust
+        .query(
+            &helix_loader::find_workspace_in(cwd).0,
+            helix_loader::workspace_trust::TrustQuery::Git,
+        )
+        .is_trusted();
+    let read = |id: &str, path: &Path| -> anyhow::Result<Option<String>> {
+        editor
+            .diff_providers
+            .file_at_commit(cwd, trust_full, id, path)?
+            .map(|bytes| {
+                String::from_utf8(bytes)
+                    .map_err(|_| anyhow::anyhow!("{} is a binary file", relative(path)))
+            })
+            .transpose()
+    };
+
+    let (base_path, path) = paths_of(change);
+    let short = &commit.short_id;
+    let (base, left_title) = match read(&format!("{}^", commit.id), &base_path)? {
+        Some(text) => (text, format!("{short}^: {}", relative(&base_path))),
+        None => (String::new(), format!("{short}^: (new file)")),
+    };
+    let (current, right_title) = match read(&commit.id, &path)? {
+        Some(text) => (text, format!("{short}: {}", relative(&path))),
+        None => (
+            String::new(),
+            format!("{short}: {} (deleted)", relative(&path)),
+        ),
+    };
+    let tab_width = editor
+        .document_by_path(&path)
+        .map_or(4, |doc| doc.tab_width());
+
+    let left = Side::new(left_title, base, &base_path, editor);
+    let right = Side::new(right_title, current, &path, editor);
+    let view = DiffView::new(
+        left,
+        right,
+        path.exists().then_some(path.clone()),
+        tab_width,
+    )
+    .with_soft_wrap(soft_wrap(editor, &path))
+    // the commit's files picker and the commit picker below it
+    .with_on_open(|compositor| {
+        compositor.remove(picker::ID);
+        compositor.remove(picker::ID);
+    });
+    if !view.has_changes() {
+        editor.set_status(format!("No changes in {}", relative(&path)));
+        return Ok(());
+    }
+    compositor.push(Box::new(view));
+    Ok(())
+}
+
+/// Whether lines of `path` wrap in the editor: the setting of its buffer when it is open, else
+/// `soft-wrap.enable` of its language, else of the editor.
+fn soft_wrap(editor: &Editor, path: &Path) -> bool {
+    if let Some(doc) = editor.document_by_path(path) {
+        // any width wide enough to wrap
+        return doc.text_format(1000, None).soft_wrap;
+    }
+    let loader = editor.syn_loader.load();
+    loader
+        .language_for_filename(path)
+        .and_then(|language| {
+            loader
+                .language(language)
+                .config()
+                .soft_wrap
+                .as_ref()?
+                .enable
+        })
+        .or(editor.config().soft_wrap.enable)
+        .unwrap_or(false)
+}
