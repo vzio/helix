@@ -17,6 +17,16 @@ pub enum AutoSaveEvent {
     LeftInsertMode,
 }
 
+/// The cursor of a view is on `line` of a document: its inline blame should show once the
+/// cursor stayed there for `delay`.
+#[derive(Debug)]
+pub struct BlameEvent {
+    pub doc: DocumentId,
+    pub view: ViewId,
+    pub line: usize,
+    pub delay: std::time::Duration,
+}
+
 pub struct Handlers {
     // only public because most of the actual implementation is in helix-term right now :/
     pub completions: CompletionHandler,
@@ -28,6 +38,7 @@ pub struct Handlers {
     pub pull_diagnostics: Sender<lsp::PullDiagnosticsEvent>,
     pub pull_all_documents_diagnostics: Sender<lsp::PullAllDocumentsDiagnosticsEvent>,
     pub code_action_hint: Sender<lsp::CodeActionHintEvent>,
+    pub blame: Sender<BlameEvent>,
 }
 
 impl Handlers {

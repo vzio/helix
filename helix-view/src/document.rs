@@ -208,6 +208,8 @@ pub struct Document {
 
     diff_handle: Option<DiffHandle>,
     version_control_head: Option<Arc<ArcSwap<Box<str>>>>,
+    /// State of inline git blame (fork feature).
+    pub blame: crate::blame::DocumentBlame,
 
     // when document was used for most-recent-used buffer picker
     pub focused_at: std::time::Instant,
@@ -762,6 +764,7 @@ impl Document {
             diff_handle: None,
             config,
             version_control_head: None,
+            blame: Default::default(),
             focused_at: std::time::Instant::now(),
             readonly: false,
             jump_labels: HashMap::new(),

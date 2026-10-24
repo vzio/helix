@@ -1,170 +1,133 @@
-# Morning report
+# Morning report: inline git blame
 
-Both features are ported, tested and pushed to
-**`claude/port-diff-tree-helix-yv3gs0`** on `vzio/helix` (not `fork-features`, see decisions).
-FORK.md has the full user docs and credits marcos-venicius with links to PRs #2, #3 and #4.
+Inline git blame is done, tested and merged into **`fork-features`**. It was developed on
+**`inline-blame`**, which is also pushed. FORK.md has the user docs ("Inline git blame") and
+credits nik-rev's helix PR #13133. The report on the diff viewer and file tree port is in git
+history (`git log -p -- MORNING.md`).
 
 ## Status
 
 | | State |
 | --- | --- |
-| Side by side diff viewer (PR #2) | Works |
-| Staged files in `space g` (PR #2) | Works |
-| Git log picker + per-commit diffs, `C-g` stacking (PR #4) | Works |
-| File explorer panel (PR #3) | Works |
-| `space e` / `space E` → tree, picker explorer off those keys | Works |
-| `cargo test --workspace` | Passes |
-| `cargo clippy --workspace --all-targets -- -D warnings` (what CI runs) | Clean |
-| `cargo fmt --check` | Clean |
-| `cargo integration-test` | 176 pass, 4 fail: upstream `write` tests that fail when run as root (see below), not caused by this port |
+| Blame at the end of the line (cursor line or all visible lines), inlay-hint style | Works |
+| `[editor.inline-blame]`: `enable`, `show`, `format`, `delay` | Works, off by default |
+| `space B`, `:toggle-inline-blame`, `:set inline-blame.*` | Works |
+| "Not committed yet" on new, edited and unsaved lines | Works |
+| Background computation, cache per document, refresh on save/`:reload`/focus | Works |
+| Hidden in insert mode, with the file tree focused, in the diff viewer | Works |
+| Diff viewer and file tree | Still work (tests and a real run) |
+| `cargo test --workspace` | 548 pass |
+| `cargo integration-test` | 193 pass, 4 fail: the same root-only upstream `write` tests as last time |
+| `cargo clippy --workspace --all-targets -- -D warnings`, `cargo fmt --check` | Clean |
+| `cargo check -p helix-term --no-default-features` (no git) | Builds |
 
 Nothing is broken or partial that I know of.
 
-### How it was ported
+## Try it
 
-His PRs were based on exactly the master commit this fork is on (`ba40e54`), so I cherry-picked
-his commits one by one and kept him as author (original dates). Only his Claude Code popup
-commits and his CLAUDE.md / README / site changes were left out; conflicts were only where
-the Claude commits touched the same lines. After porting, every feature file
-(`ui/diff_view.rs`, `commands/diff_view.rs`, `commands/git_log.rs`, `ui/explorer*`,
-`helix-vcs`, `ui/picker.rs`, `ui/editor.rs`, `helix-view/src/editor.rs`) was byte-identical to
-his `marcos` branch, before my own changes on top.
+```toml
+# ~/.config/helix/config.toml
+[editor.inline-blame]
+enable = true             # or leave it off and press space B when you want it
+show = "cursor-line"      # "all-lines" = every visible line
+format = "{author}, {time-ago} • {title}"   # also {date} {commit} {email} {body}
+delay = 300               # ms on a line before it shows, 0 = at once
+```
 
-My own commits on top: the `space e`/`space E` change, `cargo fmt`, 3 integration tests, FORK.md,
-this file.
+```
+  5  line 5 changed by bob    Bob Smith, 3 days ago • Change line five
+ 27  brand new line    Not committed yet
+```
 
-### Testing done
+Keys: `space B` toggles it (`space b` is still the buffer picker). `blame_line` in the command
+palette (`space ?`) shows the current line's blame in the statusline, even with inline blame off.
 
-- His unit tests (diff alignment, word diff, explorer listing/gitignore/reveal/rename/keys,
-  icons, helix-vcs staged/commit tests) all pass.
-- New integration tests (`helix-term/tests/test/explorer.rs`): `space E` reveals the current
-  file, `space e` opens at the root with nothing revealed and does not open the picker, pressing
-  either again closes the focused tree.
-- tmux: hx driven in a detached session and the screen captured, for both features. Checked:
-  diff line alignment (changes, additions, deletions, wrapped long lines with uneven heights),
-  hunk navigation, deleted/untracked/staged/renamed files in `space g` + `C-g`, git log incl. the
-  first commit and a rename/delete/add commit; tree on `space e` and `space E` (also launched
-  from a subdirectory), toggling, `space .` still the picker, create/rename/move/delete checked
-  on disk, gitignore dim/hide (`H`), git markers, `[editor.explorer]` config from a file and via
-  `:set`, auto-reveal, terminal sizes down to 7x3 and live resizes. No crashes in the new code.
+Theme: `ui.virtual.inline-blame`, falling back to `ui.virtual.inlay-hint` when a theme doesn't
+set it. To restyle it: `"ui.virtual.inline-blame" = { fg = "gray", modifiers = ["italic"] }`.
 
-### Things you may notice (his design, kept as is)
+On Termux: `git pull` on `fork-features`, `cargo build`, then the same `HELIX_RUNTIME` setup as
+before. A file with a long history (e.g. `helix-term/src/commands.rs`) takes ~9 s in a debug
+build on this machine before its blame appears (a phone will be slower; release builds are ~6x
+faster). The editor stays responsive meanwhile.
 
-- Deleted files aren't in the tree (they aren't on disk); they're in `space g`.
-- While the tree is focused, the editor's statusline starts at the panel edge and the mode is blank.
-- At narrow widths long names are clipped and the git letter sits right after them.
-- `C-g` on a pure rename (no content change) only says "No changes in ...".
-- `space g` shows a staged-and-modified file as `~ modified` (no separate staged marker), and the
-  order of renamed entries can vary between openings.
-- `Enter` on a deleted file in `space g` opens an empty buffer.
-- `space =` outside a git repo shows the file as a new file.
+## How it was built
 
-Upstream (not this port): plain `hx` panics at a 6x2 terminal (`diagnostics.rs:287`, add overflow).
+Upstream master still has no blame feature (checked first), so this is a port of PR #13133,
+adapted to current master and to the spec. Three phases, each delegated to a subagent and
+reviewed: the git core in helix-vcs, the editor integration, then rendering tests and a real run
+in tmux.
+
+## Testing done
+
+- Unit tests:
+  - helix-vcs (the PR's tests plus renames, untracked files, outside a repo, a repo without
+    commits, a HEAD change);
+  - helix-view (line resolution with hunks, the request state machine, config parsing);
+  - helix-term (placement, truncation, soft wrap).
+- 17 integration tests in `helix-term/tests/test/inline_blame.rs`. Two of them assert on the
+  rendered screen of the whole app (TestBackend):
+  - text, gap and style; hidden in insert mode;
+  - "Not committed yet"; all-lines mode;
+  - gone while the tree is focused; absent from `space =`;
+  - plus toggles, saves, focus, reload and the delay.
+- Real run, a debug build in tmux:
+  - **Display:** delay and hide/reshow on line moves, insert mode, unsaved new lines, all-lines
+    mode, a non-git file, a scratch buffer, and a 40x12 terminal with soft wrap.
+  - **Refreshing:** `:w`, then an external `git commit` followed by focus or `:reload`.
+  - **Toggles:** `space B`, `:toggle-inline-blame` and `:set`.
+  - **Big file:** blame on `commands.rs` appeared after 8.6 s. Meanwhile, cursor moves took a
+    median of 14 ms and at most 38 ms, and the picker and typing in another buffer worked.
+  - **Many files:** 8 big files at once all got their blame, two at a time.
+  - **Diff viewer and file tree:** `space =`, `space g` + `C-g`, `space l`, `space e`/`space E`
+    all still work, with no blame inside them.
+  - **Held `j`:** 500 presses took the same time with blame on as off, with no flicker.
+
+Benchmark (`cargo bench -p helix-vcs --features git --bench blame`, release):
+
+| | Time |
+| --- | --- |
+| Blame of `helix-term/src/commands.rs` (7,273 lines, 1,141 commits touching it) | 1.5 s |
+| Blame of small files | 3-160 ms (it depends on history, not size) |
+| Checking whether HEAD moved | ~0.3 ms |
+| Blame text of a line, when drawing | ~0.4 µs |
 
 ## Decisions I made for you
 
-1. **Branch**: this session may only push to `claude/port-diff-tree-helix-yv3gs0`, so that's
-   where everything is; there is no `fork-features` branch. To get one:
-   `git push origin claude/port-diff-tree-helix-yv3gs0:fork-features` (or clone the claude
-   branch directly, as below).
-2. **Push access**: the first push got a 403; you fixed access while I was working and every
-   push after that went through. No other problems.
-3. **Included his post-PR fixes** from his `marcos` branch, since they belong to the same two
-   features: diff view soft wrap (`9ccc1e16a`, `f1d06509a`), explorer git status markers and
-   sideways scrolling incl. `gh`/`gl` (`cde8ec5d1`, `673ba0d33`). Easy to revert, one commit each.
-4. **Not included**: the Claude Code popup, his Markdown table formatter (`space t`), his fork
-   site, CLAUDE.md, README notice. I also dropped `claude_code` from the explorer's list of keys
-   allowed through while focused, since that command doesn't exist here.
-5. **`space e` vs `space E`**: both open the same tree. `space e` = at the workspace root,
-   nothing expanded. `space E` = same root, expanded down to the current buffer's file and
-   selecting it (his original `space E` behaviour). For both: closed → open, open but unfocused →
-   focus (`E` also re-reveals), focused → close.
-6. **Tree root = workspace root** (`find_workspace`: the git/jj/.helix root above the cwd, as
-   upstream's `space e` picker uses) instead of his plain cwd. Identical when you start hx at the
-   repo root; better when you start it in a subdirectory. `:cd` still moves the tree.
-7. **Upstream picker explorer**: removed from `space e` only. `space .` (picker in the buffer's
-   directory) is untouched, and `file_explorer` is still in the command palette. If you want the
-   picker gone from `space .` too, delete that line in `helix-term/src/keymap/default.rs`.
-8. **Command names**: his `toggle_explorer` (now `space E`) kept, plus a new
-   `toggle_explorer_root` (`space e`), so his name keeps working in custom keymaps.
-9. **Authorship**: I first committed his ports as myself, then rewrote this branch (force-push
-   with lease, feature branch only, never master) so his commits carry his name and dates.
-10. **Integration `write` failures**: the 4 failing tests (`test_write_fail_mod_flag`,
-    `test_write_fail_new_path`, `test_write_quit_fail`, `test_symlink_write_fail`) need writes
-    to read-only files to fail, which they don't for root, and this container runs as root.
-    None of this port touches writing files. Confirmed: the same 4 tests fail the same way on unmodified upstream master in this container.
-
-## Keybinds
-
-### Diff viewer
-
-| Keys | Action |
-| --- | --- |
-| `space =` | Side by side diff of the current file (HEAD left, working copy/buffer right) |
-| `space g`, then `C-g` | Diff of the selected changed file, stacked on the picker (`Enter` still opens the file) |
-| `space l`, `:git-log` | Commit picker → `Enter` lists the commit's files → `Enter`/`C-g` shows that file's diff in the commit |
-
-Inside the diff: `n`/`N` or `]c`/`[c` hunks · `j`/`k`, `C-d`/`C-u`, `C-f`/`C-b` scroll ·
-`gg`/`ge`/`G` top/bottom · `h`/`l`, `0`, `gh`/`gl` pan · `w` toggle wrap ·
-`Enter` open the file at the hunk · `q`/`Esc` close (back to the picker if opened from one).
-
-### File tree
-
-| Keys | Action |
-| --- | --- |
-| `space e` | Toggle the tree at the workspace root |
-| `space E` | Toggle the tree revealing the current file |
-| `j`/`k`, `C-d`/`C-u`, `gg`/`ge` | Move |
-| `l` / `h`, `Enter`, click | Expand / collapse, open file |
-| `a` | New file (`name/` = directory, parents created) |
-| `r` | Rename (a `/` moves it) |
-| `x` then `p` | Cut, then paste (move) into the selected directory |
-| `d` then `y` | Delete (any other key cancels) |
-| `H` | Show/hide gitignored files |
-| `R` | Re-read everything from disk |
-| `zz`/`zt`/`zb`, `zj`/`zk`, `zh`/`zl`, `gh`/`gl` | Scroll |
-| `?` | Keys in the status line |
-| `Esc`, `C-w l` | Back to the editor (`C-w h` from the leftmost view returns) |
-| `q` | Close |
-
-```toml
-[editor.explorer]
-width = 30
-hide-gitignored = false
-icons = true
-auto-reveal = true
-git-status = true
-```
-
-## Trying it in Termux (S24 Ultra, plain Termux)
-
-```sh
-pkg install rust git clang
-termux-wake-lock
-git clone -b claude/port-diff-tree-helix-yv3gs0 https://github.com/vzio/helix
-cd helix
-cargo build            # debug build; the first one takes a while
-# hx run directly (not via `cargo run`) doesn't find ./runtime on its own:
-echo "export HELIX_RUNTIME=$PWD/runtime" >> ~/.bashrc
-export HELIX_RUNTIME=$PWD/runtime
-./target/debug/hx --grammar fetch && ./target/debug/hx --grammar build
-./target/debug/hx --health | head    # should list the runtime dir and no errors
-./target/debug/hx .
-```
-
-(The step I added to your list is `HELIX_RUNTIME`. Without it, themes and syntax queries are
-missing. Fetched grammars go to `~/.config/helix/runtime/grammars`, which hx also searches.)
-
-(If you made `fork-features` from this branch, `git clone -b fork-features ...` works the same.)
-
-Then, inside a git repo with some changes: `space e`, `space E`, `space =`, `space g` → `C-g`,
-`space l`.
-
-Termux tips:
-- **Icons**: Termux's default font has no Nerd Font glyphs, so the tree icons show as boxes.
-  Either put a Nerd Font at `~/.termux/font.ttf` and run `termux-reload-settings`, or set
-  `icons = false` under `[editor.explorer]` in `~/.config/helix/config.toml`.
-- The panel takes 30 columns but never more than half the screen; in portrait you may like
-  `width = 20`.
-- The `space` key combos are easiest with the Termux extra-keys row, or a hardware keyboard.
-- If the build gets killed (out of memory), `cargo build -j 2` uses less RAM.
+1. **`fork-features` didn't exist on GitHub**, so I created it from `master` (identical to what
+   you merged), branched `inline-blame` off it, and merged back with a merge commit when green.
+2. **Config follows your spec, not the PR:** `enable`/`show`/`format`/`delay`. The PR's
+   `auto-fetch` and `show = "never"` are gone (`enable` covers it). Default format
+   `"{author}, {time-ago} • {title}"` (the PR also appended `• {commit}`; add `{commit}` if you
+   want it). Default delay 300 ms; it only applies to `cursor-line`.
+3. **Theme scope name** `ui.virtual.inline-blame` (the PR's name), with the inlay-hint fallback.
+4. **Key**: `space B` (free). The PR bound `blame_line` to `space B`; here `blame_line` is
+   unbound and in the command palette.
+5. **All the git work happens in the background.** The PR looked up commits from the
+   repository while drawing; here the blame is fully resolved up front, so drawing is a lookup.
+   At most one computation per file and two in total, so opening many files can't start dozens
+   of history walks. Turning it off drops all cached blame, and nothing runs while it's off.
+6. **Refresh points**: open, save, `:reload`/`:reload-all`, terminal focus, turning it on.
+   Each one first checks whether HEAD moved (~0.3 ms) and only recomputes if it did. There is no
+   file watcher, so a commit made in another terminal shows up on the next focus/save/reload.
+7. **The diff base follows HEAD.** Helix only read the diff base on open/reload, so after an
+   external commit blame and diff disagreed (wrong "Not committed yet" lines). When blame moves
+   to a new HEAD it now re-reads the diff base too. Side effect: the git gutter also updates
+   after external commits.
+8. **Untracked or uncommitted files** in a repo show "Not committed yet" on every non-empty
+   line. Outside any repo: nothing.
+9. **Empty lines show no blame** (as in the PR). Easy to change if you want it on empty lines.
+10. **Hiding in panels:** `cursor-line` only draws in the focused view, which covers the tree
+    having focus. With `all-lines` the document next to an open tree keeps its blame (it's
+    still visible text, the tree just sits beside it).
+11. **Fixed a PR quirk:** when the diff wasn't ready or was being updated, the PR showed "Not
+    committed yet". Here it shows nothing for that frame.
+12. **Renames are followed** (the PR blamed renamed files on the rename commit), and commit
+    titles are trimmed.
+13. **Debug builds:** blame was ~120 s for commands.rs unoptimized, so the crates it spends its
+    time in (gix-*, zlib-rs, hashing) are optimized even in debug builds (`[profile.dev.package]`
+    in `Cargo.toml`, one commit, `82ea1ec79`): now ~9 s. Only those crates; the first debug build
+    takes a bit longer, rebuilds of helix itself don't.
+14. **Repository trust:** blame opens the repository with reduced trust (it only reads objects).
+    The diff base refresh uses the workspace trust setting like the rest of helix.
+15. **Tests that need background jobs** each build one app (the job queue is per runtime), with
+    a small helper in the test file instead of `test_key_sequences`.

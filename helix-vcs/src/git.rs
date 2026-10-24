@@ -27,6 +27,8 @@ use crate::{CommitInfo, FileChange};
 #[cfg(test)]
 mod test;
 
+pub mod blame;
+
 #[inline]
 fn get_repo_dir(file: &Path) -> Result<&Path> {
     file.parent().context("file has no parent directory")
