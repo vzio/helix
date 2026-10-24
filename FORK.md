@@ -22,12 +22,18 @@ the explorer panel is on `space e` (at the workspace root) and `space E` (reveal
 file), replacing upstream's file explorer picker on those keys, and it is rooted at the workspace
 root rather than the working directory.
 
+Inline git blame is ported from Helix
+[PR #13133](https://github.com/helix-editor/helix/pull/13133) by Nik Revenco (nik-rev), which
+hadn't landed upstream when it was ported. It is adapted to current master and reworked so that
+blame is computed entirely in the background (see [Inline git blame](#inline-git-blame)).
+
 ## Contents
 
 - [Side by side git diff](#side-by-side-git-diff)
 - [Git commit log](#git-commit-log)
 - [Staged files in the changed files picker](#staged-files-in-the-changed-files-picker)
 - [File explorer side panel](#file-explorer-side-panel)
+- [Inline git blame](#inline-git-blame)
 
 ## Code layout
 
@@ -39,11 +45,15 @@ Each feature lives in its own modules, to keep rebasing on upstream cheap:
 | Commit log | `helix-term/src/commands/git_log.rs`, `helix-vcs/src/commit.rs` |
 | Staged files, commit diffs | `helix-vcs/src/git.rs`, `helix-vcs/src/lib.rs`, `helix-vcs/src/status.rs` |
 | Explorer | `helix-term/src/ui/explorer.rs`, `helix-term/src/ui/explorer/`, `helix-term/benches/explorer.rs` |
+| Inline blame | `helix-vcs/src/git/blame.rs`, `helix-vcs/src/blame_stub.rs`, `helix-vcs/benches/blame.rs`, `helix-stdx/src/time.rs`, `helix-view/src/blame.rs`, `helix-term/src/handlers/blame.rs`, `helix-term/src/commands/blame.rs`, `helix-term/src/ui/text_decorations/blame.rs` |
 
 Hooks into core files: commands and keys in `helix-term/src/commands.rs`,
 `helix-term/src/commands/typed.rs` and `helix-term/src/keymap/default.rs`; the panel's layout,
 keys and mouse in `helix-term/src/ui/editor.rs`; `C-g` in `helix-term/src/ui/picker.rs`;
-`[editor.explorer]` in `helix-view/src/editor.rs`.
+`[editor.explorer]` and `[editor.inline-blame]` in `helix-view/src/editor.rs`. Inline blame also
+has one field on `Document`, one decoration in `render_view`, `is_last_visual_line` in
+`helix-term/src/ui/document.rs`, and refresh calls on save (`application.rs`), on focus
+(`ui/editor.rs`) and in `:reload`/`:reload-all`.
 
 To build: `cargo install --path helix-term --locked`.
 
@@ -253,3 +263,60 @@ focused) and `ui.window` (separator). The git markers use the scopes of the chan
 ### Ideas
 
 - Copy and paste (`c`/`p`), and a multi-selection for batch moves and deletions.
+
+## Inline git blame
+
+Greyed-out text at the end of a line about the commit that last changed it, GitLens style:
+
+```
+  5  line 5 changed by bob    Bob Smith, 3 days ago • Change line five
+ 27  brand new line    Not committed yet
+```
+
+Off by default. Full reference: the
+[`[editor.inline-blame]` section](book/src/editor.md#editorinline-blame-section) of the book.
+
+### Usage
+
+| Keys | Action |
+| --- | --- |
+| `space B`, `:toggle-inline-blame` | Turn inline blame on or off |
+| `blame_line` (command palette, unbound) | Show the current line's blame in the statusline, also when inline blame is off |
+
+### Configuration
+
+```toml
+[editor.inline-blame]
+enable = true              # default false
+show = "cursor-line"       # or "all-lines" (every visible line)
+format = "{author}, {time-ago} • {title}"   # also {date} {commit} {email} {body}
+delay = 300                # ms the cursor rests on a line before it shows; 0 = at once
+```
+
+Theme scope `ui.virtual.inline-blame`; themes that don't define it use `ui.virtual.inlay-hint`,
+so it looks like inlay hints everywhere.
+
+### Behaviour
+
+- Shown in normal and select mode only, hidden in insert mode. `cursor-line` shows only in the
+  focused view, so it disappears while the file tree has focus; the diff viewer never shows it.
+- New and edited lines, unsaved ones included, show "Not committed yet", and so does every line of
+  a file that is in a repository but not committed. Files outside a repository, scratch buffers
+  and empty lines show nothing.
+- The blame of a file is computed in the background (at most one computation per file and two
+  at once) and cached per document. It's refreshed on save, `:reload`, terminal focus and when
+  turned on; a refresh only reads `HEAD` (~0.3 ms) unless a commit was made, and then it also
+  updates the diff base so the git gutter follows external commits.
+- Cost (release build): `helix-term/src/commands.rs`, 7,273 lines touched by 1,141 commits, takes
+  1.5 s; small files 3-160 ms. It depends on the file's history, not its size. Showing a line
+  is a lookup (~0.4 µs). `cargo bench -p helix-vcs --features git --bench blame`.
+
+### Limitations
+
+- In a debug build blame takes ~6x longer than release (commands.rs: ~9 s; the crates it spends
+  its time in are optimized even in debug builds via `[profile.dev.package]`, otherwise it would
+  be ~2 minutes). The editor stays responsive meanwhile.
+- After a commit made outside the editor, blame updates on the next save, `:reload` or terminal
+  focus, not by itself.
+- Blame is for the committed file at `HEAD`; staged-but-uncommitted lines show "Not committed yet".
+
