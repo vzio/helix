@@ -594,3 +594,210 @@ async fn reloading_notices_new_commits() {
     );
     session.close().await;
 }
+
+// Rendering of the whole application, checked on the screen of its test backend.
+
+/// The color of inlay hints in the theme the rendering tests use, which has no style for blame.
+const HINT_COLOR: helix_view::graphics::Color = helix_view::graphics::Color::Rgb(0, 255, 0);
+
+impl Session {
+    /// Run the application for `duration`, for things that must not happen.
+    async fn settle(&mut self, duration: Duration) {
+        let deadline = Instant::now() + duration;
+        while Instant::now() < deadline {
+            self.app.editor.reset_idle_timer();
+            assert!(self.app.event_loop_until_idle(&mut self.input).await);
+        }
+    }
+
+    /// Run until `condition` is true of the screen.
+    async fn wait_for_screen(&mut self, what: &str, condition: impl Fn(&[String]) -> bool) {
+        self.wait_for(what, |app| condition(&screen_rows(app)))
+            .await;
+    }
+}
+
+fn render_config(show: InlineBlameShow, delay: u64) -> Config {
+    let mut config = config(true, show, delay);
+    config.editor.inline_blame.format = InlineBlameConfig::default().format;
+    config
+}
+
+/// Hint-colored application: the theme has a style for inlay hints and none for inline blame.
+fn render_app(file: &Path, config: Config) -> Application {
+    let mut app = app_with(file, config);
+    app.editor.theme = helix_view::Theme::from(
+        toml::from_str::<toml::Value>(
+            r##"
+"ui.virtual.inlay-hint" = { fg = "#00ff00" }
+"ui.selection" = { bg = "#333333" }
+"##,
+        )
+        .unwrap(),
+    );
+    app
+}
+
+fn screen_rows(app: &Application) -> Vec<String> {
+    let screen = app.screen();
+    (0..screen.area.height)
+        .map(|y| {
+            (0..screen.area.width)
+                .map(|x| screen.get(x, y).map_or(" ", |cell| cell.symbol.as_str()))
+                .collect()
+        })
+        .collect()
+}
+
+fn on_screen(rows: &[String], text: &str) -> bool {
+    rows.iter().any(|row| row.contains(text))
+}
+
+const BLAME: &str = "Jane Doe, ";
+
+#[tokio::test(flavor = "multi_thread")]
+async fn the_cursor_line_is_drawn_after_its_text() {
+    let (dir, file) = repo();
+    let mut session = Session::new(render_app(
+        &file,
+        render_config(InlineBlameShow::CursorLine, 1000),
+    ));
+
+    // line 0 is on row 0, line 1 on row 1 (no bufferline, no wrapping)
+    let first = session.wait_for_screen("blame on the first line", |rows| rows[0].contains(BLAME));
+    first.await;
+    let rows = screen_rows(&session.app);
+    assert!(rows[0].contains("one"), "{:?}", rows[0]);
+    assert!(
+        rows[0].contains("Jane Doe, ") && rows[0].contains("• Add numbers"),
+        "{:?}",
+        rows[0]
+    );
+    // only the cursor line has it
+    assert!(!rows[1].contains("Jane Doe") && !rows[2].contains("Jane Doe"));
+
+    // a few columns after the end of the text, drawn like an inlay hint
+    let text_end = rows[0].find("one").unwrap() + "one".len();
+    let start = rows[0].find("Jane Doe").unwrap();
+    assert!((2..=6).contains(&(start - text_end)), "{:?}", rows[0]);
+    let screen = session.app.screen();
+    let cell = |x: usize| screen.get(x as u16, 0).unwrap();
+    assert_eq!(cell(start).fg, HINT_COLOR);
+    assert_eq!(cell(start + "Jane Doe, Add".len()).fg, HINT_COLOR);
+    assert_ne!(cell(text_end - 1).fg, HINT_COLOR);
+
+    // moving hides it until the delay is over, then it follows the cursor
+    session.keys("j").await;
+    let rows = screen_rows(&session.app);
+    assert!(!on_screen(&rows, "Jane Doe"), "{rows:#?}");
+    session
+        .wait_for_screen("blame on the second line", |rows| {
+            rows[1].contains(BLAME) && !rows[0].contains(BLAME)
+        })
+        .await;
+
+    // not in insert mode
+    session.keys("i").await;
+    session.settle(Duration::from_millis(100)).await;
+    assert!(!on_screen(&screen_rows(&session.app), "Jane Doe"));
+
+    // an edited line is not committed yet, back in normal mode
+    session.keys("x<esc>").await;
+    session
+        .wait_for_screen("the edited line", |rows| {
+            rows[1].contains("xtwo") && rows[1].contains("Not committed yet")
+        })
+        .await;
+    assert!(!on_screen(&screen_rows(&session.app), "Jane Doe"));
+
+    // the file tree has the focus: the cursor line of the document is not drawn with blame
+    session.keys("<space>e").await;
+    session
+        .wait_for_screen("the file tree", |rows| on_screen(rows, "Cargo.toml"))
+        .await;
+    session.settle(Duration::from_millis(1500)).await;
+    let rows = screen_rows(&session.app);
+    assert!(
+        !on_screen(&rows, "Not committed yet") && !on_screen(&rows, "Jane Doe"),
+        "{rows:#?}"
+    );
+    // (the document is still there)
+    assert!(on_screen(&rows, "xtwo"), "{rows:#?}");
+
+    // and it is back when the document has the focus again
+    session.keys("<space>e").await;
+    session
+        .wait_for_screen("blame after the tree", |rows| {
+            rows.iter()
+                .any(|row| row.contains("xtwo") && row.contains("Not committed yet"))
+        })
+        .await;
+    assert!(!on_screen(&screen_rows(&session.app), "Cargo.toml"));
+
+    // the diff viewer shows the change and no blame
+    session.keys(":w<ret><space>=").await;
+    session
+        .wait_for_screen("the diff viewer", |rows| {
+            on_screen(rows, "xtwo") && on_screen(rows, "│")
+        })
+        .await;
+    session.settle(Duration::from_millis(1500)).await;
+    let rows = screen_rows(&session.app);
+    assert!(
+        !on_screen(&rows, "Not committed yet")
+            && !on_screen(&rows, "Jane Doe")
+            && !on_screen(&rows, "Add numbers"),
+        "{rows:#?}"
+    );
+    drop(dir);
+    session.close().await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn all_lines_are_drawn() {
+    let (dir, file) = repo();
+    commit_more(dir.path(), &file);
+    let mut session = Session::new(render_app(
+        &file,
+        render_config(InlineBlameShow::AllLines, 1000),
+    ));
+    session
+        .wait_for_screen("blame on every line", |rows| {
+            rows[..3].iter().all(|row| row.contains("Jane Doe, "))
+                && rows[3].contains("Bob Smith, ")
+        })
+        .await;
+    let rows = screen_rows(&session.app);
+    // the line in between has nothing on it
+    assert!(
+        rows[4].trim().chars().all(|c| c.is_ascii_digit()),
+        "{:?}",
+        rows[4]
+    );
+    assert!(
+        rows[5].contains("last") && rows[5].contains("Bob Smith, "),
+        "{:?}",
+        rows[5]
+    );
+    assert!(rows[5].contains("• Add last line"), "{:?}", rows[5]);
+    // (the delay does not matter, it is for the cursor line)
+
+    // not in insert mode, and an edit is not committed yet
+    session.keys("i").await;
+    assert!(!on_screen(&screen_rows(&session.app), "Jane Doe"));
+    session.keys("x<esc>").await;
+    session
+        .wait_for_screen("the edited line", |rows| {
+            rows[0].contains("xone") && rows[0].contains("Not committed yet")
+        })
+        .await;
+    let rows = screen_rows(&session.app);
+    assert!(rows[1].contains("Jane Doe, "), "{:?}", rows[1]);
+    session.close().await;
+}
+
+/// A fourth line by somebody else, an empty line and a last one.
+fn commit_more(dir: &Path, file: &Path) {
+    std::fs::write(file, "one\ntwo\nthree\nfour\n\nlast\n").unwrap();
+    commit(dir, "Bob Smith", "Add last line");
+}

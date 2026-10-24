@@ -1282,6 +1282,12 @@ impl Application {
         self.terminal.restore()
     }
 
+    /// What the test backend has on its screen, for integration tests that check the rendering.
+    #[cfg(feature = "integration")]
+    pub fn screen(&self) -> &tui::buffer::Buffer {
+        self.terminal.backend().buffer()
+    }
+
     #[cfg(all(not(feature = "integration"), not(windows)))]
     pub fn event_stream(&self) -> impl Stream<Item = std::io::Result<TerminalEvent>> + Unpin {
         use termina::{escape::csi, Terminal as _};
