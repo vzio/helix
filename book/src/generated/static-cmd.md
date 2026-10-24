@@ -100,7 +100,7 @@
 | `file_picker` | Open file picker | normal: `` <space>f ``, select: `` <space>f `` |
 | `file_picker_in_current_buffer_directory` | Open file picker at current buffer's directory |  |
 | `file_picker_in_current_directory` | Open file picker at current working directory | normal: `` <space>F ``, select: `` <space>F `` |
-| `file_explorer` | Open file explorer in workspace root | normal: `` <space>e ``, select: `` <space>e `` |
+| `file_explorer` | Open file explorer in workspace root |  |
 | `file_explorer_in_current_buffer_directory` | Open file explorer at current buffer's directory | normal: `` <space>. ``, select: `` <space>. `` |
 | `file_explorer_in_current_directory` | Open file explorer at current working directory |  |
 | `code_action` | Perform code action | normal: `` <space>a ``, select: `` <space>a `` |
@@ -301,6 +301,10 @@
 | `shell_append_output` | Append shell command output after selections | normal: `` <A-!> ``, select: `` <A-!> `` |
 | `shell_keep_pipe` | Filter selections with shell predicate | normal: `` $ ``, select: `` $ `` |
 | `suspend` | Suspend and return to shell | normal: `` <C-z> ``, select: `` <C-z> `` |
+| `git_diff_view` | Open a side by side git diff of the current file | normal: `` <space>= ``, select: `` <space>= `` |
+| `commit_picker` | Open the git commit log picker | normal: `` <space>l ``, select: `` <space>l `` |
+| `toggle_explorer` | Toggle the file explorer side panel, revealing the current file | normal: `` <space>E ``, select: `` <space>E `` |
+| `toggle_explorer_root` | Toggle the file explorer side panel at the workspace root | normal: `` <space>e ``, select: `` <space>e `` |
 | `rename_symbol` | Rename symbol | normal: `` <space>r ``, select: `` <space>r `` |
 | `increment` | Increment item under cursor | normal: `` <C-a> ``, select: `` <C-a> `` |
 | `decrement` | Decrement item under cursor | normal: `` <C-x> ``, select: `` <C-x> `` |

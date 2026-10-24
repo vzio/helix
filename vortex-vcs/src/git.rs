@@ -1,23 +1,28 @@
 use anyhow::{bail, Context, Result};
 use arc_swap::ArcSwap;
 use gix::filter::plumbing::driver::apply::Delay;
+use std::collections::HashMap;
 use std::io::Read;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use gix::bstr::ByteSlice;
+use gix::diff::index::Change as TreeIndexChange;
 use gix::diff::Rewrites;
 use gix::dir::entry::Status;
+use gix::object::tree::diff::ChangeDetached as TreeChange;
 use gix::objs::tree::EntryKind;
+use gix::revision::walk::Sorting;
 use gix::sec::trust::DefaultForLevel;
 use gix::status::{
     index_worktree::Item,
     plumbing::index_as_worktree::{Change, EntryStatus},
-    UntrackedFiles,
+    Item as StatusItem, UntrackedFiles,
 };
+use gix::traverse::commit::simple::CommitTimeOrder;
 use gix::{Commit, ObjectId, Repository, ThreadSafeRepository};
 
-use crate::FileChange;
+use crate::{CommitInfo, FileChange};
 
 #[cfg(test)]
 mod test;
@@ -41,7 +46,12 @@ pub fn get_diff_base(file: &Path, trust_full: bool) -> Result<Vec<u8>> {
     let head = repo.head_commit()?;
     let file_oid = find_file_in_commit(&repo, &head, &file)?;
 
-    let file_object = repo.find_object(file_oid)?;
+    to_worktree(&repo, &file, file_oid)
+}
+
+/// The contents of the blob `oid` as they would be checked out at `file`.
+fn to_worktree(repo: &Repository, file: &Path, oid: ObjectId) -> Result<Vec<u8>> {
+    let file_object = repo.find_object(oid)?;
     let data = file_object.detach().data;
     // Get the actual data that git would make out of the git object.
     // This will apply the user's git config or attributes like crlf conversions.
@@ -83,6 +93,134 @@ pub fn get_current_head_name(file: &Path, trust_full: bool) -> Result<Arc<ArcSwa
     };
 
     Ok(Arc::new(ArcSwap::from_pointee(name.into_boxed_str())))
+}
+
+pub fn for_each_commit(
+    cwd: &Path,
+    trust_full: bool,
+    f: impl Fn(Result<CommitInfo>) -> bool,
+) -> Result<()> {
+    let repo = open_repo(cwd, trust_full)?.to_thread_local();
+    let walk = repo
+        .head_id()?
+        .ancestors()
+        .sorting(Sorting::ByCommitTime(CommitTimeOrder::NewestFirst))
+        .all()?;
+    for info in walk {
+        let commit = info
+            .map_err(anyhow::Error::from)
+            .and_then(|info| commit_info(&info.object()?));
+        if !f(commit) {
+            break;
+        }
+    }
+    Ok(())
+}
+
+fn commit_info(commit: &Commit) -> Result<CommitInfo> {
+    let author = commit.author()?;
+    Ok(CommitInfo {
+        id: commit.id.to_string(),
+        short_id: commit.id.to_hex_with_len(9).to_string(),
+        summary: commit.message()?.summary().to_string(),
+        author: author.name.to_string(),
+        date: author
+            .time()?
+            .format_or_unix(gix::date::time::format::SHORT),
+    })
+}
+
+/// The files changed by commit `id`, compared to its first parent.
+pub fn commit_changes(cwd: &Path, trust_full: bool, id: &str) -> Result<Vec<FileChange>> {
+    let repo = open_repo(cwd, trust_full)?.to_thread_local();
+    let work_dir = repo.workdir().context("repo has no worktree")?;
+    let commit = repo.find_commit(ObjectId::from_hex(id.as_bytes())?)?;
+    let tree = commit.tree()?;
+    let parent_tree = match commit.parent_ids().next() {
+        Some(parent) => Some(
+            parent
+                .object()
+                .with_context(|| missing_parent(&commit))?
+                .into_commit()
+                .tree()?,
+        ),
+        None => None,
+    };
+    let options = gix::diff::Options::default().with_rewrites(Some(Rewrites {
+        copies: None,
+        percentage: Some(0.5),
+        limit: 1000,
+        ..Default::default()
+    }));
+    let path = |location: &[u8]| -> Result<PathBuf> { Ok(work_dir.join(location.to_path()?)) };
+    let mut changes = Vec::new();
+    for change in repo.diff_tree_to_tree(parent_tree.as_ref(), &tree, options)? {
+        if !change.entry_mode().is_blob_or_symlink() {
+            continue;
+        }
+        changes.push(match change {
+            TreeChange::Addition { location, .. } => FileChange::Added {
+                path: path(&location)?,
+            },
+            TreeChange::Deletion { location, .. } => FileChange::Deleted {
+                path: path(&location)?,
+            },
+            TreeChange::Modification { location, .. } => FileChange::Modified {
+                path: path(&location)?,
+            },
+            TreeChange::Rewrite { location, copy, .. } if copy => FileChange::Added {
+                path: path(&location)?,
+            },
+            TreeChange::Rewrite {
+                source_location,
+                location,
+                ..
+            } => FileChange::Renamed {
+                from_path: path(&source_location)?,
+                to_path: path(&location)?,
+            },
+        });
+    }
+    changes.sort_by(|a, b| a.path().cmp(b.path()));
+    Ok(changes)
+}
+
+/// The contents of `file` in commit `id` (`id^` for its first parent), or `None` if it isn't
+/// in that commit.
+pub fn file_at_commit(
+    cwd: &Path,
+    trust_full: bool,
+    id: &str,
+    file: &Path,
+) -> Result<Option<Vec<u8>>> {
+    let repo = open_repo(cwd, trust_full)?.to_thread_local();
+    let (id, parent) = match id.strip_suffix('^') {
+        Some(id) => (id, true),
+        None => (id, false),
+    };
+    let mut commit = repo.find_commit(ObjectId::from_hex(id.as_bytes())?)?;
+    if parent {
+        let parent_id = commit.parent_ids().next().map(|id| id.detach());
+        match parent_id {
+            Some(parent_id) => {
+                commit = repo
+                    .find_commit(parent_id)
+                    .with_context(|| missing_parent(&commit))?
+            }
+            None => return Ok(None),
+        }
+    }
+    let Ok(oid) = find_file_in_commit(&repo, &commit, file) else {
+        return Ok(None);
+    };
+    to_worktree(&repo, file, oid).map(Some)
+}
+
+fn missing_parent(commit: &Commit) -> String {
+    format!(
+        "the parent of {} is not in the repository (shallow clone?)",
+        commit.id.to_hex_with_len(9)
+    )
 }
 
 pub fn for_each_changed_file(
@@ -144,7 +282,8 @@ fn open_repo(path: &Path, trust_full: bool) -> Result<ThreadSafeRepository> {
     Ok(ThreadSafeRepository::open_opts(git_dir, options)?)
 }
 
-/// Emulates the result of running `git status` from the command line.
+/// Emulates the result of running `git status` from the command line: both staged (HEAD to
+/// index) and unstaged (index to worktree) changes, one entry per file.
 fn status(repo: &Repository, f: impl Fn(Result<FileChange>) -> bool) -> Result<()> {
     let work_dir = repo
         .workdir()
@@ -169,54 +308,129 @@ fn status(repo: &Repository, f: impl Fn(Result<FileChange>) -> bool) -> Result<(
     // No filtering based on path
     let empty_patterns = vec![];
 
-    let status_iter = status_platform.into_index_worktree_iter(empty_patterns)?;
-
-    for item in status_iter {
+    // A file can be both staged and modified again afterwards, so collect the staged changes
+    // first and merge them with the unstaged change of the same file.
+    let mut staged: HashMap<PathBuf, FileChange> = HashMap::new();
+    let mut unstaged = Vec::new();
+    for item in status_platform.into_iter(empty_patterns)? {
         let Ok(item) = item.map_err(|err| f(Err(err.into()))) else {
             continue;
         };
-        let change = match item {
-            Item::Modification {
-                rela_path, status, ..
-            } => {
-                let path = work_dir.join(rela_path.to_path()?);
-                match status {
-                    EntryStatus::Conflict { .. } => FileChange::Conflict { path },
-                    EntryStatus::Change(Change::Removed) => FileChange::Deleted { path },
-                    EntryStatus::Change(Change::Modification { .. }) => {
-                        FileChange::Modified { path }
-                    }
-                    // Files marked with `git add --intent-to-add`. Such files
-                    // still show up as new in `git status`, so it's appropriate
-                    // to show them the same way as untracked files in the
-                    // "changed file" picker. One example of this being used
-                    // is Jujutsu, a Git-compatible VCS. It marks all new files
-                    // with `--intent-to-add` automatically.
-                    EntryStatus::IntentToAdd => FileChange::Untracked { path },
-                    _ => continue,
+        match item {
+            StatusItem::IndexWorktree(item) => {
+                if let Some(change) = index_worktree_change(&work_dir, item)? {
+                    unstaged.push(change);
                 }
             }
-            Item::DirectoryContents { entry, .. } if entry.status == Status::Untracked => {
-                FileChange::Untracked {
-                    path: work_dir.join(entry.rela_path.to_path()?),
-                }
+            StatusItem::TreeIndex(change) => {
+                let change = tree_index_change(&work_dir, change)?;
+                staged.insert(change.path().to_path_buf(), change);
             }
-            Item::Rewrite {
-                source,
-                dirwalk_entry,
-                ..
-            } => FileChange::Renamed {
-                from_path: work_dir.join(source.rela_path().to_path()?),
-                to_path: work_dir.join(dirwalk_entry.rela_path.to_path()?),
+        }
+    }
+
+    for change in unstaged {
+        let change = match staged.remove(change.path()) {
+            Some(staged) => match combine_changes(staged, change) {
+                Some(change) => change,
+                None => continue,
             },
-            _ => continue,
+            None => change,
         };
+        if !f(Ok(change)) {
+            return Ok(());
+        }
+    }
+    for change in staged.into_values() {
         if !f(Ok(change)) {
             break;
         }
     }
 
     Ok(())
+}
+
+/// A change between the index and the worktree, i.e. not staged.
+fn index_worktree_change(work_dir: &Path, item: Item) -> Result<Option<FileChange>> {
+    let change = match item {
+        Item::Modification {
+            rela_path, status, ..
+        } => {
+            let path = work_dir.join(rela_path.to_path()?);
+            match status {
+                EntryStatus::Conflict { .. } => FileChange::Conflict { path },
+                EntryStatus::Change(Change::Removed) => FileChange::Deleted { path },
+                EntryStatus::Change(Change::Modification { .. }) => FileChange::Modified { path },
+                // Files marked with `git add --intent-to-add`. Such files
+                // still show up as new in `git status`, so it's appropriate
+                // to show them the same way as untracked files in the
+                // "changed file" picker. One example of this being used
+                // is Jujutsu, a Git-compatible VCS. It marks all new files
+                // with `--intent-to-add` automatically.
+                EntryStatus::IntentToAdd => FileChange::Untracked { path },
+                _ => return Ok(None),
+            }
+        }
+        Item::DirectoryContents { entry, .. } if entry.status == Status::Untracked => {
+            FileChange::Untracked {
+                path: work_dir.join(entry.rela_path.to_path()?),
+            }
+        }
+        Item::Rewrite {
+            source,
+            dirwalk_entry,
+            ..
+        } => FileChange::Renamed {
+            from_path: work_dir.join(source.rela_path().to_path()?),
+            to_path: work_dir.join(dirwalk_entry.rela_path.to_path()?),
+        },
+        _ => return Ok(None),
+    };
+    Ok(Some(change))
+}
+
+/// A change between the tree of HEAD and the index, i.e. staged.
+fn tree_index_change(work_dir: &Path, change: TreeIndexChange) -> Result<FileChange> {
+    let path = |location: &[u8]| -> Result<PathBuf> { Ok(work_dir.join(location.to_path()?)) };
+    Ok(match change {
+        TreeIndexChange::Addition { location, .. } => FileChange::Added {
+            path: path(&location)?,
+        },
+        TreeIndexChange::Deletion { location, .. } => FileChange::Deleted {
+            path: path(&location)?,
+        },
+        TreeIndexChange::Modification { location, .. } => FileChange::Modified {
+            path: path(&location)?,
+        },
+        TreeIndexChange::Rewrite { location, copy, .. } if copy => FileChange::Added {
+            path: path(&location)?,
+        },
+        TreeIndexChange::Rewrite {
+            source_location,
+            location,
+            ..
+        } => FileChange::Renamed {
+            from_path: path(&source_location)?,
+            to_path: path(&location)?,
+        },
+    })
+}
+
+/// Merges the staged and the unstaged change of the same file into its change compared to HEAD,
+/// or `None` if, all things considered, the file is the same as in HEAD.
+fn combine_changes(staged: FileChange, unstaged: FileChange) -> Option<FileChange> {
+    use FileChange::*;
+    match (staged, unstaged) {
+        (_, conflict @ Conflict { .. }) => Some(conflict),
+        // added to the index and then deleted: HEAD doesn't have it either
+        (Added { .. }, Deleted { .. }) => None,
+        // later edits don't change that the file is new, or moved, compared to HEAD
+        (staged @ (Added { .. } | Renamed { .. }), Modified { .. }) => Some(staged),
+        (Renamed { from_path, .. }, Deleted { .. }) => Some(Deleted { path: from_path }),
+        // removed from the index only (`git rm --cached`), so still on disk
+        (Deleted { path }, Untracked { .. }) => Some(Modified { path }),
+        (_, unstaged) => Some(unstaged),
+    }
 }
 
 /// Finds the object that contains the contents of a file at a specific commit.
