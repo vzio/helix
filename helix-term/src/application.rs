@@ -649,6 +649,9 @@ impl Application {
 
         self.editor
             .set_doc_path(doc_save_event.doc_id, &doc_save_event.path);
+        // the file now is what is on disk: bring its blame up to date (this is cheap unless
+        // `HEAD` changed)
+        crate::handlers::blame::request(&mut self.editor, doc_save_event.doc_id);
         // TODO: fix being overwritten by lsp
         self.editor.set_status(format!(
             "'{}' written, {lines}L {size}",

@@ -1603,6 +1603,8 @@ fn reload(cx: &mut compositor::Context, _args: Args, event: PromptEvent) -> anyh
             .file_event_handler
             .file_changed(path);
     }
+    let doc_id = doc.id();
+    crate::handlers::blame::request(cx.editor, doc_id);
     Ok(())
 }
 
@@ -1674,6 +1676,7 @@ fn reload_all(cx: &mut compositor::Context, _args: Args, event: PromptEvent) -> 
         }
     }
 
+    crate::handlers::blame::request_all(cx.editor);
     Ok(())
 }
 
@@ -2303,6 +2306,18 @@ fn set_option(cx: &mut compositor::Context, args: Args, event: PromptEvent) -> a
         .0
         .send(ConfigEvent::Update(config))?;
     Ok(())
+}
+
+/// Flip `inline-blame.enable` at runtime.
+fn toggle_inline_blame_command(
+    cx: &mut compositor::Context,
+    _args: Args,
+    event: PromptEvent,
+) -> anyhow::Result<()> {
+    if event != PromptEvent::Validate {
+        return Ok(());
+    }
+    super::blame::toggle(cx.editor)
 }
 
 /// Toggle boolean config option at runtime. Access nested values by dot
@@ -3844,6 +3859,17 @@ pub const TYPABLE_COMMAND_LIST: &[TypableCommand] = &[
         signature: Signature {
             positionals: (1, None),
             raw_after: Some(1),
+            ..Signature::DEFAULT
+        },
+    },
+    TypableCommand {
+        name: "toggle-inline-blame",
+        aliases: &[],
+        doc: "Toggle inline git blame, virtual text at the end of lines about the commit that last changed them.",
+        fun: toggle_inline_blame_command,
+        completer: CommandCompleter::none(),
+        signature: Signature {
+            positionals: (0, Some(0)),
             ..Signature::DEFAULT
         },
     },

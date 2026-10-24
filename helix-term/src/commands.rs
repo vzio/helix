@@ -1,3 +1,4 @@
+pub(crate) mod blame;
 pub(crate) mod dap;
 pub(crate) mod diff_view;
 pub(crate) mod git_log;
@@ -5,6 +6,7 @@ pub(crate) mod lsp;
 pub(crate) mod syntax;
 pub(crate) mod typed;
 
+pub use blame::*;
 pub use dap::*;
 use futures_util::FutureExt;
 use helix_event::status;
@@ -607,6 +609,8 @@ impl MappableCommand {
         shell_keep_pipe, "Filter selections with shell predicate",
         suspend, "Suspend and return to shell",
         git_diff_view, "Open a side by side git diff of the current file",
+        blame_line, "Show the git blame of the current line",
+        toggle_inline_blame, "Toggle inline git blame",
         commit_picker, "Open the git commit log picker",
         toggle_explorer, "Toggle the file explorer side panel, revealing the current file",
         toggle_explorer_root, "Toggle the file explorer side panel at the workspace root",
