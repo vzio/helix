@@ -17,6 +17,11 @@ pub use git::blame::head_commit_id;
 #[cfg(feature = "git")]
 pub use git::blame::{BlameCommit, BlameError, CommitId, FileBlame, LineBlame};
 
+#[cfg(not(feature = "git"))]
+mod blame_stub;
+#[cfg(not(feature = "git"))]
+pub use blame_stub::{head_commit_id, BlameCommit, BlameError, CommitId, FileBlame, LineBlame};
+
 mod diff;
 
 pub use diff::{DiffHandle, Hunk};
