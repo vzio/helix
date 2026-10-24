@@ -92,7 +92,7 @@ Upstream (not this port): plain `hx` panics at a 6x2 terminal (`diagnostics.rs:2
 10. **Integration `write` failures**: the 4 failing tests (`test_write_fail_mod_flag`,
     `test_write_fail_new_path`, `test_write_quit_fail`, `test_symlink_write_fail`) need writes
     to read-only files to fail, which they don't for root, and this container runs as root.
-    None of this port touches writing files. (Confirmation run on unmodified master: pending.)
+    None of this port touches writing files. Confirmed: the same 4 tests fail the same way on unmodified upstream master in this container.
 
 ## Keybinds
 
