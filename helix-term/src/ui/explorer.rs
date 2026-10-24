@@ -101,13 +101,15 @@ pub enum KeyResult {
 }
 
 impl Explorer {
-    pub fn new(editor: &Editor) -> Self {
-        let mut explorer = Self::empty(helix_stdx::env::current_working_dir());
+    /// Opens a panel on the workspace root. With `reveal`, the file of the current buffer is
+    /// expanded to and selected.
+    pub fn new(editor: &Editor, reveal: bool) -> Self {
+        let mut explorer = Self::empty(workspace_root());
         explorer.sync_focus_target(editor);
         explorer.refresh(editor);
         let current = doc!(editor).path();
         explorer.followed = current.map(Path::to_path_buf);
-        if let Some(path) = current {
+        if let Some(path) = current.filter(|_| reveal) {
             explorer.reveal(path, true);
         }
         explorer
@@ -197,9 +199,9 @@ impl Explorer {
     /// directories that changed since they were listed are read again. The git status is always
     /// read again, in the background.
     pub fn refresh(&mut self, editor: &Editor) {
-        let cwd = helix_stdx::env::current_working_dir();
-        if cwd != self.root {
-            self.root = cwd;
+        let root = workspace_root();
+        if root != self.root {
+            self.root = root;
             self.outer = Outer::read(&self.root);
             self.expanded.clear();
             self.listings.clear();
@@ -909,12 +911,25 @@ pub fn jump_left(cx: &mut commands::Context) -> bool {
     true
 }
 
-/// `space E`: opens and focuses the panel, focuses it when open but not focused, or closes it.
-pub fn toggle(editor_view: &mut EditorView, editor: &Editor) {
+/// The directory the tree is rooted at: the workspace of the working directory, like the
+/// `file_explorer` picker. It follows `:cd`.
+fn workspace_root() -> PathBuf {
+    helix_loader::find_workspace().0
+}
+
+/// `space e` (`reveal` off) and `space E` (`reveal` on): opens and focuses the panel, focuses it
+/// when open but not focused, or closes it. With `reveal`, the file of the current buffer is
+/// expanded to and selected when the panel opens or takes the focus.
+pub fn toggle(editor_view: &mut EditorView, editor: &Editor, reveal: bool) {
     match &mut editor_view.explorer {
         Some(explorer) if explorer.is_focused() => editor_view.explorer = None,
-        Some(explorer) => explorer.focus(editor),
-        None => editor_view.explorer = Some(Explorer::new(editor)),
+        Some(explorer) => {
+            explorer.focus(editor);
+            if let Some(path) = doc!(editor).path().filter(|_| reveal) {
+                explorer.reveal(path, true);
+            }
+        }
+        None => editor_view.explorer = Some(Explorer::new(editor, reveal)),
     }
 }
 
@@ -1073,7 +1088,7 @@ fn opens_ui(name: &str) -> bool {
                 | "command_palette"
                 | "global_search"
                 | "toggle_explorer"
-                | "claude_code"
+                | "toggle_explorer_root"
                 | "git_diff_view"
         )
 }

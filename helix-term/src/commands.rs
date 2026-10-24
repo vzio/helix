@@ -608,7 +608,8 @@ impl MappableCommand {
         suspend, "Suspend and return to shell",
         git_diff_view, "Open a side by side git diff of the current file",
         commit_picker, "Open the git commit log picker",
-        toggle_explorer, "Toggle the file explorer side panel",
+        toggle_explorer, "Toggle the file explorer side panel, revealing the current file",
+        toggle_explorer_root, "Toggle the file explorer side panel at the workspace root",
         rename_symbol, "Rename symbol",
         increment, "Increment item under cursor",
         decrement, "Decrement item under cursor",
@@ -6791,9 +6792,17 @@ fn commit_picker(cx: &mut Context) {
 }
 
 fn toggle_explorer(cx: &mut Context) {
-    cx.callback.push(Box::new(|compositor, cx| {
+    toggle_explorer_impl(cx, true);
+}
+
+fn toggle_explorer_root(cx: &mut Context) {
+    toggle_explorer_impl(cx, false);
+}
+
+fn toggle_explorer_impl(cx: &mut Context, reveal: bool) {
+    cx.callback.push(Box::new(move |compositor, cx| {
         if let Some(editor_view) = compositor.find::<ui::EditorView>() {
-            ui::explorer::toggle(editor_view, cx.editor)
+            ui::explorer::toggle(editor_view, cx.editor, reveal)
         }
     }));
 }
