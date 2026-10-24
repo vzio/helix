@@ -13,7 +13,8 @@
 use std::time::Duration;
 
 use helix_event::{register_hook, send_blocking};
-use helix_vcs::{head_commit_id, BlameError, FileBlame};
+use helix_loader::workspace_trust::TrustQuery;
+use helix_vcs::{head_commit_id, BlameError, DiffProviderRegistry, FileBlame};
 use helix_view::{
     blame::{BlameOutcome, BlameRequest, BlameState, Finished},
     editor::InlineBlameShow,
@@ -50,6 +51,8 @@ pub fn request_all(editor: &mut Editor) {
 /// Request the blame of a document even if inline blame is disabled. For explicit requests of
 /// the user.
 pub(crate) fn request_unconditionally(editor: &mut Editor, doc_id: DocumentId) {
+    let trust_full = doc_trust_full(editor, doc_id);
+    let diff_providers = editor.diff_providers.clone();
     let Some(doc) = editor.document_mut(doc_id) else {
         return;
     };
@@ -67,18 +70,48 @@ pub(crate) fn request_unconditionally(editor: &mut Editor, doc_id: DocumentId) {
     };
     tokio::spawn(async move {
         let generation = request.generation;
-        let outcome = compute(request).await;
-        job::dispatch(move |editor, _| finish(editor, doc_id, generation, outcome)).await;
+        let result = compute(request, diff_providers, trust_full).await;
+        job::dispatch(move |editor, _| finish(editor, doc_id, generation, result)).await;
     });
 }
 
-fn finish(editor: &mut Editor, doc_id: DocumentId, generation: u64, outcome: BlameOutcome) {
+fn doc_trust_full(editor: &Editor, doc_id: DocumentId) -> bool {
+    editor.document(doc_id).is_some_and(|doc| {
+        editor
+            .workspace_trust
+            .query(doc.workspace_root(), TrustQuery::Git)
+            .is_trusted()
+    })
+}
+
+/// What a computation found out and, if the document moved to another commit, the new text of
+/// the file at `HEAD` for its diff.
+struct Computed {
+    outcome: BlameOutcome,
+    diff_base: Option<Vec<u8>>,
+}
+
+impl From<BlameOutcome> for Computed {
+    fn from(outcome: BlameOutcome) -> Self {
+        Self {
+            outcome,
+            diff_base: None,
+        }
+    }
+}
+
+fn finish(editor: &mut Editor, doc_id: DocumentId, generation: u64, computed: Computed) {
     let Some(doc) = editor.document_mut(doc_id) else {
         return;
     };
-    match doc.blame.finish(generation, outcome) {
+    match doc.blame.finish(generation, computed.outcome) {
         Finished::Stale => (),
         Finished::Applied { rerun } => {
+            // The blame is for the new `HEAD`, which the diff has to be against too to find
+            // out which lines of the buffer are not in it. (Nothing else updates it.)
+            if let Some(diff_base) = computed.diff_base {
+                doc.set_diff_base(diff_base);
+            }
             if let Some(line) = doc.blame.take_status_line() {
                 crate::commands::blame::show_in_statusline(editor, doc_id, line);
             }
@@ -92,9 +125,16 @@ fn finish(editor: &mut Editor, doc_id: DocumentId, generation: u64, outcome: Bla
 
 /// Find out the blame of the file of `request`. Runs on the runtime, the blocking parts on
 /// threads for blocking.
-async fn compute(request: BlameRequest) -> BlameOutcome {
+async fn compute(
+    request: BlameRequest,
+    diff_providers: DiffProviderRegistry,
+    trust_full: bool,
+) -> Computed {
     let BlameRequest {
-        path, cached_head, ..
+        path,
+        cached_head,
+        is_refresh,
+        ..
     } = request;
 
     // The cheap part first, without waiting for a place: is what we have still good?
@@ -103,23 +143,34 @@ async fn compute(request: BlameRequest) -> BlameOutcome {
         blocking(move || head_commit_id(&path)).await
     };
     match head {
-        Ok(Ok(head)) if Some(head) == cached_head => return BlameOutcome::Unchanged,
+        Ok(Ok(head)) if Some(head) == cached_head => return BlameOutcome::Unchanged.into(),
         Ok(Ok(_)) => (),
-        Ok(Err(err)) => return outcome_of_error(&path, err),
-        Err(()) => return BlameOutcome::Unavailable,
+        Ok(Err(err)) => return outcome_of_error(&path, err).into(),
+        Err(()) => return BlameOutcome::Unavailable.into(),
     }
 
     let Ok(_permit) = COMPUTATIONS.acquire().await else {
-        return BlameOutcome::Unavailable;
+        return BlameOutcome::Unavailable.into();
     };
-    let blame = {
+    let computed = {
         let path = path.clone();
-        blocking(move || FileBlame::try_new(&path)).await
+        blocking(move || {
+            let blame = FileBlame::try_new(&path);
+            let diff_base = match (&blame, is_refresh) {
+                (Ok(_), true) => diff_providers.get_diff_base(&path, trust_full),
+                _ => None,
+            };
+            (blame, diff_base)
+        })
+        .await
     };
-    match blame {
-        Ok(Ok(blame)) => BlameOutcome::Ready(blame),
-        Ok(Err(err)) => outcome_of_error(&path, err),
-        Err(()) => BlameOutcome::Unavailable,
+    match computed {
+        Ok((Ok(blame), diff_base)) => Computed {
+            outcome: BlameOutcome::Ready(blame),
+            diff_base,
+        },
+        Ok((Err(err), _)) => outcome_of_error(&path, err).into(),
+        Err(()) => BlameOutcome::Unavailable.into(),
     }
 }
 

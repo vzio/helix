@@ -53,6 +53,9 @@ pub struct BlameRequest {
     /// The `HEAD` the cached blame is for. When `HEAD` is still this commit the expensive
     /// computation can be skipped.
     pub cached_head: Option<CommitId>,
+    /// There was a result before this request (the first request for a file has none). If the
+    /// blame turns out to be for a different commit, the diff base of the document is stale too.
+    pub is_refresh: bool,
 }
 
 /// The result of [`DocumentBlame::finish`].
@@ -118,10 +121,12 @@ impl DocumentBlame {
             return None;
         }
         self.in_flight = true;
+        let is_refresh = !matches!(self.state, BlameState::Unknown | BlameState::Pending);
         if matches!(self.state, BlameState::Unknown) {
             self.state = BlameState::Pending;
         }
         Some(BlameRequest {
+            is_refresh,
             generation: self.generation,
             path: path.to_owned(),
             cached_head: match &self.state {
@@ -368,6 +373,7 @@ mod test {
         let request = blame.begin(path).expect("first request starts");
         assert!(matches!(blame.state(), BlameState::Pending));
         assert!(request.cached_head.is_none());
+        assert!(!request.is_refresh);
         assert_eq!(request.path, path);
         assert!(blame.is_in_flight());
 
@@ -382,6 +388,7 @@ mod test {
         assert!(!blame.is_in_flight());
 
         let request = blame.begin(path).expect("the rerun starts");
+        assert!(request.is_refresh);
         assert_eq!(
             blame.finish(request.generation, BlameOutcome::Unavailable),
             Finished::Applied { rerun: false }

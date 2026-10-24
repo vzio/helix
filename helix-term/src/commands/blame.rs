@@ -23,9 +23,11 @@ pub fn blame_line(cx: &mut Context) {
         .cursor_line(doc.text().slice(..));
     if matches!(doc.blame.state(), BlameState::Unknown | BlameState::Pending) {
         // show it as soon as it is known
-        let doc = doc_mut!(cx.editor, &doc_id);
-        doc.blame.set_status_line(Some(line));
         handler::request_unconditionally(cx.editor, doc_id);
+        // (after the request, which starts over for another file)
+        doc_mut!(cx.editor, &doc_id)
+            .blame
+            .set_status_line(Some(line));
         cx.editor.set_status("Computing blame...");
     } else {
         show_in_statusline(cx.editor, doc_id, line);
