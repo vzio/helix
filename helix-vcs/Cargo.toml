@@ -29,3 +29,10 @@ git = ["gix"]
 
 [dev-dependencies]
 tempfile.workspace = true
+criterion.workspace = true
+
+# cargo bench -p helix-vcs --features git --bench blame
+[[bench]]
+name = "blame"
+harness = false
+required-features = ["git"]
