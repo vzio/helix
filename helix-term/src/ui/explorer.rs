@@ -841,7 +841,9 @@ impl Explorer {
             .map(|(segments, _, _)| segments.iter().map(|(text, _)| width(text)).sum())
             .max()
             .unwrap_or(0);
-        self.hscroll = self.hscroll.min(widest.saturating_sub(names.width as usize));
+        self.hscroll = self
+            .hscroll
+            .min(widest.saturating_sub(names.width as usize));
 
         for (row, (segments, mark, is_dir)) in rows.into_iter().enumerate() {
             let y = body.y + row as u16;

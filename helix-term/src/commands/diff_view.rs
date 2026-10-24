@@ -193,7 +193,14 @@ fn soft_wrap(editor: &Editor, path: &Path) -> bool {
     let loader = editor.syn_loader.load();
     loader
         .language_for_filename(path)
-        .and_then(|language| loader.language(language).config().soft_wrap.as_ref()?.enable)
+        .and_then(|language| {
+            loader
+                .language(language)
+                .config()
+                .soft_wrap
+                .as_ref()?
+                .enable
+        })
         .or(editor.config().soft_wrap.enable)
         .unwrap_or(false)
 }

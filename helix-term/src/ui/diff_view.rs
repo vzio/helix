@@ -484,7 +484,13 @@ impl DiffView {
         }
         let height = |side: &Side, line: Option<usize>, width: usize| {
             line.map_or(1, |line| {
-                layout(side.line(line), self.tab_width, Some(width), |_, _, _, _, _| true).0
+                layout(
+                    side.line(line),
+                    self.tab_width,
+                    Some(width),
+                    |_, _, _, _, _| true,
+                )
+                .0
             })
         };
         height(&self.left, row.left, left_width).max(height(&self.right, row.right, right_width))
@@ -863,7 +869,10 @@ impl Component for DiffView {
         self.height = body.height as usize;
         // the widths may have changed, and the row heights with them
         self.set_position(self.scroll, self.offset);
-        let first_height = self.rows.get(self.scroll).map_or(1, |row| self.row_height(row));
+        let first_height = self
+            .rows
+            .get(self.scroll)
+            .map_or(1, |row| self.row_height(row));
         self.offset = self.offset.min(first_height - 1);
         self.hscroll = self.hscroll.min(self.max_hscroll());
 
@@ -980,11 +989,7 @@ mod test {
         // A wide character that doesn't fit goes to the next line whole.
         assert_eq!(
             positions("ab日", Some(3)),
-            [
-                ("a".into(), 0, 0),
-                ("b".into(), 0, 1),
-                ("日".into(), 1, 0)
-            ]
+            [("a".into(), 0, 0), ("b".into(), 0, 1), ("日".into(), 1, 0)]
         );
         // Tabs reach the next tab stop, and start over after a wrap.
         assert_eq!(
@@ -1008,13 +1013,8 @@ mod test {
         };
         let before = "short\nshort\nshort\n";
         let after = "short\na much longer line\nshort\n";
-        let mut view = DiffView::new(
-            editor_less_side(before),
-            editor_less_side(after),
-            None,
-            4,
-        )
-        .with_soft_wrap(true);
+        let mut view = DiffView::new(editor_less_side(before), editor_less_side(after), None, 4)
+            .with_soft_wrap(true);
         view.text_widths = (6, 6);
         view.height = 3;
         let heights: Vec<usize> = view.rows.iter().map(|row| view.row_height(row)).collect();
