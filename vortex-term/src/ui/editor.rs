@@ -9,7 +9,7 @@ use crate::{
         document::{render_document, LinePos, TextRenderer},
         explorer::{Explorer, KeyResult as ExplorerKey},
         statusline,
-        text_decorations::{self, Decoration, DecorationManager, InlineDiagnostics},
+        text_decorations::{self, Decoration, DecorationManager, InlineBlame, InlineDiagnostics},
         Completion, ProgressSpinners,
     },
 };
@@ -209,6 +209,10 @@ impl EditorView {
             inline_diagnostic_config,
             config.end_of_line_diagnostics,
         ));
+        // after the diagnostics so that it is placed after the end of line diagnostic
+        if let Some(blame) = InlineBlame::new(editor, doc, view, is_focused, theme) {
+            decorations.add_decoration(blame);
+        }
         render_document(
             surface,
             inner,
@@ -1634,6 +1638,8 @@ impl Component for EditorView {
             Event::IdleTimeout => self.handle_idle_timeout(&mut cx),
             Event::FocusGained => {
                 self.terminal_focused = true;
+                // other programs may have committed in the meantime
+                crate::handlers::blame::request_all(context.editor);
                 EventResult::Consumed(None)
             }
             Event::FocusLost => {

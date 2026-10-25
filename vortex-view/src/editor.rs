@@ -295,6 +295,44 @@ impl Default for ExplorerConfig {
     }
 }
 
+/// Which lines get inline blame.
+#[derive(Debug, Copy, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum InlineBlameShow {
+    /// Only the line of the primary cursor, after the cursor stayed on it for `delay`.
+    #[default]
+    CursorLine,
+    /// Every visible line.
+    AllLines,
+}
+
+/// Inline git blame: greyed-out virtual text after the end of a line with information about the
+/// commit that last changed it (fork feature).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case", default, deny_unknown_fields)]
+pub struct InlineBlameConfig {
+    /// Whether inline blame is on. Defaults to false.
+    pub enable: bool,
+    /// Which lines show blame. Defaults to `cursor-line`.
+    pub show: InlineBlameShow,
+    /// What the blame text looks like. Defaults to `"{author}, {time-ago} • {title}"`.
+    pub format: String,
+    /// Milliseconds the cursor has to stay on a line before its blame shows, for
+    /// `show = "cursor-line"`. 0 shows it immediately. Defaults to 300.
+    pub delay: u64,
+}
+
+impl Default for InlineBlameConfig {
+    fn default() -> Self {
+        Self {
+            enable: false,
+            show: InlineBlameShow::default(),
+            format: "{author}, {time-ago} • {title}".to_owned(),
+            delay: 300,
+        }
+    }
+}
+
 fn serialize_alphabet<S>(alphabet: &[char], serializer: S) -> Result<S::Ok, S::Error>
 where
     S: Serializer,
@@ -397,6 +435,8 @@ pub struct Config {
     pub file_explorer: FileExplorerConfig,
     /// Side panel with a file tree, toggled with `space E` (fork feature).
     pub explorer: ExplorerConfig,
+    /// Inline git blame (fork feature).
+    pub inline_blame: InlineBlameConfig,
     /// Configuration of the statusline elements
     pub statusline: StatusLineConfig,
     /// Shape for cursor in each mode
@@ -1235,6 +1275,7 @@ impl Default for Config {
             file_picker: FilePickerConfig::default(),
             file_explorer: FileExplorerConfig::default(),
             explorer: ExplorerConfig::default(),
+            inline_blame: InlineBlameConfig::default(),
             statusline: StatusLineConfig::default(),
             cursor_shape: CursorShapeConfig::default(),
             true_color: false,

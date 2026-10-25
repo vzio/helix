@@ -302,6 +302,8 @@
 | `shell_keep_pipe` | Filter selections with shell predicate | normal: `` $ ``, select: `` $ `` |
 | `suspend` | Suspend and return to shell | normal: `` <C-z> ``, select: `` <C-z> `` |
 | `git_diff_view` | Open a side by side git diff of the current file | normal: `` <space>= ``, select: `` <space>= `` |
+| `blame_line` | Show the git blame of the current line |  |
+| `toggle_inline_blame` | Toggle inline git blame | normal: `` <space>B ``, select: `` <space>B `` |
 | `commit_picker` | Open the git commit log picker | normal: `` <space>l ``, select: `` <space>l `` |
 | `toggle_explorer` | Toggle the file explorer side panel, revealing the current file | normal: `` <space>E ``, select: `` <space>E `` |
 | `toggle_explorer_root` | Toggle the file explorer side panel at the workspace root | normal: `` <space>e ``, select: `` <space>e `` |

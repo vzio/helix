@@ -72,3 +72,89 @@ repository = "https://github.com/helix-editor/helix"
 homepage = "https://helix-editor.com"
 license = "MPL-2.0"
 rust-version = "1.90"
+
+# Blame walks the whole history of a file. Unoptimized, that takes ~70x longer (minutes for
+# a big file), so the crates doing the heavy lifting are optimized even in debug builds.
+[profile.dev.package.gix]
+opt-level = 3
+debug-assertions = false
+
+[profile.dev.package.gix-blame]
+opt-level = 3
+debug-assertions = false
+
+[profile.dev.package.gix-diff]
+opt-level = 3
+debug-assertions = false
+
+[profile.dev.package.imara-diff]
+opt-level = 3
+debug-assertions = false
+
+[profile.dev.package.gix-pack]
+opt-level = 3
+debug-assertions = false
+
+[profile.dev.package.gix-odb]
+opt-level = 3
+debug-assertions = false
+
+[profile.dev.package.gix-object]
+opt-level = 3
+debug-assertions = false
+
+[profile.dev.package.gix-hash]
+opt-level = 3
+debug-assertions = false
+
+[profile.dev.package.gix-features]
+opt-level = 3
+debug-assertions = false
+
+[profile.dev.package.gix-traverse]
+opt-level = 3
+debug-assertions = false
+
+[profile.dev.package.gix-revwalk]
+opt-level = 3
+debug-assertions = false
+
+[profile.dev.package.gix-commitgraph]
+opt-level = 3
+debug-assertions = false
+
+[profile.dev.package.gix-hashtable]
+opt-level = 3
+debug-assertions = false
+
+[profile.dev.package.gix-date]
+opt-level = 3
+debug-assertions = false
+
+[profile.dev.package.zlib-rs]
+opt-level = 3
+debug-assertions = false
+
+[profile.dev.package.sha1-checked]
+opt-level = 3
+debug-assertions = false
+
+[profile.dev.package.foldhash]
+opt-level = 3
+debug-assertions = false
+
+[profile.dev.package.hashbrown]
+opt-level = 3
+debug-assertions = false
+
+[profile.dev.package.memchr]
+opt-level = 3
+debug-assertions = false
+
+[profile.dev.package.bstr]
+opt-level = 3
+debug-assertions = false
+
+[profile.dev.package.smallvec]
+opt-level = 3
+debug-assertions = false

@@ -5,10 +5,15 @@ use tempfile::TempDir;
 use crate::git;
 
 fn exec_git_cmd(args: &str, git_dir: &Path) {
+    exec_git_args(&args.split_whitespace().collect::<Vec<_>>(), git_dir)
+}
+
+/// Like `exec_git_cmd` but for arguments that may contain whitespace.
+pub fn exec_git_args(args: &[&str], git_dir: &Path) {
     let res = Command::new("git")
         .arg("-C")
         .arg(git_dir) // execute the git command in this directory
-        .args(args.split_whitespace())
+        .args(args)
         .env_remove("GIT_DIR")
         .env_remove("GIT_ASKPASS")
         .env_remove("SSH_ASKPASS")
@@ -25,22 +30,26 @@ fn exec_git_cmd(args: &str, git_dir: &Path) {
         .env("GIT_CONFIG_KEY_1", "init.defaultBranch")
         .env("GIT_CONFIG_VALUE_1", "main")
         .output()
-        .unwrap_or_else(|_| panic!("`git {args}` failed"));
+        .unwrap_or_else(|_| panic!("`git {args:?}` failed"));
     if !res.status.success() {
         println!("{}", String::from_utf8_lossy(&res.stdout));
         eprintln!("{}", String::from_utf8_lossy(&res.stderr));
-        panic!("`git {args}` failed (see output above)")
+        panic!("`git {args:?}` failed (see output above)")
     }
 }
 
-fn create_commit(repo: &Path, add_modified: bool) {
+pub fn create_commit(repo: &Path, add_modified: bool) {
+    create_commit_with_message(repo, add_modified, "message")
+}
+
+pub fn create_commit_with_message(repo: &Path, add_modified: bool, message: &str) {
     if add_modified {
         exec_git_cmd("add -A", repo);
     }
-    exec_git_cmd("commit -m message", repo);
+    exec_git_args(&["commit", "-m", message], repo);
 }
 
-fn empty_git_repo() -> TempDir {
+pub fn empty_git_repo() -> TempDir {
     let tmp = tempfile::tempdir().expect("create temp dir for git testing");
     exec_git_cmd("init", tmp.path());
     exec_git_cmd("config user.email test@helix.org", tmp.path());

@@ -649,6 +649,9 @@ impl Application {
 
         self.editor
             .set_doc_path(doc_save_event.doc_id, &doc_save_event.path);
+        // the file now is what is on disk: bring its blame up to date (this is cheap unless
+        // `HEAD` changed)
+        crate::handlers::blame::request(&mut self.editor, doc_save_event.doc_id);
         // TODO: fix being overwritten by lsp
         self.editor.set_status(format!(
             "'{}' written, {lines}L {size}",
@@ -1277,6 +1280,12 @@ impl Application {
             .show_cursor(CursorKind::Block)
             .ok();
         self.terminal.restore()
+    }
+
+    /// What the test backend has on its screen, for integration tests that check the rendering.
+    #[cfg(feature = "integration")]
+    pub fn screen(&self) -> &tui::buffer::Buffer {
+        self.terminal.backend().buffer()
     }
 
     #[cfg(all(not(feature = "integration"), not(windows)))]

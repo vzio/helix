@@ -4,6 +4,7 @@
 - [`[editor.clipboard-provider]` Section](#editorclipboard-provider-section)
 - [`[editor.statusline]` Section](#editorstatusline-section)
 - [`[editor.lsp]` Section](#editorlsp-section)
+- [`[editor.inline-blame]` Section](#editorinline-blame-section)
 - [`[editor.cursor-shape]` Section](#editorcursor-shape-section)
 - [`[editor.file-picker]` Section](#editorfile-picker-section)
 - [`[editor.file-explorer]` Section](#editorfile-explorer-section)
@@ -180,6 +181,41 @@ The following statusline elements can be configured:
 [^1]: By default, a progress spinner is shown in the statusline beside the file path.
 
 [^2]: You may also have to activate them in the language server config for them to appear, not just in Helix. Inlay hints in Helix are still being improved on and may be a little bit laggy/janky under some circumstances. Please report any bugs you see so we can fix them!
+
+### `[editor.inline-blame]` Section
+
+Inline blame is virtual text at the end of a line with information about the commit that last changed it, like `Jane Doe, 3 days ago • Fix the parser`. It is styled like inlay hints (see the `ui.virtual.inline-blame` [theme key](./themes.md#interface)).
+
+It is off by default. Toggle it at runtime with `:toggle-inline-blame` or `Space + B`.
+
+| Key      | Description                                                                                          | Default                                |
+| -------- | ---------------------------------------------------------------------------------------------------- | -------------------------------------- |
+| `enable` | Whether inline blame is on                                                                           | `false`                                |
+| `show`   | Which lines show blame: `"cursor-line"` or `"all-lines"`                                             | `"cursor-line"`                        |
+| `format` | The text of the blame, see below                                                                     | `"{author}, {time-ago} • {title}"`     |
+| `delay`  | Milliseconds the cursor has to stay on a line before its blame shows (`"cursor-line"` only), 0 for none | `300`                                  |
+
+With `show = "cursor-line"` only the line of the primary cursor has blame, in the focused view. With `"all-lines"` every visible line has it.
+
+Blame is shown in normal and select mode and hidden in insert mode. Lines that are new or edited, including unsaved changes, show "Not committed yet", and so does every line of a file in a repository that is not committed. Nothing is shown for files outside of a git repository, for empty lines and for scratch buffers. The blame is not drawn over text: if there is no room left on the line it is cut off or left out.
+
+The blame of a file is computed in the background when inline blame is turned on or a file is opened, so it may take a moment to appear in files with a long history. It is brought up to date when the file is saved or reloaded and when the terminal window regains focus, which is cheap unless a commit was made in the meantime. Nothing is computed while inline blame is off.
+
+The `blame_line` command (unbound by default, available from the command palette) shows the blame of the current line in the statusline using the same `format`, whether or not inline blame is on.
+
+#### `format`
+
+Variables are text placeholders wrapped in curly braces: `{variable}`. The following variables are available:
+
+- `author`: The author of the commit
+- `date`: When the commit was made, as `YYYY-MM-DD`
+- `time-ago`: How long ago the commit was made
+- `title`: The title (first line) of the commit message
+- `body`: The rest of the commit message
+- `commit`: The short hex SHA1 hash of the commit
+- `email`: The email of the author of the commit
+
+Text before a variable that has no value (for example `{body}` for a commit without one) is left out too.
 
 ### `[editor.cursor-shape]` Section
 
