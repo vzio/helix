@@ -12,14 +12,12 @@ use gix::diff::Rewrites;
 use gix::dir::entry::Status;
 use gix::object::tree::diff::ChangeDetached as TreeChange;
 use gix::objs::tree::EntryKind;
-use gix::revision::walk::Sorting;
 use gix::sec::trust::DefaultForLevel;
 use gix::status::{
     index_worktree::Item,
     plumbing::index_as_worktree::{Change, EntryStatus},
     Item as StatusItem, UntrackedFiles,
 };
-use gix::traverse::commit::simple::CommitTimeOrder;
 use gix::{Commit, ObjectId, Repository, ThreadSafeRepository};
 
 use crate::{CommitInfo, FileChange};
@@ -102,28 +100,6 @@ pub fn get_current_head_name(file: &Path, trust_full: bool) -> Result<Arc<ArcSwa
     Ok(Arc::new(ArcSwap::from_pointee(name.into_boxed_str())))
 }
 
-pub fn for_each_commit(
-    cwd: &Path,
-    trust_full: bool,
-    f: impl Fn(Result<CommitInfo>) -> bool,
-) -> Result<()> {
-    let repo = open_repo(cwd, trust_full)?.to_thread_local();
-    let walk = repo
-        .head_id()?
-        .ancestors()
-        .sorting(Sorting::ByCommitTime(CommitTimeOrder::NewestFirst))
-        .all()?;
-    for info in walk {
-        let commit = info
-            .map_err(anyhow::Error::from)
-            .and_then(|info| commit_info(&info.object()?));
-        if !f(commit) {
-            break;
-        }
-    }
-    Ok(())
-}
-
 fn commit_info(commit: &Commit) -> Result<CommitInfo> {
     let author = commit.author()?;
     Ok(CommitInfo {
@@ -135,11 +111,6 @@ fn commit_info(commit: &Commit) -> Result<CommitInfo> {
             .time()?
             .format_or_unix(gix::date::time::format::SHORT),
     })
-}
-
-/// The files changed by commit `id`, compared to its first parent.
-pub fn commit_changes(cwd: &Path, trust_full: bool, id: &str) -> Result<Vec<FileChange>> {
-    range_changes(cwd, trust_full, id, id)
 }
 
 /// The files changed by the commits from `oldest` to `newest`: the difference between the first

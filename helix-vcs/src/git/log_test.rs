@@ -523,17 +523,8 @@ fn changes_repo() -> (Repo, Vec<String>) {
 }
 
 #[test]
-fn range_of_one_commit_is_what_commit_changes_says() {
+fn range_of_one_commit_is_the_commit_against_its_parent() {
     let (repo, ids) = changes_repo();
-    for id in &ids {
-        let single = git::commit_changes(repo.path(), true, id).unwrap();
-        assert_eq!(
-            describe(&repo, single),
-            range_changes(&repo, id, id),
-            "{id}"
-        );
-    }
-    // and git agrees (the root commit is compared with nothing)
     assert_eq!(
         range_changes(&repo, &ids[1], &ids[1]),
         git_diff(&repo, &format!("{}^", ids[1]), &ids[1])
