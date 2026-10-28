@@ -25,9 +25,14 @@ use gix::{Commit, ObjectId, Repository, ThreadSafeRepository};
 use crate::{CommitInfo, FileChange};
 
 #[cfg(test)]
+mod log_test;
+#[cfg(test)]
 mod test;
 
 pub mod blame;
+mod log;
+
+pub use log::for_each_log_entry;
 
 #[inline]
 fn get_repo_dir(file: &Path) -> Result<&Path> {
@@ -134,15 +139,28 @@ fn commit_info(commit: &Commit) -> Result<CommitInfo> {
 
 /// The files changed by commit `id`, compared to its first parent.
 pub fn commit_changes(cwd: &Path, trust_full: bool, id: &str) -> Result<Vec<FileChange>> {
+    range_changes(cwd, trust_full, id, id)
+}
+
+/// The files changed by the commits from `oldest` to `newest`: the difference between the first
+/// parent of `oldest` (nothing, for a root commit) and `newest`.
+pub fn range_changes(
+    cwd: &Path,
+    trust_full: bool,
+    oldest: &str,
+    newest: &str,
+) -> Result<Vec<FileChange>> {
     let repo = open_repo(cwd, trust_full)?.to_thread_local();
     let work_dir = repo.workdir().context("repo has no worktree")?;
-    let commit = repo.find_commit(ObjectId::from_hex(id.as_bytes())?)?;
-    let tree = commit.tree()?;
-    let parent_tree = match commit.parent_ids().next() {
+    let oldest = repo.find_commit(ObjectId::from_hex(oldest.as_bytes())?)?;
+    let tree = repo
+        .find_commit(ObjectId::from_hex(newest.as_bytes())?)?
+        .tree()?;
+    let parent_tree = match oldest.parent_ids().next() {
         Some(parent) => Some(
             parent
                 .object()
-                .with_context(|| missing_parent(&commit))?
+                .with_context(|| missing_parent(&oldest))?
                 .into_commit()
                 .tree()?,
         ),
