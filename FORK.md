@@ -318,7 +318,7 @@ so it looks like inlay hints everywhere.
 ### Behaviour
 
 - Shown in normal and select mode only, hidden in insert mode. `cursor-line` shows only in the
-  focused view, so it disappears while the file tree has focus; the diff viewer never shows it.
+  focused view; the diff viewer never shows it.
 - New and edited lines, unsaved ones included, show "Not committed yet", and so does every line of
   a file that is in a repository but not committed. Files outside a repository, scratch buffers
   and empty lines show nothing.
