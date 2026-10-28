@@ -218,7 +218,9 @@ against the paths relative to the workspace root, with the same smart case and p
 file picker, over the whole workspace and not only over the expanded directories. The tree then
 shows the matching files and directories with all the directories above them, expanded, in tree
 order, with the matched characters of the names highlighted and the cursor on the best match.
-`Enter` expands/collapses a directory or opens a file as in tree mode. `Esc` goes back to tree mode
+`Enter` expands/collapses a directory or opens a file as in tree mode; on a directory that
+matched by its name only (nothing in it matches), it clears the filter and opens the directory in
+the tree. `Esc` goes back to tree mode
 and keeps the filter, so that the keys above work on the filtered tree (collapsing a directory hides
 its matches); `/` resumes editing the query; `Esc` in tree mode clears it. With the filter cleared,
 the tree is back as it was, with the entry that was selected shown in it.

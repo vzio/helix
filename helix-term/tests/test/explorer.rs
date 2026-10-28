@@ -411,6 +411,33 @@ async fn slash_filters_the_workspace_and_keeps_the_parents() -> anyhow::Result<(
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn opening_a_directory_without_hits_in_the_filter_shows_it_in_the_tree() -> anyhow::Result<()>
+{
+    let (dir, x, _y) = fixture()?;
+    let mut session = Session::on(&x);
+
+    // `/a$` matches the directory `a` but nothing in it.
+    session.keys("<space>e/").await;
+    session.keys(&format!("'{} /a$", name_of(&dir))).await;
+    session
+        .wait_for_screen("the filtered tree", |rows| {
+            on_screen(rows, "+ a/") && !on_screen(rows, "+ book/")
+        })
+        .await;
+    assert!(selected(&session.rows()).contains("+ a/"));
+
+    session.keys("<ret>").await;
+    let rows = session.rows();
+    // The filter is gone and the directory is expanded in the tree, with the cursor on it.
+    assert!(selected(&rows).contains("- a/"), "{rows:#?}");
+    assert!(on_screen(&rows, "x.txt"), "{rows:#?}");
+    assert!(on_screen(&rows, "+ book/"), "{rows:#?}");
+    assert!(!rows[1].contains('$'), "{rows:#?}");
+    session.close().await;
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn the_filter_skips_ignored_files_and_git() -> anyhow::Result<()> {
     let (dir, x, _y) = fixture()?;
     let mut session = Session::on(&x);

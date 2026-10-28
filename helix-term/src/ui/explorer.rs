@@ -343,8 +343,14 @@ impl ExplorerPicker {
         if self.filtering() {
             if expanded {
                 self.collapsed.insert(path);
-            } else {
-                self.collapsed.remove(&path);
+            } else if !self.collapsed.remove(&path) {
+                // Nothing in it matches (it matched by its name): show what it holds in the
+                // tree, which the filter would hide.
+                self.clear_query(editor);
+                self.tree.reveal(&path, true);
+                self.tree.expanded.insert(path.clone());
+                self.rebuild(editor, Select::Path(path));
+                return;
             }
         } else if !self.tree.expanded.remove(&path) {
             self.tree.expanded.insert(path);
