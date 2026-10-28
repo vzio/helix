@@ -53,6 +53,7 @@ use helix_view::{
     Document, DocumentId, Editor,
 };
 
+pub use self::handlers::PickerLookup;
 use self::handlers::{DynamicQueryChange, DynamicQueryHandler, PreviewHighlightHandler};
 
 pub const ID: &str = "picker";
@@ -128,6 +129,22 @@ impl Preview<'_, '_> {
             },
         }
     }
+}
+
+/// What the matcher calls from its own threads when it has new results.
+fn redraw_notifier() -> Arc<dyn Fn() + Sync + Send> {
+    // With the `integration` feature the event system keeps one set of globals for each Tokio
+    // runtime (one for each application of the tests), and panics on a thread that isn't in one.
+    #[cfg(feature = "integration")]
+    {
+        let runtime = tokio::runtime::Handle::try_current().ok();
+        Arc::new(move || {
+            let _guard = runtime.as_ref().map(|runtime| runtime.enter());
+            helix_event::request_redraw()
+        })
+    }
+    #[cfg(not(feature = "integration"))]
+    Arc::new(helix_event::request_redraw)
 }
 
 fn inject_nucleo_item<T, D>(
@@ -270,6 +287,9 @@ pub struct Picker<T: 'static + Send + Sync, D: 'static> {
     /// An event handler for syntax highlighting the currently previewed file.
     preview_highlight_handler: Sender<Arc<Path>>,
     dynamic_query_handler: Option<Sender<DynamicQueryChange>>,
+    /// Whether the owner of the picker filters and orders the items itself, from the query it
+    /// reads with [`Picker::query_line`]: the prompt then doesn't filter them.
+    external_filter: bool,
     /// Extra keys that run a handler on the selected item and close the picker.
     /// Extra keys, the handler to run on the selected item, and whether to close the picker.
     key_handlers: Vec<(KeyEvent, PickerKeyHandler<T>, bool)>,
@@ -283,12 +303,7 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
         let columns: Arc<[_]> = columns.into_iter().collect();
         let matcher_columns = columns.iter().filter(|col| col.filter).count() as u32;
         assert!(matcher_columns > 0);
-        let matcher = Nucleo::new(
-            Config::DEFAULT,
-            Arc::new(helix_event::request_redraw),
-            None,
-            matcher_columns,
-        );
+        let matcher = Nucleo::new(Config::DEFAULT, redraw_notifier(), None, matcher_columns);
         let streamer = Injector {
             dst: matcher.injector(),
             columns,
@@ -318,12 +333,7 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
             .filter(|col: &&Column<T, D>| col.filter)
             .count() as u32;
         assert!(matcher_columns > 0);
-        let matcher = Nucleo::new(
-            Config::DEFAULT,
-            Arc::new(helix_event::request_redraw),
-            None,
-            matcher_columns,
-        );
+        let matcher = Nucleo::new(Config::DEFAULT, redraw_notifier(), None, matcher_columns);
         let injector = matcher.injector();
         for item in options {
             inject_nucleo_item(&injector, &columns, item, &editor_data);
@@ -398,6 +408,7 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
             file_fn: None,
             preview_highlight_handler: PreviewHighlightHandler::<T, D>::default().spawn(),
             dynamic_query_handler: None,
+            external_filter: false,
             key_handlers: Vec::new(),
         }
     }
@@ -458,6 +469,61 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
     pub fn with_default_action(mut self, action: Action) -> Self {
         self.default_action = action;
         self
+    }
+
+    /// The owner of the picker filters and orders the items itself: editing the prompt doesn't
+    /// filter or reorder them, whatever is typed shows every item in the order they were given.
+    /// The owner reads the query with [`Picker::query_line`] and gives the items that match to
+    /// [`Picker::replace_items`].
+    pub fn with_external_filter(mut self) -> Self {
+        self.external_filter = true;
+        self
+    }
+
+    /// The picker is not overlaid on its own but inside another component: `lookup` finds it in
+    /// the compositor, which the highlighting of the previews needs to give them their syntax.
+    pub fn with_lookup(mut self, lookup: PickerLookup<T, D>) -> Self {
+        self.preview_highlight_handler = PreviewHighlightHandler::new(lookup).spawn();
+        self
+    }
+
+    /// What is typed in the prompt.
+    pub fn query_line(&self) -> &str {
+        self.prompt.line()
+    }
+
+    /// Replaces the contents of the prompt, as if the new text was typed.
+    pub fn set_query_line(&mut self, line: String, editor: &Editor) {
+        self.prompt.set_line(line, editor);
+        self.handle_prompt_change(false);
+    }
+
+    /// Index of the selected item among the items shown.
+    pub fn selected_index(&self) -> u32 {
+        self.cursor
+    }
+
+    /// Selects the item at `index` among the items shown (the last one if there are fewer).
+    pub fn set_selected_index(&mut self, index: u32) {
+        let len = self.matcher.snapshot().matched_item_count();
+        self.cursor = index.min(len.saturating_sub(1));
+    }
+
+    /// Replaces every item with `items`, in this order if the picker has an external filter, and
+    /// selects the one at index `selected` (or the last one if there are fewer). The new items
+    /// are ready to show when this returns, unless there are so many that matching takes longer
+    /// than a frame.
+    pub fn replace_items(&mut self, items: impl IntoIterator<Item = T>, selected: u32) {
+        // Not clearing the snapshot here would keep the old items on screen until the matcher ran.
+        self.matcher.restart(true);
+        let injector = self.matcher.injector();
+        let mut count = 0u32;
+        for item in items {
+            inject_nucleo_item(&injector, &self.columns, item, &self.editor_data);
+            count += 1;
+        }
+        self.cursor = selected.min(count.saturating_sub(1));
+        self.matcher.tick(10);
     }
 
     /// Pressing `key` runs `handler` on the selected item and closes the picker.
@@ -558,6 +624,9 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
     }
 
     fn handle_prompt_change(&mut self, is_paste: bool) {
+        if self.external_filter {
+            return;
+        }
         // TODO: better track how the pattern has changed
         let line = self.prompt.line();
         let old_query = self.query.parse(line);
@@ -626,7 +695,10 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
                     // retrieve the `Arc<Path>` key. The `path` in scope here is a `&Path` and
                     // we can cheaply clone the key for the preview highlight handler.
                     let (path, preview) = self.preview_cache.get_key_value(path).unwrap();
-                    if matches!(preview, CachedPreview::Document(doc) if doc.syntax().is_none()) {
+                    // (Only for a language: highlighting a plain text file does nothing, but
+                    // asking for it redraws the picker, which asks again.)
+                    if matches!(preview, CachedPreview::Document(doc) if doc.syntax().is_none() && doc.language_config().is_some())
+                    {
                         helix_event::send_blocking(&self.preview_highlight_handler, path.clone());
                     }
                     return Some((Preview::Cached(preview), range));

@@ -1,4 +1,4 @@
-//! Benchmarks for the file explorer panel: the directory reads it does on the UI thread.
+//! Benchmarks for the file tree: the directory reads it does on the UI thread, and filtering.
 //!
 //! cargo bench -p helix-term --features bench --bench explorer
 
@@ -10,7 +10,7 @@ use std::time::{Duration, SystemTime};
 use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion};
 use helix_term::ui::explorer::bench;
 
-/// Backdates the modification time of `dir`, so the panel trusts its listings: it never trusts
+/// Backdates the modification time of `dir`, so the tree trusts its listings: it never trusts
 /// one made within 2 seconds of a change.
 fn backdate(dir: &Path) {
     let an_hour_ago = SystemTime::now() - Duration::from_secs(3600);
@@ -65,7 +65,7 @@ fn list_dir(c: &mut Criterion) {
         let repo = repo();
         let dir = repo.path().join("flat");
         files(&dir, count);
-        let mut tree = bench::Tree::new(repo.path(), &[]);
+        let mut tree = bench::Bench::new(repo.path(), &[]);
         group.bench_with_input(BenchmarkId::new("flat", count), &dir, |b, dir| {
             b.iter(|| tree.list(black_box(dir)))
         });
@@ -79,7 +79,7 @@ fn list_dir(c: &mut Criterion) {
         .take_while(|parent| *parent != repo.path())
         .map(Path::to_path_buf)
         .collect();
-    let mut tree = bench::Tree::new(repo.path(), &parents);
+    let mut tree = bench::Bench::new(repo.path(), &parents);
     group.bench_function("depth_10", |b| b.iter(|| tree.list(black_box(&dir))));
     group.finish();
 }
@@ -102,12 +102,12 @@ fn refresh(c: &mut Criterion) {
     for count in [10, 100] {
         let repo = repo();
         let expanded = wide(repo.path(), count);
-        let mut tree = bench::Tree::new(repo.path(), &expanded);
-        // Nothing changed on disk: what focusing the panel costs.
+        let mut tree = bench::Bench::new(repo.path(), &expanded);
+        // Nothing changed on disk: what opening the tree again costs.
         group.bench_function(BenchmarkId::new("unchanged", count), |b| {
             b.iter(|| tree.refresh())
         });
-        // Everything read again: `R`, or opening the panel with these directories expanded.
+        // Everything read again: `R`, or opening the tree with these directories expanded.
         group.bench_function(BenchmarkId::new("reload", count), |b| {
             b.iter(|| tree.reload())
         });
@@ -119,11 +119,40 @@ fn reveal(c: &mut Criterion) {
     let repo = repo();
     let dir = deep(repo.path(), 10);
     let file = dir.join("file1.rs");
-    // Auto-reveal of a file 10 levels deep, from a collapsed tree.
+    // `space E` on a file 10 levels deep, from a collapsed tree.
     c.bench_function("reveal/depth_10", |b| {
         b.iter(|| bench::reveal(repo.path(), black_box(&file)))
     });
 }
 
-criterion_group!(benches, list_dir, refresh, reveal);
+/// Typing a query in the filter: matching every path of a workspace of `count` files, spread over
+/// directories of 20 files each.
+fn filter(c: &mut Criterion) {
+    let mut group = c.benchmark_group("filter");
+    for count in [1_000, 10_000] {
+        let repo = repo();
+        for dir in 0..count / 20 {
+            files(
+                &repo
+                    .path()
+                    .join(format!("dir{:03}/sub", dir % 100))
+                    .join(dir.to_string()),
+                20,
+            );
+        }
+        let found = bench::walk(repo.path());
+        group.bench_function(BenchmarkId::new("walk", count), |b| {
+            b.iter(|| bench::walk(black_box(repo.path())).len())
+        });
+        // A query most paths match, and one that matches a few.
+        for query in ["file", "dir05 file7.rs"] {
+            group.bench_function(BenchmarkId::new(query, count), |b| {
+                b.iter(|| found.filter(repo.path(), black_box(query)))
+            });
+        }
+    }
+    group.finish();
+}
+
+criterion_group!(benches, list_dir, refresh, reveal, filter);
 criterion_main!(benches);

@@ -1,6 +1,6 @@
-//! Git status of the entries of the panel, like the markers of VS Code's explorer: changed files
+//! Git status of the entries of the tree, like the markers of VS Code's explorer: changed files
 //! show a letter and a color, and directories holding changes show a dot in the color of their
-//! most important change. `git status` runs in the background, the panel picks up its result on
+//! most important change. `git status` runs in the background, the tree picks up its result on
 //! the next render.
 
 use std::collections::{HashMap, HashSet};
@@ -117,9 +117,12 @@ impl GitStatus {
     }
 
     /// Picks up the result of the last request, and requests again when a buffer was saved.
-    pub fn update(&mut self, root: &Path, editor: &Editor) {
+    /// Returns whether the marks changed.
+    pub fn update(&mut self, root: &Path, editor: &Editor) -> bool {
+        let mut changed = false;
         if let Some((id, marks)) = self.slot.lock().unwrap().take() {
             if id == self.requested {
+                changed = self.marks != marks;
                 self.marks = marks;
             }
         }
@@ -133,6 +136,7 @@ impl GitStatus {
         if saved {
             self.request(root, editor);
         }
+        changed
     }
 }
 
