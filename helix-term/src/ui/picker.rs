@@ -597,16 +597,21 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
     /// The number of items that match the query and the number of items, without the dividers.
     fn counts(&self) -> (u32, u32) {
         let snapshot = self.matcher.snapshot();
-        let dividers = self.dividers.as_ref().map_or(0, |dividers| dividers.count);
-        // dividers have no text: they only match while there's no query
+        let Some(dividers) = &self.dividers else {
+            return (snapshot.matched_item_count(), snapshot.item_count());
+        };
+        // dividers have no text, so they only match while there's no query (or a negated one)
         let matching = if snapshot.pattern().is_empty() {
-            dividers
+            dividers.count
         } else {
-            0
+            snapshot
+                .matched_items(..)
+                .filter(|item| dividers.title(item.data, &self.editor_data).is_some())
+                .count() as u32
         };
         (
             snapshot.matched_item_count().saturating_sub(matching),
-            snapshot.item_count().saturating_sub(dividers),
+            snapshot.item_count().saturating_sub(dividers.count),
         )
     }
 

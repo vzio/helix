@@ -183,3 +183,20 @@ async fn pickers_without_dividers_move_as_before() {
     picker.move_by(1, Direction::Backward);
     assert_eq!(at(&picker), Some("b"));
 }
+
+#[tokio::test]
+async fn negated_queries_match_dividers_but_the_cursor_skips_them() {
+    let mut picker = picker(&LOG);
+    // nothing in a divider contradicts "not c"
+    query(&mut picker, "!c");
+    assert_eq!(picker.matcher.snapshot().matched_item_count(), 6);
+    assert_eq!(picker.counts(), (4, 5));
+    let mut seen = Vec::new();
+    for _ in 0..8 {
+        seen.push(at(&picker).unwrap().to_string());
+        picker.move_by(1, Direction::Forward);
+    }
+    assert!(seen
+        .iter()
+        .all(|item| !item.starts_with('#') && item != "c"));
+}

@@ -42,14 +42,15 @@ Each feature lives in its own modules, to keep rebasing on upstream cheap:
 | Feature | Modules |
 | --- | --- |
 | Diff view | `helix-term/src/ui/diff_view.rs`, `helix-term/src/commands/diff_view.rs` |
-| Commit log | `helix-term/src/commands/git_log.rs`, `helix-vcs/src/commit.rs` |
+| Commit log | `helix-term/src/commands/git_log.rs`, `helix-vcs/src/commit.rs`, `helix-vcs/src/git/log.rs` |
 | Staged files, commit diffs | `helix-vcs/src/git.rs`, `helix-vcs/src/lib.rs`, `helix-vcs/src/status.rs` |
 | Explorer | `helix-term/src/ui/explorer.rs`, `helix-term/src/ui/explorer/`, `helix-term/benches/explorer.rs` |
 | Inline blame | `helix-vcs/src/git/blame.rs`, `helix-vcs/src/blame_stub.rs`, `helix-vcs/benches/blame.rs`, `helix-stdx/src/time.rs`, `helix-view/src/blame.rs`, `helix-term/src/handlers/blame.rs`, `helix-term/src/commands/blame.rs`, `helix-term/src/ui/text_decorations/blame.rs` |
 
 Hooks into core files: commands and keys in `helix-term/src/commands.rs`,
 `helix-term/src/commands/typed.rs` and `helix-term/src/keymap/default.rs`; the panel's layout,
-keys and mouse in `helix-term/src/ui/editor.rs`; `C-g` in `helix-term/src/ui/picker.rs`;
+keys and mouse in `helix-term/src/ui/editor.rs`; `C-g`, dividers, marked rows and the cursor
+accessors in `helix-term/src/ui/picker.rs`;
 `[editor.explorer]` and `[editor.inline-blame]` in `helix-view/src/editor.rs`. Inline blame also
 has one field on `Document`, one decoration in `render_view`, `is_last_visual_line` in
 `helix-term/src/ui/document.rs`, and refresh calls on save (`application.rs`), on focus
@@ -109,17 +110,55 @@ can be read whole. `w` switches between wrapping and horizontal scrolling.
 
 ## Git commit log
 
-A picker of the commits reachable from HEAD, newest first, with their short id, date, author and
-summary. Choosing a commit lists the files it changed, and choosing a file opens the
+A picker of the commits reachable from HEAD, with their short id, date, author and summary. The
+commits are in sections by branch, newest first in each, each section under a divider with the
+name of the branch. Choosing a commit lists the files it changed, and choosing a file opens the
 [side by side diff](#side-by-side-git-diff) of that file in the commit: its version in the
-commit's parent on the left, in the commit on the right.
+commit's parent on the left, in the commit on the right. Several commits can be selected, to
+list and diff their combined change.
+
+### Sections
+
+The sections are made of the commits reachable from HEAD (`B` is the current branch):
+
+| Section | Commits | Divider |
+| --- | --- | --- |
+| 1 | not on the upstream of `B`, nor on the base branch | `B (unpushed)`; `B` if `B` has no upstream; `HEAD (detached)` for a detached HEAD |
+| 2 | on the upstream of `B`, not on the base branch | `B` |
+| 3 | on the base branch | the name of the base branch as git shows it: `origin/main`, or `main` |
+
+- The upstream is the remote tracking branch of `B` (`branch.<B>.remote` and `.merge`) if it is
+  configured and exists.
+- The base branch is the first that exists of: the branch `refs/remotes/origin/HEAD` points to
+  (`<remote>/HEAD` if the upstream is on another remote), `<remote>/main`, `<remote>/master`, the
+  local `main` and `master`. A local branch is never the base of itself.
+- Sections without commits have no divider, and there is no section 3 without a base branch. If
+  there is no base branch, the commits that aren't in section 1 are in section 2.
+- On `main` with `origin/main` as its upstream (and base), section 1 is `main (unpushed)`, section 2
+  is empty and section 3 is `origin/main`. Without a remote or an upstream there's only the
+  section with the name of the branch, plus the base branch if there's a local `main` or `master`
+  that isn't the current branch.
+- Commits are put in a section by reachability, not by their parent: a merge commit of `main` into
+  the feature branch is in the section of the feature branch, and the commits it brought in that are
+  on the base branch are in the section of the base branch. Every commit is listed once.
+- Sections 1 and 2 are found first, with the commits of the current branch only, then the rest of
+  the history streams into section 3 as before.
+
+Dividers are not entries: the cursor skips them (`Up`, `Down`, `Tab`, `C-n`, `C-p`, `PageUp`,
+`PageDown`, `Home`, `End`, wrapping around the ends), they are not counted in the numbers above
+the list, and a query hides them. They are drawn as a line across the picker, with the style of the
+theme scope `ui.picker.divider` if the theme has it, else `ui.text.inactive`, else `comment`.
 
 ### Usage
 
 | Keys | Action |
 | --- | --- |
 | `space l`, `:git-log` | Open the commit picker. Typing filters by summary; `%commit`, `%author`, `%date` filter by the other columns. |
-| `Enter` in the commit picker | List the files changed by the commit, on top of the commit picker. The status line shows the commit. |
+| `Enter` in the commit picker | List the files changed by the commit, or by the selected commits, on top of the commit picker. The status line shows the commit or the range. |
+| `A-v` | Toggle extend mode: while it's on, every movement extends the selection from the commit where it started to the commit under the cursor. |
+| `S-Down`, `S-Up` | Extend the selection by one commit, in or out of extend mode. It doesn't wrap around the ends of the log. |
+| `A-s` | Select all the commits of the section the cursor is in ("diff the entire branch"). |
+| `Esc` | If several commits are selected or extend mode is on: select the commit under the cursor alone and leave extend mode. Else close the picker. |
 | `Enter`, `C-g` in the files picker | Open the diff of the file, on top of the files picker. |
 | `C-s` / `C-v` in the files picker | Open the file as it is now in a split, closing both pickers. |
 | `q`, `Esc` in the diff | Back to the files picker. |
@@ -127,21 +166,57 @@ commit's parent on the left, in the commit on the right.
 | `Enter` in the diff | Open the file as it is now, at the current hunk, closing both pickers. |
 
 The diff keys are the same as in the [side by side diff](#side-by-side-git-diff). Renames are
-detected, so a renamed file is compared with its old path.
+detected, so a renamed file is compared with its old path. The alt keys are for Termux, where
+`Shift` and the arrows don't make `S-Down`; letters can't be used because they go to the query.
+
+### Ranges
+
+The selected commits are shown in the rows with the style of `ui.selection` (the commit under the
+cursor keeps the style of the cursor), and in the status line, oldest to newest, with `[extend]`
+in front when extend mode is on:
+
+```
+[extend] a1b2c3d4e..d4e5f6a7b (5 commits)
+```
+
+- A selection is always contiguous in the log, dividers excluded: all the commits between the
+  commit where it started and the commit under the cursor, in the order of the log without a
+  query. With a query, the cursor moves among the commits that match, but the selection still has
+  every commit between the two ends, matching or not (so does the count).
+- A selection across sections takes the commits of both, in the order they are listed in.
+- Any movement that isn't extending (and typing a query that moves the cursor) goes back to the
+  commit under the cursor alone, unless extend mode is on. `A-v` itself keeps the selection.
+  After `A-s`, extending goes on from the oldest commit of the section.
+- `Enter` on several commits lists the combined change: the files that differ between the first
+  parent of the oldest selected commit (nothing if it is a root commit) and the newest selected
+  commit. A file added and deleted in the range isn't there, a file changed twice is there once.
+  The diff of a file has the first parent of the oldest commit on the left (`a1b2c3d4e^: path`) and
+  the newest commit on the right (`d4e5f6a7b: path`).
+- One commit, selected alone, is listed and diffed as it always was: against its first parent, the
+  root commit against nothing.
 
 ### Limitations
 
-- Merge commits are compared with their first parent only.
+- Merge commits are compared with their first parent only. In a range, the same goes for the
+  parent of the oldest commit; the changes a merge brought in are part of the combined change,
+  because they are in the newest commit.
 - `Enter` in the diff opens the file as it is now in the working tree, so the line it jumps to may
   have moved since the commit. Files deleted since then can't be opened.
-- Only the history of HEAD is listed, sorted by commit time; there's no graph.
+- Only the history of HEAD is listed, sorted by commit time within each section; there's no graph.
+- The upstream is found with the default fetch refspec of its remote
+  (`refs/heads/*:refs/remotes/<remote>/*`) when the configuration of the repository can't be
+  trusted (workspace trust).
+- The base branch is guessed by name, not by looking for the branch the current branch was
+  created from.
+- Queries with a negation (`!word`) match dividers: they are listed, but the cursor still skips
+  them.
 - In a shallow clone, the oldest commit can't be shown: its parent isn't in the repository.
 
 ### Ideas
 
 - List the commits that changed the current file.
 - Show the commit message and stats in a preview.
-- Pick another branch or a range.
+- Pick another branch.
 
 ## Staged files in the changed files picker
 
