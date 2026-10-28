@@ -105,10 +105,17 @@ impl Repo {
         self.git(&["push", "-q", "-u", "origin", branch]);
     }
 
-    /// The log, as the label of each section and the summaries of its commits.
+    /// The log, as the label of each section and the summaries of its commits. The log is the same
+    /// whether the repository is trusted or not.
     fn log(&self) -> Vec<(String, Vec<String>)> {
+        let log = self.log_with_trust(true);
+        assert_eq!(log, self.log_with_trust(false), "log of an untrusted repo");
+        log
+    }
+
+    fn log_with_trust(&self, trust_full: bool) -> Vec<(String, Vec<String>)> {
         let sections = std::sync::Mutex::new(Vec::<(String, Vec<String>)>::new());
-        git::for_each_log_entry(self.path(), true, |entry| {
+        git::for_each_log_entry(self.path(), trust_full, |entry| {
             let mut sections = sections.lock().unwrap();
             match entry.unwrap() {
                 LogEntry::Divider(label) => sections.push((label, Vec::new())),

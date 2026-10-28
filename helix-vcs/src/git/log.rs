@@ -5,6 +5,7 @@ use std::collections::HashSet;
 use std::path::Path;
 
 use anyhow::Result;
+use gix::refs::FullName;
 use gix::revision::walk::Sorting;
 use gix::traverse::commit::simple::CommitTimeOrder;
 use gix::{ObjectId, Repository};
@@ -69,6 +70,41 @@ fn short_name(name: &str) -> String {
     name.to_string()
 }
 
+/// The remote tracking branch of the branch `name` as a full reference name, and the name of its
+/// remote, if the branch has an upstream.
+///
+/// gix ignores the configuration of the repository unless it is fully trusted, but the name of
+/// the upstream is read from it anyway when that's the case: reading `branch.<name>.remote` and
+/// `branch.<name>.merge` runs nothing.
+fn upstream(repo: &Repository, name: &FullName) -> Option<(String, String)> {
+    let branch = name.shorten();
+    let remote = repo
+        .branch_remote_name(branch, gix::remote::Direction::Fetch)
+        .and_then(|remote| remote.as_symbol().map(str::to_string));
+    let tracking = repo
+        .branch_remote_tracking_ref_name(name.as_ref(), gix::remote::Direction::Fetch)
+        .and_then(Result::ok)
+        .map(|tracking| tracking.as_bstr().to_string());
+    if let (Some(tracking), Some(remote)) = (tracking, remote) {
+        return Some((tracking, remote));
+    }
+
+    let config = gix::config::File::from_path_no_includes(
+        repo.common_dir().join("config"),
+        gix::config::Source::Local,
+    )
+    .ok()?;
+    let value = |key: &str| config.string_by("branch", Some(branch), key);
+    let remote = value("remote")?.to_string();
+    let merge = value("merge")?.to_string();
+    // "." is this repository: the upstream is a local branch
+    let branch = merge
+        .strip_prefix("refs/heads/")
+        .filter(|_| remote != ".")?;
+    // (as git does by default, without looking at the refspecs of the remote)
+    Some((format!("refs/remotes/{remote}/{branch}"), remote))
+}
+
 /// The sections of the log of HEAD, in the order they are listed.
 fn sections(repo: &Repository) -> Result<(ObjectId, Vec<Section>)> {
     let head_id = repo.head_id()?.detach();
@@ -77,20 +113,12 @@ fn sections(repo: &Repository) -> Result<(ObjectId, Vec<Section>)> {
     let branch = head_name.as_ref().map(|name| name.shorten().to_string());
 
     // the remote tracking branch of the current branch, if it's configured and exists
-    let upstream = head_name.as_ref().and_then(|name| {
-        let tracking = repo
-            .branch_remote_tracking_ref_name(name.as_ref(), gix::remote::Direction::Fetch)?
-            .ok()?;
-        resolve(repo, &tracking.as_bstr().to_string())
-    });
-    let remote = branch
-        .as_deref()
-        .and_then(|branch| {
-            repo.branch_remote_name(branch, gix::remote::Direction::Fetch)?
-                .as_symbol()
-                .map(str::to_string)
-        })
-        .unwrap_or_else(|| "origin".to_string());
+    let (tracking, remote) = head_name
+        .as_ref()
+        .and_then(|name| upstream(repo, name))
+        .unzip();
+    let upstream = tracking.and_then(|name| resolve(repo, &name));
+    let remote = remote.unwrap_or_else(|| "origin".to_string());
     let base = base_branch(repo, &remote, current.as_deref());
 
     let own = branch.unwrap_or_else(|| "HEAD (detached)".to_string());
