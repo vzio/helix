@@ -7,20 +7,40 @@ use std::{
 use helix_event::AsyncHook;
 use tokio::time::Instant;
 
-use crate::{job, ui::overlay::Overlay};
+use crate::{compositor::Compositor, job, ui::overlay::Overlay};
 
 use super::{CachedPreview, DynQueryCallback, Picker};
 
+/// Finds a picker in the compositor.
+pub type PickerLookup<T, D> = for<'a> fn(&'a mut Compositor) -> Option<&'a mut Picker<T, D>>;
+
+/// Finds a picker that is overlaid on its own, the usual way to show one.
+fn find_overlaid_picker<T: 'static + Send + Sync, D: 'static + Send + Sync>(
+    compositor: &mut Compositor,
+) -> Option<&mut Picker<T, D>> {
+    let overlay = compositor.find::<Overlay<Picker<T, D>>>()?;
+    Some(&mut overlay.content)
+}
+
 pub(super) struct PreviewHighlightHandler<T: 'static + Send + Sync, D: 'static + Send + Sync> {
     trigger: Option<Arc<Path>>,
-    phantom_data: std::marker::PhantomData<(T, D)>,
+    lookup: PickerLookup<T, D>,
 }
 
 impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Default for PreviewHighlightHandler<T, D> {
     fn default() -> Self {
         Self {
             trigger: None,
-            phantom_data: Default::default(),
+            lookup: find_overlaid_picker,
+        }
+    }
+}
+
+impl<T: 'static + Send + Sync, D: 'static + Send + Sync> PreviewHighlightHandler<T, D> {
+    pub(super) fn new(lookup: PickerLookup<T, D>) -> Self {
+        Self {
+            trigger: None,
+            lookup,
         }
     }
 }
@@ -53,11 +73,9 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> AsyncHook
             return;
         };
 
+        let lookup = self.lookup;
         job::dispatch_blocking(move |editor, compositor| {
-            let Some(Overlay {
-                content: picker, ..
-            }) = compositor.find::<Overlay<Picker<T, D>>>()
-            else {
+            let Some(picker) = lookup(compositor) else {
                 return;
             };
 
@@ -87,10 +105,7 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> AsyncHook
                 };
 
                 job::dispatch_blocking(move |editor, compositor| {
-                    let Some(Overlay {
-                        content: picker, ..
-                    }) = compositor.find::<Overlay<Picker<T, D>>>()
-                    else {
+                    let Some(picker) = lookup(compositor) else {
                         log::info!("picker closed before syntax highlighting finished");
                         return;
                     };
