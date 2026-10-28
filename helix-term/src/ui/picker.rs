@@ -134,6 +134,22 @@ impl Preview<'_, '_> {
     }
 }
 
+/// What the matcher calls from its own threads when it has new results.
+fn redraw_notifier() -> Arc<dyn Fn() + Sync + Send> {
+    // With the `integration` feature the event system keeps one set of globals for each Tokio
+    // runtime (one for each application of the tests), and panics on a thread that isn't in one.
+    #[cfg(feature = "integration")]
+    {
+        let runtime = tokio::runtime::Handle::try_current().ok();
+        Arc::new(move || {
+            let _guard = runtime.as_ref().map(|runtime| runtime.enter());
+            helix_event::request_redraw()
+        })
+    }
+    #[cfg(not(feature = "integration"))]
+    Arc::new(helix_event::request_redraw)
+}
+
 fn inject_nucleo_item<T, D>(
     injector: &nucleo::Injector<T>,
     columns: &[Column<T, D>],
@@ -291,12 +307,7 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
         let columns: Arc<[_]> = columns.into_iter().collect();
         let matcher_columns = columns.iter().filter(|col| col.filter).count() as u32;
         assert!(matcher_columns > 0);
-        let matcher = Nucleo::new(
-            Config::DEFAULT,
-            Arc::new(helix_event::request_redraw),
-            None,
-            matcher_columns,
-        );
+        let matcher = Nucleo::new(Config::DEFAULT, redraw_notifier(), None, matcher_columns);
         let streamer = Injector {
             dst: matcher.injector(),
             columns,
@@ -326,12 +337,7 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
             .filter(|col: &&Column<T, D>| col.filter)
             .count() as u32;
         assert!(matcher_columns > 0);
-        let matcher = Nucleo::new(
-            Config::DEFAULT,
-            Arc::new(helix_event::request_redraw),
-            None,
-            matcher_columns,
-        );
+        let matcher = Nucleo::new(Config::DEFAULT, redraw_notifier(), None, matcher_columns);
         let injector = matcher.injector();
         for item in options {
             inject_nucleo_item(&injector, &columns, item, &editor_data);
