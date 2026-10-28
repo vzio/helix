@@ -52,9 +52,8 @@ Each feature lives in its own modules, to keep rebasing on upstream cheap:
 
 Hooks into core files: commands and keys in `helix-term/src/commands.rs`,
 `helix-term/src/commands/typed.rs` and `helix-term/src/keymap/default.rs`; `C-g`, the hooks the
-file tree needs (an external filter, replacing the items, the query and the selected index) and
-the ones of the commit log (dividers, marked rows and the cursor accessors) in
-`helix-term/src/ui/picker.rs`;
+file tree needs (an external filter, replacing the items, the query), the ones of the commit log
+(dividers, marked rows) and the cursor accessors both use in `helix-term/src/ui/picker.rs`;
 `[editor.explorer]` and `[editor.inline-blame]` in `helix-view/src/editor.rs`. Inline blame also
 has one field on `Document`, one decoration in `render_view`, `is_last_visual_line` in
 `helix-term/src/ui/document.rs`, and refresh calls on save (`application.rs`), on focus

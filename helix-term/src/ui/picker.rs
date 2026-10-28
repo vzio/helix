@@ -508,17 +508,6 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
         self.handle_prompt_change(false);
     }
 
-    /// Index of the selected item among the items shown.
-    pub fn selected_index(&self) -> u32 {
-        self.cursor
-    }
-
-    /// Selects the item at `index` among the items shown (the last one if there are fewer).
-    pub fn set_selected_index(&mut self, index: u32) {
-        let len = self.matcher.snapshot().matched_item_count();
-        self.cursor = index.min(len.saturating_sub(1));
-    }
-
     /// Replaces every item with `items`, in this order if the picker has an external filter, and
     /// selects the one at index `selected` (or the last one if there are fewer). The new items
     /// are ready to show when this returns, unless there are so many that matching takes longer
@@ -526,6 +515,10 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
     pub fn replace_items(&mut self, items: impl IntoIterator<Item = T>, selected: u32) {
         // Not clearing the snapshot here would keep the old items on screen until the matcher ran.
         self.matcher.restart(true);
+        if let Some(dividers) = &mut self.dividers {
+            dividers.scanned = 0;
+            dividers.count = 0;
+        }
         let injector = self.matcher.injector();
         let mut count = 0u32;
         for item in items {
