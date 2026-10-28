@@ -10,3 +10,12 @@ pub struct CommitInfo {
     /// Author date, `YYYY-MM-DD`.
     pub date: String,
 }
+
+/// A row of the commit log: a commit, or the divider that starts a section of the log (the
+/// commits of a branch).
+#[derive(Clone)]
+pub enum LogEntry {
+    /// The label of the section that follows.
+    Divider(String),
+    Commit(CommitInfo),
+}

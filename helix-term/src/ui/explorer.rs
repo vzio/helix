@@ -159,7 +159,7 @@ impl ExplorerPicker {
     }
 
     fn selected(&self) -> Option<&Entry> {
-        self.entries.get(self.picker.selected_index() as usize)
+        self.entries.get(self.picker.cursor_index() as usize)
     }
 
     fn position(&self, path: &Path) -> Option<usize> {
@@ -188,7 +188,7 @@ impl ExplorerPicker {
     /// Computes the entries again and gives them to the picker.
     fn rebuild(&mut self, editor: &Editor, select: Select) {
         let previous = self.selected().map(|entry| entry.node.path.clone());
-        let index = self.picker.selected_index() as usize;
+        let index = self.picker.cursor_index() as usize;
         let (entries, best) = self.compute(editor);
         self.entries = entries;
         let selected = match select {
@@ -405,7 +405,7 @@ impl ExplorerPicker {
         if entry.node.is_dir && entry.expanded {
             self.toggle(editor);
         } else if let Some(index) = entry.node.path.parent().and_then(|dir| self.position(dir)) {
-            self.picker.set_selected_index(index as u32);
+            self.picker.set_cursor_index(index as u32);
         }
     }
 

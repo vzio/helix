@@ -112,13 +112,15 @@ pub(crate) fn open_current(editor: &mut Editor, compositor: &mut Compositor) {
     }
 }
 
-/// Opens the diff of `change` in `commit` against the commit's first parent, on top of the
-/// commit pickers. Opening the file from the diff closes those pickers too.
+/// Opens the diff of `change` in the commits from `oldest` to `newest` (the same commit for one):
+/// from the first parent of `oldest` to `newest`. It's on top of the commit pickers, and opening
+/// the file from the diff closes those pickers too.
 pub(crate) fn open_commit(
     editor: &mut Editor,
     compositor: &mut Compositor,
     cwd: &Path,
-    commit: &CommitInfo,
+    oldest: &CommitInfo,
+    newest: &CommitInfo,
     change: &FileChange,
 ) -> anyhow::Result<()> {
     let relative = |path: &Path| {
@@ -145,12 +147,12 @@ pub(crate) fn open_commit(
     };
 
     let (base_path, path) = paths_of(change);
-    let short = &commit.short_id;
-    let (base, left_title) = match read(&format!("{}^", commit.id), &base_path)? {
-        Some(text) => (text, format!("{short}^: {}", relative(&base_path))),
-        None => (String::new(), format!("{short}^: (new file)")),
+    let (base_short, short) = (&oldest.short_id, &newest.short_id);
+    let (base, left_title) = match read(&format!("{}^", oldest.id), &base_path)? {
+        Some(text) => (text, format!("{base_short}^: {}", relative(&base_path))),
+        None => (String::new(), format!("{base_short}^: (new file)")),
     };
-    let (current, right_title) = match read(&commit.id, &path)? {
+    let (current, right_title) = match read(&newest.id, &path)? {
         Some(text) => (text, format!("{short}: {}", relative(&path))),
         None => (
             String::new(),
