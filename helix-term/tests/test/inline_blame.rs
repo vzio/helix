@@ -710,7 +710,7 @@ async fn the_cursor_line_is_drawn_after_its_text() {
         .await;
     assert!(!on_screen(&screen_rows(&session.app), "Jane Doe"));
 
-    // the file tree has the focus: the cursor line of the document is not drawn with blame
+    // the file tree is over the document: it is not drawn with blame
     session.keys("<space>e").await;
     session
         .wait_for_screen("the file tree", |rows| on_screen(rows, "Cargo.toml"))
@@ -721,11 +721,9 @@ async fn the_cursor_line_is_drawn_after_its_text() {
         !on_screen(&rows, "Not committed yet") && !on_screen(&rows, "Jane Doe"),
         "{rows:#?}"
     );
-    // (the document is still there)
-    assert!(on_screen(&rows, "xtwo"), "{rows:#?}");
 
-    // and it is back when the document has the focus again
-    session.keys("<space>e").await;
+    // and it is back when the tree is closed
+    session.keys("<esc>").await;
     session
         .wait_for_screen("blame after the tree", |rows| {
             rows.iter()
