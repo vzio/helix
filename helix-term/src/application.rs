@@ -1288,6 +1288,13 @@ impl Application {
         self.terminal.backend().buffer()
     }
 
+    /// Gives the screen of the test backend another size, like a terminal emulator getting
+    /// resized. The application picks it up with the next event.
+    #[cfg(feature = "integration")]
+    pub fn resize_screen(&mut self, width: u16, height: u16) {
+        self.terminal.backend_mut().resize(width, height);
+    }
+
     #[cfg(all(not(feature = "integration"), not(windows)))]
     pub fn event_stream(&self) -> impl Stream<Item = std::io::Result<TerminalEvent>> + Unpin {
         use termina::{escape::csi, Terminal as _};
