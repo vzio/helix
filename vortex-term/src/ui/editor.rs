@@ -7,7 +7,6 @@ use crate::{
     keymap::{KeymapResult, Keymaps},
     ui::{
         document::{render_document, LinePos, TextRenderer},
-        explorer::{Explorer, KeyResult as ExplorerKey},
         statusline,
         text_decorations::{self, Decoration, DecorationManager, InlineBlame, InlineDiagnostics},
         Completion, ProgressSpinners,
@@ -45,8 +44,6 @@ pub struct EditorView {
     spinners: ProgressSpinners,
     /// Tracks if the terminal window is focused by reaction to terminal focus events
     terminal_focused: bool,
-    /// File tree side panel, toggled with `space E`.
-    pub explorer: Option<Explorer>,
 }
 
 #[derive(Debug, Clone)]
@@ -70,7 +67,6 @@ impl EditorView {
             completion: None,
             spinners: ProgressSpinners::default(),
             terminal_focused: true,
-            explorer: None,
         }
     }
 
@@ -1470,10 +1466,6 @@ impl Component for EditorView {
         };
 
         match event {
-            Event::Paste(_) if self.explorer.as_ref().is_some_and(Explorer::is_focused) => {
-                // The buffer isn't the focus, a paste there would go unnoticed.
-                EventResult::Consumed(None)
-            }
             Event::Paste(contents) => {
                 self.handle_non_key_input(&mut cx);
                 cx.count = cx.editor.count;
@@ -1507,17 +1499,7 @@ impl Component for EditorView {
 
                 let mode = cx.editor.mode();
 
-                let explorer_key = match &mut self.explorer {
-                    Some(explorer) if self.on_next_key.is_none() => {
-                        explorer.handle_key(key, mode, &mut self.keymaps, &mut cx)
-                    }
-                    _ => None,
-                };
-                if let Some(result) = explorer_key {
-                    if matches!(result, ExplorerKey::Close) {
-                        self.explorer = None;
-                    }
-                } else if !self.on_next_key(OnKeyCallbackKind::PseudoPending, &mut cx, key) {
+                if !self.on_next_key(OnKeyCallbackKind::PseudoPending, &mut cx, key) {
                     match mode {
                         Mode::Insert => {
                             // let completion swallow the event if necessary
@@ -1613,28 +1595,7 @@ impl Component for EditorView {
                 EventResult::Consumed(callback)
             }
 
-            Event::Mouse(event) => {
-                let in_explorer = self
-                    .explorer
-                    .as_ref()
-                    .is_some_and(|explorer| explorer.contains(event.column, event.row));
-                if in_explorer {
-                    // Like a click in the editor, dismiss pending keys.
-                    if event.kind != MouseEventKind::Moved {
-                        self.handle_non_key_input(&mut cx);
-                    }
-                    if let Some(explorer) = &mut self.explorer {
-                        explorer.handle_mouse(event, &mut cx);
-                    }
-                    return EventResult::Consumed(None);
-                }
-                if let Some(explorer) = &mut self.explorer {
-                    if matches!(event.kind, MouseEventKind::Down(_)) {
-                        explorer.unfocus();
-                    }
-                }
-                self.handle_mouse_event(event, &mut cx)
-            }
+            Event::Mouse(event) => self.handle_mouse_event(event, &mut cx),
             Event::IdleTimeout => self.handle_idle_timeout(&mut cx),
             Event::FocusGained => {
                 self.terminal_focused = true;
@@ -1679,13 +1640,6 @@ impl Component for EditorView {
             editor_area = editor_area.clip_top(1);
         }
 
-        let explorer_area = self.explorer.as_ref().map(|explorer| {
-            let explorer_area =
-                editor_area.with_width(explorer.width(cx.editor, editor_area.width));
-            editor_area = editor_area.clip_left(explorer_area.width);
-            explorer_area
-        });
-
         // if the terminal size suddenly changed, we need to trigger a resize
         cx.editor.resize(editor_area);
 
@@ -1693,18 +1647,9 @@ impl Component for EditorView {
             Self::render_bufferline(cx.editor, area.with_height(1), surface);
         }
 
-        if let Some(explorer) = &mut self.explorer {
-            explorer.update(cx.editor);
-        }
-        let explorer_focused = self.explorer.as_ref().is_some_and(Explorer::is_focused);
         for (view, is_focused) in cx.editor.tree.views() {
             let doc = cx.editor.document(view.doc).unwrap();
-            let is_focused = is_focused && !explorer_focused;
             self.render_view(cx.editor, doc, view, area, surface, is_focused);
-        }
-
-        if let (Some(explorer), Some(explorer_area)) = (&mut self.explorer, explorer_area) {
-            explorer.render(explorer_area, surface, cx.editor);
         }
 
         if config.auto_info {
@@ -1796,9 +1741,6 @@ impl Component for EditorView {
     }
 
     fn cursor(&self, _area: Rect, editor: &Editor) -> (Option<Position>, CursorKind) {
-        if self.explorer.as_ref().is_some_and(Explorer::is_focused) {
-            return (None, CursorKind::Hidden);
-        }
         match editor.cursor() {
             // all block cursors are drawn manually
             (pos, CursorKind::Block) => {
@@ -1814,7 +1756,7 @@ impl Component for EditorView {
     }
 }
 
-fn canonicalize_key(key: &mut KeyEvent) {
+pub(crate) fn canonicalize_key(key: &mut KeyEvent) {
     if let KeyEvent {
         code: KeyCode::Char(_),
         modifiers: _,

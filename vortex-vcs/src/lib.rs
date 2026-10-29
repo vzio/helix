@@ -32,7 +32,7 @@ pub use status::FileChange;
 
 mod commit;
 
-pub use commit::CommitInfo;
+pub use commit::{CommitInfo, LogEntry};
 
 /// Contains all active diff providers. Diff providers are compiled in via features. Currently
 /// only `git` is supported.
@@ -119,19 +119,19 @@ impl DiffProviderRegistry {
         Err(first_err.unwrap_or_else(|| anyhow!("no diff provider returns success")))
     }
 
-    /// Fire-and-forget iteration over the commits reachable from HEAD, newest first. Runs
+    /// Fire-and-forget iteration over the commit log of HEAD in sections, see [`LogEntry`]. Runs
     /// everything in a background task. Keeps iterating until `f` returns `false`.
-    pub fn for_each_commit(
+    pub fn for_each_log_entry(
         self,
         cwd: PathBuf,
         trust_full: bool,
-        f: impl Fn(Result<CommitInfo>) -> bool + Send + 'static,
+        f: impl Fn(Result<LogEntry>) -> bool + Send + 'static,
     ) {
         tokio::task::spawn_blocking(move || {
             if self
                 .providers
                 .iter()
-                .find_map(|provider| provider.for_each_commit(&cwd, trust_full, &f).ok())
+                .find_map(|provider| provider.for_each_log_entry(&cwd, trust_full, &f).ok())
                 .is_none()
             {
                 f(Err(anyhow!("no diff provider returns success")));
@@ -139,17 +139,19 @@ impl DiffProviderRegistry {
         });
     }
 
-    /// The files changed by commit `id`, compared to its first parent.
-    pub fn commit_changes(
+    /// The files changed by the commits from `oldest` to `newest`: the difference between the
+    /// first parent of `oldest` (nothing, for a root commit) and `newest`.
+    pub fn range_changes(
         &self,
         cwd: &Path,
         trust_full: bool,
-        id: &str,
+        oldest: &str,
+        newest: &str,
     ) -> Result<Vec<FileChange>> {
         // report the error of the first provider, not the fallback's "no diff support"
         let mut first_err = None;
         for provider in &self.providers {
-            match provider.commit_changes(cwd, trust_full, id) {
+            match provider.range_changes(cwd, trust_full, oldest, newest) {
                 Ok(changes) => return Ok(changes),
                 Err(err) => {
                     first_err.get_or_insert(err);
@@ -240,23 +242,29 @@ impl DiffProvider {
         }
     }
 
-    fn for_each_commit(
+    fn for_each_log_entry(
         &self,
         cwd: &Path,
         trust_full: bool,
-        f: impl Fn(Result<CommitInfo>) -> bool,
+        f: impl Fn(Result<LogEntry>) -> bool,
     ) -> Result<()> {
         match self {
             #[cfg(feature = "git")]
-            Self::Git => git::for_each_commit(cwd, trust_full, f),
+            Self::Git => git::for_each_log_entry(cwd, trust_full, f),
             Self::None => bail!("No diff support compiled in"),
         }
     }
 
-    fn commit_changes(&self, cwd: &Path, trust_full: bool, id: &str) -> Result<Vec<FileChange>> {
+    fn range_changes(
+        &self,
+        cwd: &Path,
+        trust_full: bool,
+        oldest: &str,
+        newest: &str,
+    ) -> Result<Vec<FileChange>> {
         match self {
             #[cfg(feature = "git")]
-            Self::Git => git::commit_changes(cwd, trust_full, id),
+            Self::Git => git::range_changes(cwd, trust_full, oldest, newest),
             Self::None => bail!("No diff support compiled in"),
         }
     }

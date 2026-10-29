@@ -302,7 +302,7 @@ fn commit_changes(repo: &Path, id: &str) -> Vec<(&'static str, String)> {
     use crate::FileChange;
 
     let name = |path: &Path| path.file_name().unwrap().to_string_lossy().to_string();
-    git::commit_changes(repo, true, id)
+    git::range_changes(repo, true, id, id)
         .unwrap()
         .into_iter()
         .map(|change| match change {
@@ -363,10 +363,11 @@ fn commit_log_lists_changes_and_contents() {
     assert_eq!(at(&third, &repo.join("new.txt")), None);
 
     let summaries = std::sync::Mutex::new(Vec::new());
-    git::for_each_commit(repo, true, |commit| {
-        let commit = commit.unwrap();
-        assert_eq!(commit.date, "2000-01-01");
-        summaries.lock().unwrap().push(commit.summary);
+    git::for_each_log_entry(repo, true, |entry| {
+        if let crate::LogEntry::Commit(commit) = entry.unwrap() {
+            assert_eq!(commit.date, "2000-01-01");
+            summaries.lock().unwrap().push(commit.summary);
+        }
         true
     })
     .unwrap();

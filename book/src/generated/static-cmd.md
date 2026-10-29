@@ -305,8 +305,8 @@
 | `blame_line` | Show the git blame of the current line |  |
 | `toggle_inline_blame` | Toggle inline git blame | normal: `` <space>B ``, select: `` <space>B `` |
 | `commit_picker` | Open the git commit log picker | normal: `` <space>l ``, select: `` <space>l `` |
-| `toggle_explorer` | Toggle the file explorer side panel, revealing the current file | normal: `` <space>E ``, select: `` <space>E `` |
-| `toggle_explorer_root` | Toggle the file explorer side panel at the workspace root | normal: `` <space>e ``, select: `` <space>e `` |
+| `toggle_explorer` | Open the file tree at the workspace root, revealing the current file | normal: `` <space>E ``, select: `` <space>E `` |
+| `toggle_explorer_root` | Open the file tree at the workspace root | normal: `` <space>e ``, select: `` <space>e `` |
 | `rename_symbol` | Rename symbol | normal: `` <space>r ``, select: `` <space>r `` |
 | `increment` | Increment item under cursor | normal: `` <C-a> ``, select: `` <C-a> `` |
 | `decrement` | Decrement item under cursor | normal: `` <C-x> ``, select: `` <C-x> `` |

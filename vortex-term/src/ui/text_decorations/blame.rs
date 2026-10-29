@@ -34,9 +34,9 @@ impl<'a> InlineBlame<'a> {
     /// The decoration for a view, if there is something to show in it.
     ///
     /// Inline blame is only shown in normal and select mode, in the focused view when it is for
-    /// the cursor line (which also hides it while a panel like the file tree is focused), for
-    /// documents that have a blame. In cursor line mode the line has to be the cursor line for
-    /// a while: if it isn't yet, the wait is started here (it does nothing if it has been).
+    /// the cursor line, for documents that have a blame. In cursor line mode the line has to be
+    /// the cursor line for a while: if it isn't yet, the wait is started here (it does nothing if
+    /// it has been).
     pub fn new(
         editor: &'a Editor,
         doc: &'a Document,

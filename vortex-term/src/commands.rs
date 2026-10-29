@@ -612,8 +612,8 @@ impl MappableCommand {
         blame_line, "Show the git blame of the current line",
         toggle_inline_blame, "Toggle inline git blame",
         commit_picker, "Open the git commit log picker",
-        toggle_explorer, "Toggle the file explorer side panel, revealing the current file",
-        toggle_explorer_root, "Toggle the file explorer side panel at the workspace root",
+        toggle_explorer, "Open the file tree at the workspace root, revealing the current file",
+        toggle_explorer_root, "Open the file tree at the workspace root",
         rename_symbol, "Rename symbol",
         increment, "Increment item under cursor",
         decrement, "Decrement item under cursor",
@@ -5961,9 +5961,7 @@ fn jump_view_right(cx: &mut Context) {
 }
 
 fn jump_view_left(cx: &mut Context) {
-    if !ui::explorer::jump_left(cx) {
-        cx.editor.focus_direction(tree::Direction::Left)
-    }
+    cx.editor.focus_direction(tree::Direction::Left)
 }
 
 fn jump_view_up(cx: &mut Context) {
@@ -6796,19 +6794,11 @@ fn commit_picker(cx: &mut Context) {
 }
 
 fn toggle_explorer(cx: &mut Context) {
-    toggle_explorer_impl(cx, true);
+    ui::explorer::open(cx, true);
 }
 
 fn toggle_explorer_root(cx: &mut Context) {
-    toggle_explorer_impl(cx, false);
-}
-
-fn toggle_explorer_impl(cx: &mut Context, reveal: bool) {
-    cx.callback.push(Box::new(move |compositor, cx| {
-        if let Some(editor_view) = compositor.find::<ui::EditorView>() {
-            ui::explorer::toggle(editor_view, cx.editor, reveal)
-        }
-    }));
+    ui::explorer::open(cx, false);
 }
 
 fn suspend(_cx: &mut Context) {

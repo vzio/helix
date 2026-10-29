@@ -209,4 +209,21 @@ mod tests {
         let default_keys = Config::default().keys;
         assert_eq!(default_keys, keymap::default());
     }
+
+    #[test]
+    fn explorer_options_of_the_former_side_panel_are_ignored() {
+        let config = Config::load_test(
+            "[editor.explorer]\nwidth = 40\nicons = false\nauto-reveal = false\n\
+             hide-gitignored = true\ngit-status = false",
+        );
+        assert!(config.editor.explorer.hide_gitignored);
+        assert!(!config.editor.explorer.git_status);
+
+        // Other unknown options are still an error.
+        let typo = Config::load(
+            Ok(&"[editor.explorer]\nhide-gitignore = true".to_owned()),
+            Err(ConfigLoadError::default()),
+        );
+        assert!(typo.is_err());
+    }
 }

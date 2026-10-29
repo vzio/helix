@@ -19,6 +19,7 @@ mod test {
     mod command_line;
     mod commands;
     mod explorer;
+    mod git_log;
     mod inline_blame;
     mod movement;
     mod splits;

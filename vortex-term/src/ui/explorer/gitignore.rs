@@ -36,7 +36,7 @@ impl DirRules {
 }
 
 /// Rules from outside the tree: the directories above its root, up to the root of the repository,
-/// and the global excludes file. Read when the panel opens, on `R` and when the root changes.
+/// and the global excludes file. Read when the tree opens, on `R` and when the root changes.
 pub struct Outer {
     /// Deepest first.
     above: Vec<Arc<DirRules>>,
