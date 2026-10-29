@@ -269,29 +269,41 @@ impl Default for FileExplorerConfig {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case", default, deny_unknown_fields)]
 pub struct ExplorerConfig {
-    /// Width of the side panel, in columns. Defaults to 30.
-    pub width: u16,
     /// Hide files and directories ignored by git instead of dimming them. Defaults to false.
     pub hide_gitignored: bool,
-    /// Show file type icons, which need a Nerd Font. Defaults to true.
-    pub icons: bool,
-    /// Expand the tree to the file of the current buffer and select it whenever the current buffer
-    /// changes, while the panel isn't focused. Defaults to true.
-    pub auto_reveal: bool,
     /// Mark files changed in git (modified, added, untracked...) and the directories holding them.
     /// Defaults to true.
     pub git_status: bool,
+    /// Options of the side panel the tree used to be, which configs may still have. They are read
+    /// and ignored, so that those configs keep loading.
+    #[serde(default, skip_serializing, rename = "width")]
+    _width: Ignored,
+    #[serde(default, skip_serializing, rename = "icons")]
+    _icons: Ignored,
+    #[serde(default, skip_serializing, rename = "auto-reveal")]
+    _auto_reveal: Ignored,
 }
 
 impl Default for ExplorerConfig {
     fn default() -> Self {
         Self {
-            width: 30,
             hide_gitignored: false,
-            icons: true,
-            auto_reveal: true,
             git_status: true,
+            _width: Ignored,
+            _icons: Ignored,
+            _auto_reveal: Ignored,
         }
+    }
+}
+
+/// A value that is read and dropped.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+struct Ignored;
+
+impl<'de> Deserialize<'de> for Ignored {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        serde::de::IgnoredAny::deserialize(deserializer)?;
+        Ok(Self)
     }
 }
 
@@ -433,7 +445,7 @@ pub struct Config {
     pub auto_info: bool,
     pub file_picker: FilePickerConfig,
     pub file_explorer: FileExplorerConfig,
-    /// Side panel with a file tree, toggled with `space E` (fork feature).
+    /// File tree overlay, opened with `space e` and `space E` (fork feature).
     pub explorer: ExplorerConfig,
     /// Inline git blame (fork feature).
     pub inline_blame: InlineBlameConfig,
