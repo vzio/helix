@@ -1382,6 +1382,12 @@ impl<I: 'static + Send + Sync, D: 'static + Send + Sync> Component for Picker<I,
         // TODO: keybinds for scrolling preview
 
         let key_event = match event {
+            Event::Key(event) if self.mode.is_some() => {
+                // A terminal may send `G` with shift, which no key of the picker has.
+                let mut event = *event;
+                ui::editor::canonicalize_key(&mut event);
+                event
+            }
             Event::Key(event) => *event,
             // There is no prompt to paste into in normal mode.
             Event::Paste(..) if self.mode == Some(PickerMode::Normal) => {

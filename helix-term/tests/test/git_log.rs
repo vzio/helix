@@ -239,6 +239,16 @@ impl Session {
         assert!(self.app.event_loop_until_idle(&mut self.input).await);
     }
 
+    /// Types `key` the way terminals send capital letters: with shift.
+    async fn shifted(&mut self, key: char) {
+        let key = helix_view::input::KeyEvent {
+            code: helix_view::keyboard::KeyCode::Char(key),
+            modifiers: helix_view::keyboard::KeyModifiers::SHIFT,
+        };
+        self.tx.send(Ok(Event::Key(KeyEvent::from(key)))).unwrap();
+        assert!(self.app.event_loop_until_idle(&mut self.input).await);
+    }
+
     /// Run until `condition` is true of the screen.
     async fn wait_for_screen(&mut self, what: &str, condition: impl Fn(&[String]) -> bool) {
         let deadline = Instant::now() + Duration::from_secs(20);
@@ -909,6 +919,10 @@ async fn j_k_and_the_goto_keys_move_over_the_dividers() {
         assert_eq!(session.cursor(), *expected);
     }
     session.keys("G").await;
+    assert_eq!(session.cursor(), COMMITS[7]);
+    session.keys("gg").await;
+    assert_eq!(session.cursor(), COMMITS[0]);
+    session.shifted('G').await;
     assert_eq!(session.cursor(), COMMITS[7]);
     session.keys("gg").await;
     assert_eq!(session.cursor(), COMMITS[0]);
