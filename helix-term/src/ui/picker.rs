@@ -58,6 +58,7 @@ use helix_view::{
 };
 
 pub use self::handlers::PickerLookup;
+use self::handlers::{DynamicQueryChange, DynamicQueryHandler, PreviewHighlightHandler};
 
 /// The mode of a picker that has modes, see [`Picker::with_modes`].
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -67,7 +68,6 @@ pub enum PickerMode {
     /// Letters are typed in the prompt, as in every other picker.
     Filter,
 }
-use self::handlers::{DynamicQueryChange, DynamicQueryHandler, PreviewHighlightHandler};
 
 pub const ID: &str = "picker";
 
@@ -1424,6 +1424,17 @@ impl<I: 'static + Send + Sync, D: 'static + Send + Sync> Component for Picker<I,
             EventResult::Consumed(Some(callback))
         };
 
+        let normal = self.mode == Some(PickerMode::Normal);
+        // The key after `g` completes `gg`/`ge`, whatever it is.
+        if normal && std::mem::take(&mut self.goto) {
+            match key_event {
+                key!('g') => self.to_start(),
+                key!('e') => self.to_end(),
+                _ => {}
+            }
+            return EventResult::Consumed(None);
+        }
+
         if let Some((_, handler, close)) =
             self.key_handlers.iter().find(|(key, ..)| *key == key_event)
         {
@@ -1434,16 +1445,6 @@ impl<I: 'static + Send + Sync, D: 'static + Send + Sync> Component for Picker<I,
                 return EventResult::Consumed(None);
             }
             return close_fn(self);
-        }
-
-        let normal = self.mode == Some(PickerMode::Normal);
-        if normal && std::mem::take(&mut self.goto) {
-            match key_event {
-                key!('g') => self.to_start(),
-                key!('e') => self.to_end(),
-                _ => {}
-            }
-            return EventResult::Consumed(None);
         }
 
         match key_event {

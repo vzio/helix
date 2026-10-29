@@ -149,9 +149,9 @@ The sections are made of the commits reachable from HEAD (`B` is the current bra
 - Sections 1 and 2 are found first, with the commits of the current branch only, then the rest of
   the history streams into section 3 as before.
 
-Dividers are not entries: the cursor skips them (`j`, `k`, `Up`, `Down`, `Tab`, `C-n`, `C-p`, `PageUp`,
-`PageDown`, `Home`, `End`, wrapping around the ends), they are not counted in the numbers above
-the list, and a query hides them. They are drawn as a line across the picker, with the style of the
+Dividers are not entries: the cursor skips them (`j`, `k`, `Up`, `Down`, `Tab`, `C-n`, `C-p`,
+`PageUp`, `PageDown`, `Home`, `End`, wrapping around the ends), they are not counted in the numbers
+above the list, and a query hides them. They are drawn as a line across the picker, with the style of the
 theme scope `ui.picker.divider` if the theme has it, else `ui.text.inactive`, else `comment`.
 
 ### Usage
@@ -275,8 +275,8 @@ The picker is still on `space .` (current buffer's directory) and in the command
 
 Helix pickers send the letters typed to their prompt, but the tree needs them as keys, so it uses
 the modes of the picker (`Picker::with_modes`, which the [commit log](#git-commit-log) uses too).
-In normal mode (the one it opens in) the keys move in the tree and act on its entries; `s` enters
-filter mode, where the keys go to the prompt. The prompt shows its cursor in filter mode only.
+In normal mode (the one it opens in) the keys move in the tree and act on its entries, and the
+other letters do nothing; `s` enters filter mode, where the keys go to the prompt. The prompt shows its cursor in filter mode only.
 
 | Keys | Action |
 | --- | --- |
@@ -297,7 +297,7 @@ filter mode, where the keys go to the prompt. The prompt shows its cursor in fil
 | `R` | Read the whole tree from disk again. |
 | `H` | Show/hide git ignored files for this session. |
 | `?` | Show the keys in the status line. |
-| `Esc` | Clear the filter if there is one, otherwise close the tree. Any other letter does nothing. |
+| `Esc` | Clear the filter if there is one, otherwise close the tree. |
 | `q`, `C-c` | Close the tree. |
 
 Filter mode, entered with `s`, is the prompt of the file picker: type to filter, edit with the usual
