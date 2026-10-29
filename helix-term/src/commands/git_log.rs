@@ -16,8 +16,15 @@ use tui::{buffer::Buffer as Surface, text::Span};
 use super::{diff_view, file_change_columns};
 use crate::compositor::{self, Component, Compositor, Event, EventResult};
 use crate::job::Callback;
-use crate::ui::{overlay::overlaid, picker, Picker, PickerColumn};
+use crate::ui::{
+    overlay::overlaid,
+    picker::{self, PickerMode},
+    Picker, PickerColumn,
+};
 use crate::{alt, ctrl, key, shift};
+
+/// Shown in the status line when the log opens.
+const HINT: &str = "s filter, v extend, w/b section, enter files";
 
 fn trust_full(editor: &Editor, cwd: &Path) -> bool {
     editor
@@ -73,6 +80,7 @@ pub(crate) fn commit_picker(editor: &mut Editor) -> Option<CommitLog> {
             }
         }
     })
+    .with_modes()
     .with_dividers(|row, _| match &row.entry {
         LogEntry::Divider(title) => Some(title.as_str().into()),
         LogEntry::Commit(_) => None,
@@ -104,6 +112,7 @@ pub(crate) fn commit_picker(editor: &mut Editor) -> Option<CommitLog> {
                 false
             }
         });
+    editor.set_status(HINT);
     Some(CommitLog {
         picker,
         cwd,
@@ -182,9 +191,11 @@ struct Selection {
     extend: bool,
 }
 
-/// The commit picker, with a selection of several commits: `A-v` toggles extend mode, in which
-/// movements extend the selection, `S-Down`/`S-Up` extend it by one commit, `A-s` selects the
-/// section of the log the cursor is in and `Esc` collapses it. `Enter` lists the files changed by
+/// The commit picker, with a selection of several commits. The picker has modes
+/// ([`Picker::with_modes`]): in normal mode, the one it opens in, `v` (or `A-v`, in both modes)
+/// toggles extend mode, in which movements extend the selection; `w`/`e` and `b` extend it to the
+/// end and the start of the section of the log the cursor is in; `S-Down`/`S-Up` extend it by one
+/// commit; `A-s` selects the section; and `Esc` collapses it. `Enter` lists the files changed by
 /// the whole selection.
 pub(crate) struct CommitLog {
     picker: Picker<LogRow, CommitStyle>,
@@ -310,6 +321,51 @@ impl CommitLog {
         self.select(oldest, newest);
     }
 
+    /// Extends the selection to the last commit of the section under the cursor that is shown
+    /// in `direction`, and puts the cursor on it. The selection goes on from its anchor if it has
+    /// several commits or extend mode is on, else it starts at the commit under the cursor. With
+    /// a query, the commits that don't match are not shown, so they are not stopped at.
+    fn extend_to_section_end(&mut self, direction: Direction) {
+        self.follow_cursor();
+        let Some(cursor) = self.cursor_pos() else {
+            return;
+        };
+        let is_commit = |pos: usize| self.commit_at(pos).is_some();
+        let (mut newest, mut oldest) = (cursor, cursor);
+        while newest > 0 && is_commit(newest - 1) {
+            newest -= 1;
+        }
+        while is_commit(oldest + 1) {
+            oldest += 1;
+        }
+        // The rows that match are not in the order of the log: look for the one that is the
+        // furthest in the section.
+        let mut target = (cursor, self.picker.cursor_index());
+        let mut index = 0;
+        while let Some(row) = self.picker.matched_item(index) {
+            let further = match direction {
+                Direction::Forward => row.pos > target.0,
+                Direction::Backward => row.pos < target.0,
+            };
+            if further && (newest..=oldest).contains(&row.pos) && row.commit().is_some() {
+                target = (row.pos, index);
+            }
+            index += 1;
+        }
+        let anchor = match self.selection.anchor {
+            Some(anchor) if self.selection.extend || self.is_range() => anchor,
+            _ => cursor,
+        };
+        self.picker.set_cursor_index(target.1);
+        self.selection.cursor = Some(target.0);
+        self.select(anchor, target.0);
+    }
+
+    fn toggle_extend(&mut self) {
+        self.follow_cursor();
+        self.selection.extend = !self.selection.extend;
+    }
+
     /// Back to the commit under the cursor alone.
     fn collapse(&mut self) {
         self.selection.extend = false;
@@ -331,15 +387,17 @@ impl Component for CommitLog {
         let Event::Key(key) = event else {
             return self.picker.handle_event(event, cx);
         };
+        // The second key of `gg`/`ge` is the picker's.
+        let normal = self.picker.mode() == PickerMode::Normal && !self.picker.pending_key();
         match *key {
-            alt!('v') => {
-                self.follow_cursor();
-                self.selection.extend = !self.selection.extend;
-            }
+            alt!('v') => self.toggle_extend(),
+            key!('v') if normal => self.toggle_extend(),
+            key!('w') | key!('e') if normal => self.extend_to_section_end(Direction::Forward),
+            key!('b') if normal => self.extend_to_section_end(Direction::Backward),
             shift!(Down) => self.extend_by(Direction::Forward),
             shift!(Up) => self.extend_by(Direction::Backward),
             alt!('s') => self.select_section(),
-            key!(Esc) if self.is_range() || self.selection.extend => self.collapse(),
+            key!(Esc) if normal && (self.is_range() || self.selection.extend) => self.collapse(),
             key!(Enter) if self.is_range() => {
                 if let Some(range) = self.range() {
                     open_commit_files(cx, self.cwd.clone(), range);
