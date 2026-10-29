@@ -430,7 +430,11 @@ async fn slash_is_not_the_filter_key_any_more() -> anyhow::Result<()> {
     assert!(on_screen(&session.rows(), "y.txt"));
     // A `/` in filter mode is a character of the query.
     session.keys("/").await;
-    assert!(session.rows()[1].contains("y.txt/"), "{:#?}", session.rows());
+    assert!(
+        session.rows()[1].contains("y.txt/"),
+        "{:#?}",
+        session.rows()
+    );
     session.close().await;
     Ok(())
 }
@@ -808,6 +812,23 @@ async fn the_preview_is_on_wide_screens_and_off_on_narrow_ones() -> anyhow::Resu
         "{:#?}",
         session.rows()
     );
+    session.close().await;
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn the_cursor_is_in_the_prompt_in_filter_mode_only() -> anyhow::Result<()> {
+    use helix_view::graphics::CursorKind;
+
+    let (_dir, x, _y) = fixture()?;
+    let mut session = Session::on(&x);
+
+    session.keys("<space>E").await;
+    assert_eq!(session.app.cursor_kind(), CursorKind::Hidden);
+    session.keys("s").await;
+    assert_ne!(session.app.cursor_kind(), CursorKind::Hidden);
+    session.keys("<esc>").await;
+    assert_eq!(session.app.cursor_kind(), CursorKind::Hidden);
     session.close().await;
     Ok(())
 }
