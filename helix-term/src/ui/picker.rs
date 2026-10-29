@@ -1,5 +1,7 @@
 mod handlers;
 mod query;
+#[cfg(test)]
+mod tests;
 
 use crate::{
     alt,
@@ -28,6 +30,8 @@ use tui::{
 
 use tui::widgets::Widget;
 
+use helix_core::unicode::width::UnicodeWidthStr;
+
 use std::{
     borrow::Cow,
     collections::HashMap,
@@ -53,6 +57,7 @@ use helix_view::{
     Document, DocumentId, Editor,
 };
 
+pub use self::handlers::PickerLookup;
 use self::handlers::{DynamicQueryChange, DynamicQueryHandler, PreviewHighlightHandler};
 
 pub const ID: &str = "picker";
@@ -128,6 +133,22 @@ impl Preview<'_, '_> {
             },
         }
     }
+}
+
+/// What the matcher calls from its own threads when it has new results.
+fn redraw_notifier() -> Arc<dyn Fn() + Sync + Send> {
+    // With the `integration` feature the event system keeps one set of globals for each Tokio
+    // runtime (one for each application of the tests), and panics on a thread that isn't in one.
+    #[cfg(feature = "integration")]
+    {
+        let runtime = tokio::runtime::Handle::try_current().ok();
+        Arc::new(move || {
+            let _guard = runtime.as_ref().map(|runtime| runtime.enter());
+            helix_event::request_redraw()
+        })
+    }
+    #[cfg(not(feature = "integration"))]
+    Arc::new(helix_event::request_redraw)
 }
 
 fn inject_nucleo_item<T, D>(
@@ -270,9 +291,16 @@ pub struct Picker<T: 'static + Send + Sync, D: 'static> {
     /// An event handler for syntax highlighting the currently previewed file.
     preview_highlight_handler: Sender<Arc<Path>>,
     dynamic_query_handler: Option<Sender<DynamicQueryChange>>,
+    /// Whether the owner of the picker filters and orders the items itself, from the query it
+    /// reads with [`Picker::query_line`]: the prompt then doesn't filter them.
+    external_filter: bool,
     /// Extra keys that run a handler on the selected item and close the picker.
     /// Extra keys, the handler to run on the selected item, and whether to close the picker.
     key_handlers: Vec<(KeyEvent, PickerKeyHandler<T>, bool)>,
+    /// Rows that are section dividers, see [`Picker::with_dividers`].
+    dividers: Option<Dividers<T, D>>,
+    /// Rows that are drawn as marked, see [`Picker::with_marked_rows`].
+    marked: Option<PickerMarked<T>>,
 }
 
 impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
@@ -283,12 +311,7 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
         let columns: Arc<[_]> = columns.into_iter().collect();
         let matcher_columns = columns.iter().filter(|col| col.filter).count() as u32;
         assert!(matcher_columns > 0);
-        let matcher = Nucleo::new(
-            Config::DEFAULT,
-            Arc::new(helix_event::request_redraw),
-            None,
-            matcher_columns,
-        );
+        let matcher = Nucleo::new(Config::DEFAULT, redraw_notifier(), None, matcher_columns);
         let streamer = Injector {
             dst: matcher.injector(),
             columns,
@@ -318,12 +341,7 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
             .filter(|col: &&Column<T, D>| col.filter)
             .count() as u32;
         assert!(matcher_columns > 0);
-        let matcher = Nucleo::new(
-            Config::DEFAULT,
-            Arc::new(helix_event::request_redraw),
-            None,
-            matcher_columns,
-        );
+        let matcher = Nucleo::new(Config::DEFAULT, redraw_notifier(), None, matcher_columns);
         let injector = matcher.injector();
         for item in options {
             inject_nucleo_item(&injector, &columns, item, &editor_data);
@@ -398,7 +416,10 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
             file_fn: None,
             preview_highlight_handler: PreviewHighlightHandler::<T, D>::default().spawn(),
             dynamic_query_handler: None,
+            external_filter: false,
             key_handlers: Vec::new(),
+            dividers: None,
+            marked: None,
         }
     }
 
@@ -460,6 +481,54 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
         self
     }
 
+    /// The owner of the picker filters and orders the items itself: editing the prompt doesn't
+    /// filter or reorder them, whatever is typed shows every item in the order they were given.
+    /// The owner reads the query with [`Picker::query_line`] and gives the items that match to
+    /// [`Picker::replace_items`].
+    pub fn with_external_filter(mut self) -> Self {
+        self.external_filter = true;
+        self
+    }
+
+    /// The picker is not overlaid on its own but inside another component: `lookup` finds it in
+    /// the compositor, which the highlighting of the previews needs to give them their syntax.
+    pub fn with_lookup(mut self, lookup: PickerLookup<T, D>) -> Self {
+        self.preview_highlight_handler = PreviewHighlightHandler::new(lookup).spawn();
+        self
+    }
+
+    /// What is typed in the prompt.
+    pub fn query_line(&self) -> &str {
+        self.prompt.line()
+    }
+
+    /// Replaces the contents of the prompt, as if the new text was typed.
+    pub fn set_query_line(&mut self, line: String, editor: &Editor) {
+        self.prompt.set_line(line, editor);
+        self.handle_prompt_change(false);
+    }
+
+    /// Replaces every item with `items`, in this order if the picker has an external filter, and
+    /// selects the one at index `selected` (or the last one if there are fewer). The new items
+    /// are ready to show when this returns, unless there are so many that matching takes longer
+    /// than a frame.
+    pub fn replace_items(&mut self, items: impl IntoIterator<Item = T>, selected: u32) {
+        // Not clearing the snapshot here would keep the old items on screen until the matcher ran.
+        self.matcher.restart(true);
+        if let Some(dividers) = &mut self.dividers {
+            dividers.scanned = 0;
+            dividers.count = 0;
+        }
+        let injector = self.matcher.injector();
+        let mut count = 0u32;
+        for item in items {
+            inject_nucleo_item(&injector, &self.columns, item, &self.editor_data);
+            count += 1;
+        }
+        self.cursor = selected.min(count.saturating_sub(1));
+        self.matcher.tick(10);
+    }
+
     /// Pressing `key` runs `handler` on the selected item and closes the picker.
     pub fn with_key_handler(
         mut self,
@@ -481,6 +550,124 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
         self
     }
 
+    /// Items for which `divider` returns a title are not entries but dividers between groups of
+    /// entries: they are drawn as a full-width line with the title, the cursor never rests on
+    /// one (movements skip them and `selection` is never one) and they don't count in the
+    /// number of items. Give them empty column texts so that they match nothing while the
+    /// picker is filtered.
+    pub fn with_dividers(
+        mut self,
+        divider: impl for<'a> Fn(&'a T, &'a D) -> Option<Cow<'a, str>> + 'static,
+    ) -> Self {
+        self.dividers = Some(Dividers {
+            title_fn: Box::new(divider),
+            scanned: 0,
+            count: 0,
+        });
+        self
+    }
+
+    /// Items for which `marked` returns true are drawn with the `ui.selection` style, unless the
+    /// cursor is on them. The picker doesn't act on them: this is for components that keep
+    /// their own selection of several items, see [`Picker::cursor_index`] and [`Picker::item`].
+    pub fn with_marked_rows(mut self, marked: impl Fn(&T) -> bool + 'static) -> Self {
+        self.marked = Some(Box::new(marked));
+        self
+    }
+
+    /// The position of the cursor among the items that match the query.
+    pub fn cursor_index(&self) -> u32 {
+        self.cursor
+    }
+
+    /// Puts the cursor on the `cursor`th item that matches the query, or on the last one if there
+    /// are fewer. The cursor moves on to the next entry if that's a divider.
+    pub fn set_cursor_index(&mut self, cursor: u32) {
+        let len = self.matcher.snapshot().matched_item_count();
+        self.cursor = cursor.min(len.saturating_sub(1));
+        self.skip_dividers(Direction::Forward);
+    }
+
+    /// The `index`th item in the order they were added to the picker, whether it matches the
+    /// query or not.
+    pub fn item(&self, index: u32) -> Option<&T> {
+        self.matcher
+            .snapshot()
+            .get_item(index)
+            .map(|item| item.data)
+    }
+
+    /// Whether `item` is a divider, see [`Picker::with_dividers`].
+    fn is_divider_item(&self, item: &T) -> bool {
+        self.dividers
+            .as_ref()
+            .is_some_and(|dividers| dividers.title(item, &self.editor_data).is_some())
+    }
+
+    /// If the cursor is on a divider, moves it in `direction` to the first entry, wrapping around
+    /// the ends of the list. It stays where it is if there are no entries.
+    fn skip_dividers(&mut self, direction: Direction) {
+        if self.dividers.is_none() {
+            return;
+        }
+        let snapshot = self.matcher.snapshot();
+        let len = snapshot.matched_item_count();
+        let is_entry = |at: u32| {
+            snapshot
+                .get_matched_item(at)
+                .is_some_and(|item| !self.is_divider_item(item.data))
+        };
+        let mut cursor = self.cursor;
+        for _ in 0..len {
+            if is_entry(cursor) {
+                self.cursor = cursor;
+                return;
+            }
+            cursor = match direction {
+                Direction::Forward => (cursor + 1) % len,
+                Direction::Backward => (cursor + len - 1) % len,
+            };
+        }
+    }
+
+    /// Counts the new dividers, and moves the cursor off a divider that arrived under it or
+    /// that a new query put under it.
+    fn update_dividers(&mut self) {
+        let Some(dividers) = &mut self.dividers else {
+            return;
+        };
+        let snapshot = self.matcher.snapshot();
+        let total = snapshot.item_count();
+        for index in dividers.scanned..total {
+            if let Some(item) = snapshot.get_item(index) {
+                dividers.count += dividers.title(item.data, &self.editor_data).is_some() as u32;
+            }
+        }
+        dividers.scanned = total;
+        self.skip_dividers(Direction::Forward);
+    }
+
+    /// The number of items that match the query and the number of items, without the dividers.
+    fn counts(&self) -> (u32, u32) {
+        let snapshot = self.matcher.snapshot();
+        let Some(dividers) = &self.dividers else {
+            return (snapshot.matched_item_count(), snapshot.item_count());
+        };
+        // dividers have no text, so they only match while there's no query (or a negated one)
+        let matching = if snapshot.pattern().is_empty() {
+            dividers.count
+        } else {
+            snapshot
+                .matched_items(..)
+                .filter(|item| dividers.title(item.data, &self.editor_data).is_some())
+                .count() as u32
+        };
+        (
+            snapshot.matched_item_count().saturating_sub(matching),
+            snapshot.item_count().saturating_sub(dividers.count),
+        )
+    }
+
     /// Move the cursor by a number of lines, either down (`Forward`) or up (`Backward`)
     pub fn move_by(&mut self, amount: u32, direction: Direction) {
         let len = self.matcher.snapshot().matched_item_count();
@@ -498,6 +685,7 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
                 self.cursor = self.cursor.saturating_add(len).saturating_sub(amount) % len;
             }
         }
+        self.skip_dividers(direction);
     }
 
     /// Move the cursor down by exactly one page. After the last page comes the first page.
@@ -513,6 +701,7 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
     /// Move the cursor to the first entry
     pub fn to_start(&mut self) {
         self.cursor = 0;
+        self.skip_dividers(Direction::Forward);
     }
 
     /// Move the cursor to the last entry
@@ -522,6 +711,7 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
             .snapshot()
             .matched_item_count()
             .saturating_sub(1);
+        self.skip_dividers(Direction::Backward);
     }
 
     pub fn selection(&self) -> Option<&T> {
@@ -529,6 +719,7 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
             .snapshot()
             .get_matched_item(self.cursor)
             .map(|item| item.data)
+            .filter(|item| !self.is_divider_item(item))
     }
 
     fn primary_query(&self) -> Arc<str> {
@@ -558,6 +749,9 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
     }
 
     fn handle_prompt_change(&mut self, is_paste: bool) {
+        if self.external_filter {
+            return;
+        }
         // TODO: better track how the pattern has changed
         let line = self.prompt.line();
         let old_query = self.query.parse(line);
@@ -626,7 +820,10 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
                     // retrieve the `Arc<Path>` key. The `path` in scope here is a `&Path` and
                     // we can cheaply clone the key for the preview highlight handler.
                     let (path, preview) = self.preview_cache.get_key_value(path).unwrap();
-                    if matches!(preview, CachedPreview::Document(doc) if doc.syntax().is_none()) {
+                    // (Only for a language: highlighting a plain text file does nothing, but
+                    // asking for it redraws the picker, which asks again.)
+                    if matches!(preview, CachedPreview::Document(doc) if doc.syntax().is_none() && doc.language_config().is_some())
+                    {
                         helix_event::send_blocking(&self.preview_highlight_handler, path.clone());
                     }
                     return Some((Preview::Cached(preview), range));
@@ -708,12 +905,17 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
 
     fn render_picker(&mut self, area: Rect, surface: &mut Surface, cx: &mut Context) {
         let status = self.matcher.tick(10);
-        let snapshot = self.matcher.snapshot();
         if status.changed {
-            self.cursor = self
-                .cursor
-                .min(snapshot.matched_item_count().saturating_sub(1))
+            self.cursor = self.cursor.min(
+                self.matcher
+                    .snapshot()
+                    .matched_item_count()
+                    .saturating_sub(1),
+            )
         }
+        self.update_dividers();
+        let (matched_count, item_count) = self.counts();
+        let snapshot = self.matcher.snapshot();
 
         let text_style = cx.editor.theme.get("ui.text");
         let selected = cx.editor.theme.get("ui.text.focus");
@@ -740,8 +942,8 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
             } else {
                 ""
             },
-            snapshot.matched_item_count(),
-            snapshot.item_count(),
+            matched_count,
+            item_count,
         );
 
         let area = inner.clip_left(1).with_height(1);
@@ -784,6 +986,13 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
         }
 
         let options = snapshot.matched_items(offset..end).map(|item| {
+            let is_divider = self
+                .dividers
+                .as_ref()
+                .is_some_and(|dividers| dividers.title(item.data, &self.editor_data).is_some());
+            if is_divider {
+                return Row::new(self.columns.iter().map(|_| Cell::default()));
+            }
             let mut widths = self.widths.iter_mut();
             let mut matcher_index = 0;
 
@@ -903,6 +1112,43 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
             },
             self.truncate_start,
         );
+
+        // -- Marked rows and dividers, over the table:
+        if self.marked.is_some() || self.dividers.is_some() {
+            let marked_style = cx.editor.theme.get("ui.selection");
+            let divider_style = cx
+                .editor
+                .theme
+                .try_get_exact("ui.picker.divider")
+                .or_else(|| cx.editor.theme.try_get_exact("ui.text.inactive"))
+                .unwrap_or_else(|| cx.editor.theme.get("comment"));
+            let first_row = inner.y + self.header_height();
+            for (i, item) in snapshot.matched_items(offset..end).enumerate() {
+                let row = Rect::new(inner.x, first_row + i as u16, inner.width, 1);
+                if row.bottom() > inner.bottom() {
+                    break;
+                }
+                if let Some(title) = self
+                    .dividers
+                    .as_ref()
+                    .and_then(|dividers| dividers.title(item.data, &self.editor_data))
+                {
+                    let width = row.width as usize;
+                    let used = 4 + title.width();
+                    let line = format!("── {title} {}", "─".repeat(width.saturating_sub(used)));
+                    surface.clear_with(row, text_style);
+                    surface.set_stringn(
+                        row.x,
+                        row.y,
+                        &line,
+                        width,
+                        text_style.patch(divider_style),
+                    );
+                } else if i as u32 != cursor && self.marked.as_ref().is_some_and(|f| f(item.data)) {
+                    surface.set_style(row, marked_style);
+                }
+            }
+        }
     }
 
     fn render_preview(&mut self, area: Rect, surface: &mut Surface, cx: &mut Context) {
@@ -1242,5 +1488,23 @@ impl<T: 'static + Send + Sync, D> Drop for Picker<T, D> {
     }
 }
 
+/// The dividers of a picker, see [`Picker::with_dividers`].
+struct Dividers<T, D> {
+    title_fn: DividerTitle<T, D>,
+    /// How many items (in the order they were added) are counted in `count` already.
+    scanned: u32,
+    /// How many of them are dividers.
+    count: u32,
+}
+
+impl<T, D> Dividers<T, D> {
+    /// The title of `item` if it is a divider.
+    fn title<'a>(&self, item: &'a T, data: &'a D) -> Option<Cow<'a, str>> {
+        (self.title_fn)(item, data)
+    }
+}
+
 type PickerCallback<T> = Box<dyn Fn(&mut Context, &T, Action)>;
 type PickerKeyHandler<T> = Box<dyn Fn(&mut Context, &T)>;
+type PickerMarked<T> = Box<dyn Fn(&T) -> bool>;
+type DividerTitle<T, D> = Box<dyn for<'a> Fn(&'a T, &'a D) -> Option<Cow<'a, str>>>;

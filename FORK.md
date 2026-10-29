@@ -11,16 +11,19 @@ The git diff viewer and the file explorer are ported from
 
 - [PR #2](https://github.com/marcos-venicius/helix/pull/2): side by side git diff view, staged
   files in the changed files picker
-- [PR #3](https://github.com/marcos-venicius/helix/pull/3): file explorer side panel
+- [PR #3](https://github.com/marcos-venicius/helix/pull/3): file explorer side panel (in this
+  fork it has become an overlay built on Helix's picker, see [File tree overlay](#file-tree-overlay))
 - [PR #4](https://github.com/marcos-venicius/helix/pull/4): git commit log picker with per-commit
   diffs, `C-g` in the changed files picker
 - Later fixes from his `marcos` branch: diff view soft wrap (`9ccc1e16a`, `f1d06509a`), explorer
-  git status markers and sideways scrolling (`cde8ec5d1`, `673ba0d33`)
+  git status markers and sideways scrolling (`cde8ec5d1`, `673ba0d33`; the scrolling went with
+  the side panel)
 
-His commits are cherry-picked with their authorship kept. The one design change in this fork:
-the explorer panel is on `space e` (at the workspace root) and `space E` (revealing the current
-file), replacing upstream's file explorer picker on those keys, and it is rooted at the workspace
-root rather than the working directory.
+His commits are cherry-picked with their authorship kept. The design changes in this fork: the
+explorer is on `space e` (at the workspace root) and `space E` (revealing the current file),
+replacing upstream's file explorer picker on those keys, it is rooted at the workspace root rather
+than the working directory, and it is a modal overlay built on Helix's picker rather than a side
+panel.
 
 Inline git blame is ported from Helix
 [PR #13133](https://github.com/helix-editor/helix/pull/13133) by Nik Revenco (nik-rev), which
@@ -32,7 +35,7 @@ blame is computed entirely in the background (see [Inline git blame](#inline-git
 - [Side by side git diff](#side-by-side-git-diff)
 - [Git commit log](#git-commit-log)
 - [Staged files in the changed files picker](#staged-files-in-the-changed-files-picker)
-- [File explorer side panel](#file-explorer-side-panel)
+- [File tree overlay](#file-tree-overlay)
 - [Inline git blame](#inline-git-blame)
 
 ## Code layout
@@ -42,14 +45,15 @@ Each feature lives in its own modules, to keep rebasing on upstream cheap:
 | Feature | Modules |
 | --- | --- |
 | Diff view | `helix-term/src/ui/diff_view.rs`, `helix-term/src/commands/diff_view.rs` |
-| Commit log | `helix-term/src/commands/git_log.rs`, `helix-vcs/src/commit.rs` |
+| Commit log | `helix-term/src/commands/git_log.rs`, `helix-vcs/src/commit.rs`, `helix-vcs/src/git/log.rs` |
 | Staged files, commit diffs | `helix-vcs/src/git.rs`, `helix-vcs/src/lib.rs`, `helix-vcs/src/status.rs` |
-| Explorer | `helix-term/src/ui/explorer.rs`, `helix-term/src/ui/explorer/`, `helix-term/benches/explorer.rs` |
+| File tree | `helix-term/src/ui/explorer.rs`, `helix-term/src/ui/explorer/`, `helix-term/benches/explorer.rs` |
 | Inline blame | `helix-vcs/src/git/blame.rs`, `helix-vcs/src/blame_stub.rs`, `helix-vcs/benches/blame.rs`, `helix-stdx/src/time.rs`, `helix-view/src/blame.rs`, `helix-term/src/handlers/blame.rs`, `helix-term/src/commands/blame.rs`, `helix-term/src/ui/text_decorations/blame.rs` |
 
 Hooks into core files: commands and keys in `helix-term/src/commands.rs`,
-`helix-term/src/commands/typed.rs` and `helix-term/src/keymap/default.rs`; the panel's layout,
-keys and mouse in `helix-term/src/ui/editor.rs`; `C-g` in `helix-term/src/ui/picker.rs`;
+`helix-term/src/commands/typed.rs` and `helix-term/src/keymap/default.rs`; `C-g`, the hooks the
+file tree needs (an external filter, replacing the items, the query), the ones of the commit log
+(dividers, marked rows) and the cursor accessors both use in `helix-term/src/ui/picker.rs`;
 `[editor.explorer]` and `[editor.inline-blame]` in `helix-view/src/editor.rs`. Inline blame also
 has one field on `Document`, one decoration in `render_view`, `is_last_visual_line` in
 `helix-term/src/ui/document.rs`, and refresh calls on save (`application.rs`), on focus
@@ -109,17 +113,55 @@ can be read whole. `w` switches between wrapping and horizontal scrolling.
 
 ## Git commit log
 
-A picker of the commits reachable from HEAD, newest first, with their short id, date, author and
-summary. Choosing a commit lists the files it changed, and choosing a file opens the
+A picker of the commits reachable from HEAD, with their short id, date, author and summary. The
+commits are in sections by branch, newest first in each, each section under a divider with the
+name of the branch. Choosing a commit lists the files it changed, and choosing a file opens the
 [side by side diff](#side-by-side-git-diff) of that file in the commit: its version in the
-commit's parent on the left, in the commit on the right.
+commit's parent on the left, in the commit on the right. Several commits can be selected, to
+list and diff their combined change.
+
+### Sections
+
+The sections are made of the commits reachable from HEAD (`B` is the current branch):
+
+| Section | Commits | Divider |
+| --- | --- | --- |
+| 1 | not on the upstream of `B`, nor on the base branch | `B (unpushed)`; `B` if `B` has no upstream; `HEAD (detached)` for a detached HEAD |
+| 2 | on the upstream of `B`, not on the base branch | `B` |
+| 3 | on the base branch | the name of the base branch as git shows it: `origin/main`, or `main` |
+
+- The upstream is the remote tracking branch of `B` (`branch.<B>.remote` and `.merge`) if it is
+  configured and exists.
+- The base branch is the first that exists of: the branch `refs/remotes/origin/HEAD` points to
+  (`<remote>/HEAD` if the upstream is on another remote), `<remote>/main`, `<remote>/master`, the
+  local `main` and `master`. A local branch is never the base of itself.
+- Sections without commits have no divider, and there is no section 3 without a base branch. If
+  there is no base branch, the commits that aren't in section 1 are in section 2.
+- On `main` with `origin/main` as its upstream (and base), section 1 is `main (unpushed)`, section 2
+  is empty and section 3 is `origin/main`. Without a remote or an upstream there's only the
+  section with the name of the branch, plus the base branch if there's a local `main` or `master`
+  that isn't the current branch.
+- Commits are put in a section by reachability, not by their parent: a merge commit of `main` into
+  the feature branch is in the section of the feature branch, and the commits it brought in that are
+  on the base branch are in the section of the base branch. Every commit is listed once.
+- Sections 1 and 2 are found first, with the commits of the current branch only, then the rest of
+  the history streams into section 3 as before.
+
+Dividers are not entries: the cursor skips them (`Up`, `Down`, `Tab`, `C-n`, `C-p`, `PageUp`,
+`PageDown`, `Home`, `End`, wrapping around the ends), they are not counted in the numbers above
+the list, and a query hides them. They are drawn as a line across the picker, with the style of the
+theme scope `ui.picker.divider` if the theme has it, else `ui.text.inactive`, else `comment`.
 
 ### Usage
 
 | Keys | Action |
 | --- | --- |
 | `space l`, `:git-log` | Open the commit picker. Typing filters by summary; `%commit`, `%author`, `%date` filter by the other columns. |
-| `Enter` in the commit picker | List the files changed by the commit, on top of the commit picker. The status line shows the commit. |
+| `Enter` in the commit picker | List the files changed by the commit, or by the selected commits, on top of the commit picker. The status line shows the commit or the range. |
+| `A-v` | Toggle extend mode: while it's on, every movement extends the selection from the commit where it started to the commit under the cursor. |
+| `S-Down`, `S-Up` | Extend the selection by one commit, in or out of extend mode. It doesn't wrap around the ends of the log. |
+| `A-s` | Select all the commits of the section the cursor is in ("diff the entire branch"). |
+| `Esc` | If several commits are selected or extend mode is on: select the commit under the cursor alone and leave extend mode. Else close the picker. |
 | `Enter`, `C-g` in the files picker | Open the diff of the file, on top of the files picker. |
 | `C-s` / `C-v` in the files picker | Open the file as it is now in a split, closing both pickers. |
 | `q`, `Esc` in the diff | Back to the files picker. |
@@ -127,21 +169,57 @@ commit's parent on the left, in the commit on the right.
 | `Enter` in the diff | Open the file as it is now, at the current hunk, closing both pickers. |
 
 The diff keys are the same as in the [side by side diff](#side-by-side-git-diff). Renames are
-detected, so a renamed file is compared with its old path.
+detected, so a renamed file is compared with its old path. The alt keys are for Termux, where
+`Shift` and the arrows don't make `S-Down`; letters can't be used because they go to the query.
+
+### Ranges
+
+The selected commits are shown in the rows with the style of `ui.selection` (the commit under the
+cursor keeps the style of the cursor), and in the status line, oldest to newest, with `[extend]`
+in front when extend mode is on:
+
+```
+[extend] a1b2c3d4e..d4e5f6a7b (5 commits)
+```
+
+- A selection is always contiguous in the log, dividers excluded: all the commits between the
+  commit where it started and the commit under the cursor, in the order of the log without a
+  query. With a query, the cursor moves among the commits that match, but the selection still has
+  every commit between the two ends, matching or not (so does the count).
+- A selection across sections takes the commits of both, in the order they are listed in.
+- Any movement that isn't extending (and typing a query that moves the cursor) goes back to the
+  commit under the cursor alone, unless extend mode is on. `A-v` itself keeps the selection.
+  After `A-s`, extending goes on from the oldest commit of the section.
+- `Enter` on several commits lists the combined change: the files that differ between the first
+  parent of the oldest selected commit (nothing if it is a root commit) and the newest selected
+  commit. A file added and deleted in the range isn't there, a file changed twice is there once.
+  The diff of a file has the first parent of the oldest commit on the left (`a1b2c3d4e^: path`) and
+  the newest commit on the right (`d4e5f6a7b: path`).
+- One commit, selected alone, is listed and diffed as it always was: against its first parent, the
+  root commit against nothing.
 
 ### Limitations
 
-- Merge commits are compared with their first parent only.
+- Merge commits are compared with their first parent only. In a range, the same goes for the
+  parent of the oldest commit; the changes a merge brought in are part of the combined change,
+  because they are in the newest commit.
 - `Enter` in the diff opens the file as it is now in the working tree, so the line it jumps to may
   have moved since the commit. Files deleted since then can't be opened.
-- Only the history of HEAD is listed, sorted by commit time; there's no graph.
+- Only the history of HEAD is listed, sorted by commit time within each section; there's no graph.
+- The upstream is found with the default fetch refspec of its remote
+  (`refs/heads/*:refs/remotes/<remote>/*`) when the configuration of the repository can't be
+  trusted (workspace trust).
+- The base branch is guessed by name, not by looking for the branch the current branch was
+  created from.
+- Queries with a negation (`!word`) match dividers: they are listed, but the cursor still skips
+  them.
 - In a shallow clone, the oldest commit can't be shown: its parent isn't in the repository.
 
 ### Ideas
 
 - List the commits that changed the current file.
 - Show the commit message and stats in a preview.
-- Pick another branch or a range.
+- Pick another branch.
 
 ## Staged files in the changed files picker
 
@@ -154,111 +232,128 @@ as soon as they are `git add`ed. In this fork it lists every change compared to 
 - a file that is staged and then changed again is listed once;
 - a file that is added and then deleted from disk is not listed, since it matches HEAD again.
 
-## File explorer side panel
+## File tree overlay
 
-A file tree in a panel on the left of the editor, rooted at the workspace root (the git
-repository holding the working directory, like upstream's file explorer picker). The editor area
-shrinks to make room for it. Files and directories ignored by git (`.gitignore` files, including
-nested ones and the ones of parent directories, `.git/info/exclude` and the global excludes file)
-are shown dimmed instead of hidden. The `.git` directory is never listed.
+A file tree that looks and works like the file picker (`space f`): the same overlay, the prompt line
+on top, the rows of the tree on the left and a preview of the selected file or directory on the
+right. It is built on Helix's own picker, so the overlay, the prompt and the preview are the
+picker's. Like the file picker it hides the preview on narrow screens (below 73 columns), where the
+rows get the whole width; `C-t` hides and shows the preview.
 
-Entries have file type icons (Nerd Font glyphs, colored by type), and the file of the current buffer
-is shown in bold. While the panel isn't focused, it follows the current buffer: switching to another
-file (a picker, `:open`, `gd`, ...) expands the tree down to it and selects it, unless the file is
-inside a directory ignored by git (`target`, `node_modules`).
+The tree is rooted at the workspace root (the git repository holding the working directory, like
+upstream's file explorer picker). Directories come first, then files, in the order of their names
+regardless of case. Each row shows the indentation (two spaces per level), `+` for a collapsed
+directory and `-` for an expanded one (a blank for a file), and the name, with a `/` after the name
+of a directory. The `.git` directory is never listed. Files and directories ignored by git
+(`.gitignore` files, including nested ones and the ones of parent directories,
+`.git/info/exclude` and the global excludes file) are shown dimmed instead of hidden, or are left
+out with `hide-gitignored`. The file of the current buffer is shown in bold. There are no icons.
 
 Files changed in git are marked like in VS Code's explorer: the name takes the color of the change
-and a letter shows on the right, `M` modified, `A` added (staged), `U` untracked, `R` renamed and
-`!` in conflict. Directories holding changes, deleted files included, show a `●` in the color of
-their most important change (conflict, then modified, deleted, renamed, added, untracked).
+and a letter follows it, `M` modified, `A` added (staged), `U` untracked, `R` renamed and `!` in
+conflict. Directories holding changes, deleted files included, show a `●` in the color of their
+most important change (conflict, then modified, deleted, renamed, added, untracked).
 
-In this fork the panel replaces upstream's file explorer picker on `space e` (and takes
-`space E`). The picker is still on `space .` (current buffer's directory) and in the command
-palette (`file_explorer`).
+In this fork the tree replaces upstream's file explorer picker on `space e` (and takes `space E`).
+The picker is still on `space .` (current buffer's directory) and in the command palette
+(`file_explorer`).
 
 ### Usage
 
+Helix pickers send the letters typed to their prompt, but the tree needs them as keys, so it has two
+modes. In tree mode (the one it opens in) the keys move in the tree and act on its entries; `/`
+enters filter mode, where the keys go to the prompt.
+
 | Keys | Action |
 | --- | --- |
-| `space e` | Open and focus the panel at the workspace root, with nothing expanded. With the panel open, focus it, or close it when it is already focused. |
-| `space E` | The same, but expand the tree down to the file of the current buffer and select it, when opening the panel and when focusing it. |
-| `j`/`k`, arrows | Move. `C-d`/`C-u` move half a page, `gg`/`ge` (or `G`) go to the top/bottom. |
-| `l`, `Right` | Expand a directory (or move into an expanded one), open a file. |
+| `space e` | Open the tree at the workspace root, with nothing expanded. |
+| `space E` | Open the tree expanded down to the file of the current buffer, with the cursor on it. |
+| `j`/`k`, arrows, `C-n`/`C-p`, `Tab`/`S-Tab` | Move. `C-d`/`C-u`/`PageDown`/`PageUp` move a page, `gg`/`ge` (or `G`), `Home`/`End` go to the top/bottom. |
+| `l`, `Right` | Expand a directory (or move into an expanded one), open a file and close the tree. |
 | `h`, `Left` | Collapse a directory, or go to the parent directory. |
-| `Enter`, mouse click | Expand/collapse a directory, open a file. |
+| `Enter` | Expand/collapse a directory, open a file and close the tree. |
+| `A-Enter` | Open a file and keep the tree open. |
+| `C-s`, `C-v` | Open a file in a horizontal/vertical split and close the tree. |
+| `C-t` | Show/hide the preview. |
+| `/` | Filter mode: see below. |
 | `a` | Create a file in the selected directory (or next to the selected file). Missing parent directories are created, and a name ending in `/` creates a directory. |
 | `r` | Rename. The new name may contain `/` to move the entry to a subdirectory. Changing only the case of a name works on case-insensitive filesystems too. |
 | `x`, then `p` | Cut the selected entry, then move it into the selected directory (or next to the selected file). |
-| `d`, then `y` | Delete the selected file or directory (directories are deleted recursively). Any other key or a click cancels. |
+| `d`, then `y` | Delete the selected file or directory (directories are deleted recursively). Any other key cancels. |
 | `R` | Read the whole tree from disk again. |
 | `H` | Show/hide git ignored files for this session. |
-| `zz`/`zc`, `zt`, `zb` | Scroll so the selected entry is in the center, at the top or at the bottom. |
-| `zj`/`zk` | Scroll down/up one row. |
-| `zh`/`zl`, shift + mouse wheel | Scroll sideways, to read names cut by the width of the panel. The git markers stay in place. |
-| `gh`/`gl` | Scroll sideways all the way to the start / to the end of the longest name on screen. |
 | `?` | Show the keys in the status line. |
-| `Esc`, `C-w l` | Give the focus back to the editor. From the leftmost view, `C-w h` focuses the panel again. |
-| `q` | Close the panel. |
+| `Esc` | Clear the filter if there is one, otherwise close the tree. |
+| `q`, `C-c` | Close the tree. |
 
-Keys that lead to a picker or a prompt keep working while the panel is focused: `:`, and in the
-space menu (wherever it is mapped) the pickers, `space e` / `space E`, global search, the command palette
-and the git diff view. `jump_view_right` (`C-w l`, `space w l`) goes back to the
-editor. Other keys the panel doesn't use are ignored, and other
-space menu entries (`space p`, `space c`, `space w`, ...) cancel the menu, so they can't edit the
-buffer behind the panel. Terminal pastes are ignored too. A sticky menu entered before focusing the
-panel keeps its keys until `Esc`. Clicking the panel in insert mode goes back to normal mode.
+Filter mode, entered with `/`, is the prompt of the file picker: type to filter, edit with the usual
+prompt keys, and move with `C-n`/`C-p`/`Up`/`Down`/`Tab`/`S-Tab`. The query is matched fuzzily
+against the paths relative to the workspace root, with the same smart case and path scoring as the
+file picker, over the whole workspace and not only over the expanded directories. The tree then
+shows the matching files and directories with all the directories above them, expanded, in tree
+order, with the matched characters of the names highlighted and the cursor on the best match.
+`Enter` expands/collapses a directory or opens a file as in tree mode; on a directory that
+matched by its name only (nothing in it matches), it clears the filter and opens the directory in
+the tree. `Esc` goes back to tree mode
+and keeps the filter, so that the keys above work on the filtered tree (collapsing a directory hides
+its matches); `/` resumes editing the query; `Esc` in tree mode clears it. With the filter cleared,
+the tree is back as it was, with the entry that was selected shown in it.
 
-The panel gives the focus back to the editor as soon as the editor moves to another view, buffer or
-selection: opening a file from the panel, a picker or `:open`, a jump within the same file (symbol
-picker, `:42`), or clicking in the editor. Opened files show in the current view.
+Files that git ignores are not part of the filter (they are not walked, which keeps `target` and
+`node_modules` out of it), hidden files are. The walk of the workspace runs in the background the
+first time a filter is typed and is kept until the tree is closed or read again (`R`); until it is
+done the tree is shown unfiltered.
 
-Renames, moves, creations and deletions go through the same code as `:move`, so language servers
+Creating, renaming, moving and deleting go through the same code as `:move`, so language servers
 are notified (`willRename`, `didCreate`, ...). Open buffers follow renamed and moved files,
 including files inside a moved directory. Deleting a file closes its buffers, and deleting is
 refused when one of them has unsaved changes. Moves and renames never overwrite an existing file.
+The names for `a` and `r` are asked in Helix's usual prompt on the command line. After an operation
+the tree stays open and shows the affected entry with the cursor on it (the filter is cleared if
+there was one, so that it can't hide the entry).
 
-The tree is updated from disk when the panel gets the focus and after each operation. Directory
-listings of the expanded directories are kept: only the directories whose modification time changed
-(or their `.gitignore`'s, with everything below it) are read again. `R` reads everything again. When the working directory
-changes (`:cd`), the tree follows its workspace on the next update.
-
-The git status is read in the background (the same as `space g`) on each of those updates and when
-a buffer is saved.
+The expanded directories are kept while the tree is open, and not between two openings. Directory
+listings are kept too: after an operation only the directories whose modification time changed (or
+their `.gitignore`'s, with everything below it) are read again. `R` reads everything again. The git
+status is read in the background (the same as `space g`) when the tree opens, after each operation
+and when a buffer is saved.
 
 ### Configuration
 
 ```toml
 [editor.explorer]
-width = 30               # columns, at most half of the screen
 hide-gitignored = false  # hide git ignored files instead of dimming them
-icons = true             # file type icons; needs a Nerd Font, turn off otherwise
-auto-reveal = true       # follow the current buffer while the panel isn't focused
 git-status = true        # mark files changed in git and the directories holding them
 ```
 
-Theme scopes: `ui.explorer` (background, defaults to `ui.background`), `ui.explorer.ignored`
-(ignored entries, defaults to `ui.text.inactive`, or dim text), `ui.text.directory` (directories),
-`ui.selection` (selected entry while focused), `ui.cursorline.primary` (selected entry while not
-focused) and `ui.window` (separator). The git markers use the scopes of the changed files picker:
+The options of the side panel this tree used to be (`width`, `icons`, `auto-reveal`) are still
+accepted in a config file and ignored, so that existing configs keep loading.
+
+The commands are `toggle_explorer` (`space E`) and `toggle_explorer_root` (`space e`); they keep the
+names they had as the toggle of the side panel, so that existing keymaps keep working.
+
+Theme scopes: `ui.explorer.ignored` (ignored entries, defaults to `ui.text.inactive`, or dim text),
+`ui.text.directory` (directories), `special` (the matched characters of a filter), and the scopes
+of the file picker for the rest (`ui.text.focus` for the selected row, `ui.background`,
+`ui.background.separator`, ...). The git markers use the scopes of the changed files picker:
 `diff.plus` (added, untracked), `diff.delta` (modified), `diff.delta.moved` (renamed), `diff.minus`
 (deleted) and `diff.delta.conflict` (conflict).
 
 ### Limitations
 
-- The tree doesn't watch the disk: files created outside the panel show up on the next update
-  (focusing the panel or `R`). The same goes for the git status after a git command run outside
-  the editor (`git commit`, `git checkout`).
+- The tree doesn't watch the disk: files created outside the editor show up when the tree is
+  opened again or on `R`. The same goes for the git status after a git command run outside the
+  editor (`git commit`, `git checkout`).
 - Changes to the global git excludes file or `.git/info/exclude`, and to a `.gitignore` of a
   directory above the workspace root, are only picked up by `R`.
 - One entry at a time: there is no multi-selection for moving or deleting several files.
 - Deleting is permanent, there is no trash.
 - Directories are read on the UI thread. That takes about 1 ms per 1,000 entries (see
   `cargo bench -p helix-term --features bench --bench explorer`), so only a directory with tens of
-  thousands of entries, or a slow network filesystem, pauses the editor noticeably.
+  thousands of entries, or a slow network filesystem, pauses the editor noticeably. Filtering
+  matches every path of the workspace on each key typed, which the same benchmark measures too.
 - Copying files isn't supported, only moving.
-- Icons need a terminal font patched with [Nerd Fonts](https://www.nerdfonts.com/); without one
-  they show as boxes, so set `icons = false`. Their colors are fixed, not taken from the theme, and
-  file types without a known icon get a generic file icon.
+- The mouse does nothing in the tree, like in other pickers.
 
 ### Ideas
 
@@ -299,7 +394,7 @@ so it looks like inlay hints everywhere.
 ### Behaviour
 
 - Shown in normal and select mode only, hidden in insert mode. `cursor-line` shows only in the
-  focused view, so it disappears while the file tree has focus; the diff viewer never shows it.
+  focused view; the diff viewer never shows it.
 - New and edited lines, unsaved ones included, show "Not committed yet", and so does every line of
   a file that is in a repository but not committed. Files outside a repository, scratch buffers
   and empty lines show nothing.
