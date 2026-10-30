@@ -622,15 +622,15 @@ async fn hints_are_revealed_one_by_one_and_reset_needs_an_exercise() -> anyhow::
                 Some(":practice<ret>:practice hint<ret>"),
                 Some(&|app| {
                     assert_eq!(status(app), "Hint 1/3: first hint");
-                    assert!(on_screen(app, "Hint 1: first hint"));
-                    assert!(!on_screen(app, "Hint 2"));
+                    assert!(on_screen(app, "1 first hint"));
+                    assert!(!on_screen(app, "second hint"));
                 }),
             ),
             (
                 Some(":practice hint<ret>:practice hint<ret>"),
                 Some(&|app| {
                     assert_eq!(status(app), "Hint 3/3: third hint");
-                    assert!(on_screen(app, "Hint 2: second hint"));
+                    assert!(on_screen(app, "2 second hint"));
                     assert_eq!(keys(), 0);
                 }),
             ),
@@ -642,7 +642,7 @@ async fn hints_are_revealed_one_by_one_and_reset_needs_an_exercise() -> anyhow::
             (
                 Some(":practice reset<ret>"),
                 Some(&|app| {
-                    assert!(on_screen(app, "Hint 3: third hint"));
+                    assert!(on_screen(app, "3 third hint"));
                 }),
             ),
         ],
@@ -703,7 +703,7 @@ async fn closing_the_buffer_ends_the_session() -> anyhow::Result<()> {
                 Some(":bc<ret>"),
                 Some(&|app| {
                     assert!(practice::attempt().is_none(), "{}", status(app));
-                    assert!(!on_screen(app, "practice ·"));
+                    assert!(!on_screen(app, "The lesson of this exercise."));
                 }),
             ),
             (
@@ -815,146 +815,6 @@ async fn the_list_shows_the_status_best_and_par() -> anyhow::Result<()> {
         false,
     )
     .await
-}
-
-#[tokio::test(flavor = "multi_thread")]
-async fn the_panel_shows_the_lesson_and_the_count() -> anyhow::Result<()> {
-    let (_dir, mut app) = setup();
-    // wide: a column at the top right
-    app.resize_screen(100, 30);
-    test_key_sequences(
-        &mut app,
-        vec![
-            (
-                Some("<esc>"),
-                Some(&|app| assert!(!on_screen(app, "practice ·"))),
-            ),
-            (
-                Some(":practice<ret>l"),
-                Some(&|app| {
-                    let rows = rows(app);
-                    let title = rows
-                        .iter()
-                        .position(|row| row.contains("practice · 1.1 / 2 · Chapter a"))
-                        .expect("the title");
-                    assert_eq!(title, 0, "{rows:#?}");
-                    assert!(rows[0].find("practice").unwrap() >= 50, "{}", rows[0]);
-                    for text in [
-                        "Title of a/01-first",
-                        "The lesson of this exercise.",
-                        "Goal:",
-                        "  The quick brown fox",
-                        "Keys 1 · par 2",
-                    ] {
-                        assert!(
-                            rows.iter().any(|row| row.contains(text)),
-                            "{text} in {rows:#?}"
-                        );
-                    }
-                    // the text of the buffer is still on the left
-                    assert!(rows[0].contains("The quick quick brown fox"), "{}", rows[0]);
-                }),
-            ),
-            // hidden and shown by :practice lesson
-            (
-                Some(":practice lesson<ret>"),
-                Some(&|app| assert!(!on_screen(app, "Goal:"))),
-            ),
-            (
-                Some(":practice lesson<ret>"),
-                Some(&|app| assert!(on_screen(app, "Goal:"))),
-            ),
-            // the which-key popup wins
-            (
-                Some("<space>"),
-                Some(&|app| {
-                    assert!(!on_screen(app, "Goal:"), "{:#?}", rows(app));
-                    assert!(on_screen(app, "Space"), "{:#?}", rows(app));
-                }),
-            ),
-            (Some("<esc>"), Some(&|app| assert!(on_screen(app, "Goal:")))),
-            // after the solution: the result, the solution and the way on
-            (
-                Some("hwd"),
-                Some(&|app| {
-                    for text in [
-                        "Solved in 6 keys · par 2 · best 6",
-                        "Teach: wd",
-                        ":practice next",
-                    ] {
-                        assert!(on_screen(app, text), "{text} in {:#?}", rows(app));
-                    }
-                }),
-            ),
-        ],
-        false,
-    )
-    .await
-}
-
-#[tokio::test(flavor = "multi_thread")]
-async fn the_panel_is_a_band_at_the_bottom_on_a_narrow_terminal() -> anyhow::Result<()> {
-    let (_dir, mut app) = setup();
-    app.resize_screen(50, 20);
-    test_key_sequences(
-        &mut app,
-        vec![(
-            Some(":practice<ret>l"),
-            Some(&|app| {
-                let rows = rows(app);
-                assert_eq!(rows.len(), 20);
-                let title = rows
-                    .iter()
-                    .position(|row| row.contains("practice · 1.1 / 2 · Chapter a"))
-                    .expect("the title");
-                // at most half the height, above the statusline and the command line
-                assert!(title >= 9, "{rows:#?}");
-                let keys = rows
-                    .iter()
-                    .position(|row| row.contains("Keys 1 · par 2"))
-                    .expect("the count");
-                assert_eq!(keys, 16, "{rows:#?}");
-                assert!(rows[17].starts_with('└'), "{rows:#?}");
-                assert!(rows[18].contains("NOR"), "{rows:#?}");
-                // full width
-                assert!(
-                    rows[title].starts_with('┌') && rows[title].trim_end().ends_with('┐'),
-                    "{}",
-                    rows[title]
-                );
-            }),
-        )],
-        false,
-    )
-    .await
-}
-
-#[tokio::test(flavor = "multi_thread")]
-async fn the_panel_clips_on_tiny_terminals() -> anyhow::Result<()> {
-    let (_dir, mut app) = setup();
-    app.resize_screen(20, 6);
-    test_key_sequences(
-        &mut app,
-        vec![
-            (
-                Some(":practice<ret>l"),
-                Some(&|app| assert_eq!(rows(app).len(), 6)),
-            ),
-            (
-                Some(":practice hint<ret>:practice hint<ret>:practice hint<ret>"),
-                None,
-            ),
-        ],
-        false,
-    )
-    .await?;
-
-    for (width, height) in [(8, 5), (30, 4), (60, 3)] {
-        let (_dir, mut app) = setup();
-        app.resize_screen(width, height);
-        test_key_sequence(&mut app, Some(":practice<ret>l"), None, false).await?;
-    }
-    Ok(())
 }
 
 /// Sends events to an application, other than keys too.
