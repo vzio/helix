@@ -1288,6 +1288,12 @@ impl Application {
         self.terminal.backend().buffer()
     }
 
+    /// The kind of the cursor of the terminal, which is hidden when no component shows one.
+    #[cfg(feature = "integration")]
+    pub fn cursor_kind(&self) -> helix_view::graphics::CursorKind {
+        self.terminal.cursor_kind()
+    }
+
     /// Gives the screen of the test backend another size, like a terminal emulator getting
     /// resized. The application picks it up with the next event.
     #[cfg(feature = "integration")]

@@ -213,7 +213,7 @@ async fn space_e_opens_the_tree_at_the_root_with_nothing_expanded() -> anyhow::R
         "{cargo}"
     );
     assert!(
-        session.status().contains("/ filter"),
+        session.status().contains("s filter"),
         "{}",
         session.status()
     );
@@ -374,11 +374,11 @@ async fn files_open_in_the_current_view_or_in_splits() -> anyhow::Result<()> {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn slash_filters_the_workspace_and_keeps_the_parents() -> anyhow::Result<()> {
+async fn s_filters_the_workspace_and_keeps_the_parents() -> anyhow::Result<()> {
     let (dir, x, y) = fixture()?;
     let mut session = Session::on(&x);
 
-    session.keys("<space>e/").await;
+    session.keys("<space>es").await;
     session.keys(&format!("'{} 'y.txt", name_of(&dir))).await;
     // The walk of the workspace is in the background.
     session
@@ -411,13 +411,42 @@ async fn slash_filters_the_workspace_and_keeps_the_parents() -> anyhow::Result<(
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn slash_is_not_the_filter_key_any_more() -> anyhow::Result<()> {
+    let (dir, x, _y) = fixture()?;
+    let mut session = Session::on(&x);
+
+    session.keys("<space>E").await;
+    let before = session.rows();
+    // Neither `/` nor the letters after it do anything in tree mode: they don't reach the prompt.
+    session.keys("/zz").await;
+    assert_eq!(session.rows(), before);
+    assert!(session.tree_is_open());
+
+    // `s` does, and the letters are typed from then on.
+    session.keys(&format!("s'{} 'y.txt", name_of(&dir))).await;
+    session
+        .wait_for_screen("the filtered tree", |rows| !on_screen(rows, "+ book/"))
+        .await;
+    assert!(on_screen(&session.rows(), "y.txt"));
+    // A `/` in filter mode is a character of the query.
+    session.keys("/").await;
+    assert!(
+        session.rows()[1].contains("y.txt/"),
+        "{:#?}",
+        session.rows()
+    );
+    session.close().await;
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn opening_a_directory_without_hits_in_the_filter_shows_it_in_the_tree() -> anyhow::Result<()>
 {
     let (dir, x, _y) = fixture()?;
     let mut session = Session::on(&x);
 
     // `/a$` matches the directory `a` but nothing in it.
-    session.keys("<space>e/").await;
+    session.keys("<space>es").await;
     session.keys(&format!("'{} /a$", name_of(&dir))).await;
     session
         .wait_for_screen("the filtered tree", |rows| {
@@ -446,7 +475,7 @@ async fn the_filter_skips_ignored_files_and_git() -> anyhow::Result<()> {
     session.keys("<space>E").await;
     assert!(on_screen(&session.rows(), "secret.txt"));
     assert!(on_screen(&session.rows(), "build/"));
-    session.keys("/").await;
+    session.keys("s").await;
     session.keys(&format!("'{} 'txt", name_of(&dir))).await;
     session
         .wait_for_screen("the filtered tree", |rows| !on_screen(rows, "+ book/"))
@@ -508,7 +537,7 @@ async fn escape_leaves_the_filter_mode_then_clears_the_filter_then_closes() -> a
     let (dir, x, _y) = fixture()?;
     let mut session = Session::on(&x);
 
-    session.keys("<space>e/").await;
+    session.keys("<space>es").await;
     session.keys(&format!("'{} 'y.txt", name_of(&dir))).await;
     session
         .wait_for_screen("the filtered tree", |rows| {
@@ -539,7 +568,7 @@ async fn escape_leaves_the_filter_mode_then_clears_the_filter_then_closes() -> a
     assert!(on_screen(&session.rows(), "y.txt"));
     // `/` resumes the editing of the filter, here a looser one.
     session
-        .keys("/<backspace><backspace><backspace><backspace><backspace><backspace>")
+        .keys("s<backspace><backspace><backspace><backspace><backspace><backspace>")
         .await;
     session.keys("<esc>").await;
     assert!(session.tree_is_open());
@@ -566,7 +595,7 @@ async fn q_closes_the_tree_but_is_a_letter_in_the_filter() -> anyhow::Result<()>
     assert!(session.tree_is_open());
     session.keys("q").await;
     assert!(!session.tree_is_open());
-    session.keys("<space>e/q").await;
+    session.keys("<space>esq").await;
     assert!(session.tree_is_open());
     session.keys("<C-c>").await;
     assert!(!session.tree_is_open());
@@ -650,7 +679,7 @@ async fn files_are_created_renamed_moved_and_deleted() -> anyhow::Result<()> {
     assert_eq!(current_path(&session.app), canonical(&a.join("b/z.txt")));
 
     // Delete needs a `y`, anything else cancels.
-    session.keys("/").await;
+    session.keys("s").await;
     session.keys(&format!("'{} 'y.txt", name_of(&dir))).await;
     session
         .wait_for_screen("y.txt", |rows| selected(rows).contains("y.txt"))
@@ -783,6 +812,23 @@ async fn the_preview_is_on_wide_screens_and_off_on_narrow_ones() -> anyhow::Resu
         "{:#?}",
         session.rows()
     );
+    session.close().await;
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn the_cursor_is_in_the_prompt_in_filter_mode_only() -> anyhow::Result<()> {
+    use helix_view::graphics::CursorKind;
+
+    let (_dir, x, _y) = fixture()?;
+    let mut session = Session::on(&x);
+
+    session.keys("<space>E").await;
+    assert_eq!(session.app.cursor_kind(), CursorKind::Hidden);
+    session.keys("s").await;
+    assert_ne!(session.app.cursor_kind(), CursorKind::Hidden);
+    session.keys("<esc>").await;
+    assert_eq!(session.app.cursor_kind(), CursorKind::Hidden);
     session.close().await;
     Ok(())
 }

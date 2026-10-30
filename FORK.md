@@ -53,7 +53,9 @@ Each feature lives in its own modules, to keep rebasing on upstream cheap:
 Hooks into core files: commands and keys in `helix-term/src/commands.rs`,
 `helix-term/src/commands/typed.rs` and `helix-term/src/keymap/default.rs`; `C-g`, the hooks the
 file tree needs (an external filter, replacing the items, the query), the ones of the commit log
-(dividers, marked rows) and the cursor accessors both use in `helix-term/src/ui/picker.rs`;
+(dividers, marked rows), the opt-in modal mode both use (`Picker::with_modes`: normal mode where the
+letters are keys, filter mode where they are typed) and the cursor accessors in
+`helix-term/src/ui/picker.rs`;
 `[editor.explorer]` and `[editor.inline-blame]` in `helix-view/src/editor.rs`. Inline blame also
 has one field on `Document`, one decoration in `render_view`, `is_last_visual_line` in
 `helix-term/src/ui/document.rs`, and refresh calls on save (`application.rs`), on focus
@@ -147,21 +149,26 @@ The sections are made of the commits reachable from HEAD (`B` is the current bra
 - Sections 1 and 2 are found first, with the commits of the current branch only, then the rest of
   the history streams into section 3 as before.
 
-Dividers are not entries: the cursor skips them (`Up`, `Down`, `Tab`, `C-n`, `C-p`, `PageUp`,
-`PageDown`, `Home`, `End`, wrapping around the ends), they are not counted in the numbers above
-the list, and a query hides them. They are drawn as a line across the picker, with the style of the
+Dividers are not entries: the cursor skips them (`j`, `k`, `Up`, `Down`, `Tab`, `C-n`, `C-p`,
+`PageUp`, `PageDown`, `Home`, `End`, wrapping around the ends), they are not counted in the numbers
+above the list, and a query hides them. They are drawn as a line across the picker, with the style of the
 theme scope `ui.picker.divider` if the theme has it, else `ui.text.inactive`, else `comment`.
 
 ### Usage
 
 | Keys | Action |
 | --- | --- |
-| `space l`, `:git-log` | Open the commit picker. Typing filters by summary; `%commit`, `%author`, `%date` filter by the other columns. |
+| `space l`, `:git-log` | Open the commit picker, in normal mode. The status line shows `s filter, v extend, w/b section, enter files`. |
+| `s` | Filter mode: typing filters by summary; `%commit`, `%author`, `%date` filter by the other columns. `Esc` goes back to normal mode and keeps the query. |
+| `j`/`k`, `Down`/`Up`, `C-n`/`C-p`, `Tab`/`S-Tab`, `C-d`/`C-u`/`PageDown`/`PageUp`, `gg`/`ge`/`G`, `Home`/`End` | Move. The keys that aren't letters work in filter mode too. |
 | `Enter` in the commit picker | List the files changed by the commit, or by the selected commits, on top of the commit picker. The status line shows the commit or the range. |
-| `A-v` | Toggle extend mode: while it's on, every movement extends the selection from the commit where it started to the commit under the cursor. |
+| `v`, `A-v` | Toggle extend mode: while it's on, every movement extends the selection from the commit where it started to the commit under the cursor. `A-v` works in filter mode too. |
+| `w`, `e` | Extend the selection down (older) to the oldest commit of the section the cursor is in, and put the cursor on it. Pressed again they do nothing, they never go past the divider. |
+| `b` | Extend the selection up (newer) to the newest commit of the section the cursor is in, and put the cursor on it. |
 | `S-Down`, `S-Up` | Extend the selection by one commit, in or out of extend mode. It doesn't wrap around the ends of the log. |
 | `A-s` | Select all the commits of the section the cursor is in ("diff the entire branch"). |
-| `Esc` | If several commits are selected or extend mode is on: select the commit under the cursor alone and leave extend mode. Else close the picker. |
+| `Esc` | In normal mode: if several commits are selected or extend mode is on, select the commit under the cursor alone and leave extend mode; else clear the query if there is one; else close the picker. In filter mode: back to normal mode. |
+| `q`, `C-c` | Close the picker. |
 | `Enter`, `C-g` in the files picker | Open the diff of the file, on top of the files picker. |
 | `C-s` / `C-v` in the files picker | Open the file as it is now in a split, closing both pickers. |
 | `q`, `Esc` in the diff | Back to the files picker. |
@@ -169,8 +176,14 @@ theme scope `ui.picker.divider` if the theme has it, else `ui.text.inactive`, el
 | `Enter` in the diff | Open the file as it is now, at the current hunk, closing both pickers. |
 
 The diff keys are the same as in the [side by side diff](#side-by-side-git-diff). Renames are
-detected, so a renamed file is compared with its old path. The alt keys are for Termux, where
-`Shift` and the arrows don't make `S-Down`; letters can't be used because they go to the query.
+detected, so a renamed file is compared with its old path. The picker opens in normal mode, where
+the letters are keys (the other letters do nothing, and pasting is ignored), the way the
+[file tree](#file-tree-overlay) works; the prompt shows its cursor in filter mode only. `w`, `e`,
+`b` and `v` are for Termux, where `Shift` and the arrows don't make `S-Down`. `w`, `e` and `b`
+don't turn extend mode on or off: from normal mode without a selection they start one at the
+commit under the cursor, and with a selection or in extend mode they keep the commit it started
+from. With a query, they go to the last commit of the section that is shown in their direction,
+and the selection has every commit between (see below).
 
 ### Ranges
 
@@ -260,9 +273,10 @@ The picker is still on `space .` (current buffer's directory) and in the command
 
 ### Usage
 
-Helix pickers send the letters typed to their prompt, but the tree needs them as keys, so it has two
-modes. In tree mode (the one it opens in) the keys move in the tree and act on its entries; `/`
-enters filter mode, where the keys go to the prompt.
+Helix pickers send the letters typed to their prompt, but the tree needs them as keys, so it uses
+the modes of the picker (`Picker::with_modes`, which the [commit log](#git-commit-log) uses too).
+In normal mode (the one it opens in) the keys move in the tree and act on its entries, and the
+other letters do nothing; `s` enters filter mode, where the keys go to the prompt. The prompt shows its cursor in filter mode only.
 
 | Keys | Action |
 | --- | --- |
@@ -275,7 +289,7 @@ enters filter mode, where the keys go to the prompt.
 | `A-Enter` | Open a file and keep the tree open. |
 | `C-s`, `C-v` | Open a file in a horizontal/vertical split and close the tree. |
 | `C-t` | Show/hide the preview. |
-| `/` | Filter mode: see below. |
+| `s` | Filter mode: see below. |
 | `a` | Create a file in the selected directory (or next to the selected file). Missing parent directories are created, and a name ending in `/` creates a directory. |
 | `r` | Rename. The new name may contain `/` to move the entry to a subdirectory. Changing only the case of a name works on case-insensitive filesystems too. |
 | `x`, then `p` | Cut the selected entry, then move it into the selected directory (or next to the selected file). |
@@ -286,17 +300,17 @@ enters filter mode, where the keys go to the prompt.
 | `Esc` | Clear the filter if there is one, otherwise close the tree. |
 | `q`, `C-c` | Close the tree. |
 
-Filter mode, entered with `/`, is the prompt of the file picker: type to filter, edit with the usual
+Filter mode, entered with `s`, is the prompt of the file picker: type to filter, edit with the usual
 prompt keys, and move with `C-n`/`C-p`/`Up`/`Down`/`Tab`/`S-Tab`. The query is matched fuzzily
 against the paths relative to the workspace root, with the same smart case and path scoring as the
 file picker, over the whole workspace and not only over the expanded directories. The tree then
 shows the matching files and directories with all the directories above them, expanded, in tree
 order, with the matched characters of the names highlighted and the cursor on the best match.
-`Enter` expands/collapses a directory or opens a file as in tree mode; on a directory that
+`Enter` expands/collapses a directory or opens a file as in normal mode; on a directory that
 matched by its name only (nothing in it matches), it clears the filter and opens the directory in
-the tree. `Esc` goes back to tree mode
+the tree. `Esc` goes back to normal mode
 and keeps the filter, so that the keys above work on the filtered tree (collapsing a directory hides
-its matches); `/` resumes editing the query; `Esc` in tree mode clears it. With the filter cleared,
+its matches); `s` resumes editing the query; `Esc` in normal mode clears it. With the filter cleared,
 the tree is back as it was, with the entry that was selected shown in it.
 
 Files that git ignores are not part of the filter (they are not walked, which keeps `target` and

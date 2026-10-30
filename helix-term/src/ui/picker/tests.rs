@@ -200,3 +200,39 @@ async fn negated_queries_match_dividers_but_the_cursor_skips_them() {
         .iter()
         .all(|item| !item.starts_with('#') && item != "c"));
 }
+
+#[tokio::test]
+async fn pickers_have_no_modes_unless_asked() {
+    let mut picker = picker(&LOG);
+    // letters go to the prompt, as in any picker
+    assert_eq!(picker.mode(), PickerMode::Filter);
+    picker.set_mode(PickerMode::Normal);
+    assert_eq!(picker.mode(), PickerMode::Filter);
+    assert!(!picker.pending_key());
+}
+
+#[tokio::test]
+async fn pickers_with_modes_open_in_normal_mode() {
+    let mut picker = picker(&LOG).with_modes();
+    assert_eq!(picker.mode(), PickerMode::Normal);
+    picker.set_mode(PickerMode::Filter);
+    assert_eq!(picker.mode(), PickerMode::Filter);
+    picker.set_mode(PickerMode::Normal);
+    assert_eq!(picker.mode(), PickerMode::Normal);
+    // a pending `g` is forgotten when the mode changes
+    picker.goto = true;
+    picker.set_mode(PickerMode::Filter);
+    assert!(!picker.pending_key());
+}
+
+#[tokio::test]
+async fn matched_items_are_in_the_order_they_are_listed_in() {
+    let mut picker = picker(&LOG);
+    assert_eq!(picker.matched_item(0).map(String::as_str), Some("#new"));
+    assert_eq!(picker.matched_item(6).map(String::as_str), Some("e"));
+    assert_eq!(picker.matched_item(7), None);
+    // dividers don't match a query, and the indexes count the items that do
+    query(&mut picker, "d");
+    assert_eq!(picker.matched_item(0).map(String::as_str), Some("d"));
+    assert_eq!(picker.matched_item(1), None);
+}
