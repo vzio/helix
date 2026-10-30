@@ -2,6 +2,7 @@
 //!
 //! ```text
 //! runtime/practice/index.toml                      the chapters, in order, with the keys they introduce
+//! runtime/practice/CURRICULUM.md                   the curriculum in prose (mirrors index.toml)
 //! runtime/practice/<chapter>/<nn>-<name>.toml      one exercise
 //! ```
 //!
@@ -20,6 +21,10 @@ use serde::Deserialize;
 
 /// The file with the chapters, in the directory of the exercises.
 pub const INDEX_FILE: &str = "index.toml";
+
+/// The prose of the curriculum, next to the index: it has a heading and a `Keys:` line for each
+/// chapter, which [`validate`] compares with the index.
+pub const CURRICULUM_FILE: &str = "CURRICULUM.md";
 
 /// The directory with the exercises inside a runtime directory.
 pub const DIR_NAME: &str = "practice";
@@ -259,6 +264,29 @@ pub fn load_exercises() -> anyhow::Result<Vec<Exercise>> {
     load_exercises_from(&exercises_dir()?)
 }
 
+/// Loads one exercise file on its own, for authoring tools: the id is `<directory name>/<file
+/// stem>`, and the fields the loader derives from the index are those of a chapter of one
+/// exercise (the title of the chapter is its name).
+pub fn load_exercise_file(path: &Path) -> anyhow::Result<Exercise> {
+    let text = std::fs::read_to_string(path).map_err(|err| anyhow!("{}: {err}", path.display()))?;
+    let raw: RawExercise =
+        toml::from_str(&text).map_err(|err| anyhow!("{}: {err}", path.display()))?;
+    let name =
+        |part: Option<&std::ffi::OsStr>| part.unwrap_or_default().to_string_lossy().into_owned();
+    let id = format!(
+        "{}/{}",
+        name(path.parent().and_then(Path::file_name)),
+        name(path.file_stem())
+    );
+    let mut exercise =
+        Exercise::from_raw(id, raw).map_err(|err| anyhow!("{}: {err:#}", path.display()))?;
+    exercise.chapter_number = 1;
+    exercise.chapter_title = exercise.chapter.clone();
+    exercise.number = 1;
+    exercise.chapter_len = 1;
+    Ok(exercise)
+}
+
 fn read_index(dir: &Path) -> anyhow::Result<Index> {
     let path = dir.join(INDEX_FILE);
     let text =
@@ -329,6 +357,42 @@ fn is_kebab(name: &str) -> bool {
         })
 }
 
+/// Checks the text of `CURRICULUM.md` against the chapters: for the chapter n there is a heading
+/// `## n. <title>`, and below it a line `Keys:` that lists exactly the keys of the chapter, each
+/// in backticks, in the order of the index.
+pub fn check_curriculum(chapters: &[Chapter], text: &str) -> Vec<String> {
+    let lines: Vec<&str> = text.lines().collect();
+    let mut problems = Vec::new();
+    for (n, chapter) in chapters.iter().enumerate() {
+        let heading = format!("## {}. {}", n + 1, chapter.title);
+        let Some(start) = lines.iter().position(|line| line.trim_end() == heading) else {
+            problems.push(format!("{CURRICULUM_FILE}: no heading `{heading}`"));
+            continue;
+        };
+        let section = lines[start + 1..]
+            .iter()
+            .take_while(|line| !line.starts_with("## "));
+        let Some(keys) = section
+            .into_iter()
+            .find_map(|line| line.strip_prefix("Keys:"))
+        else {
+            problems.push(format!(
+                "{CURRICULUM_FILE}: `{heading}` has no line starting with `Keys:`"
+            ));
+            continue;
+        };
+        // the text between backticks, so the odd pieces
+        let listed: Vec<&str> = keys.split('`').skip(1).step_by(2).collect();
+        if listed != chapter.keys {
+            problems.push(format!(
+                "{CURRICULUM_FILE}: `{heading}` lists the keys {listed:?}, {INDEX_FILE} has {:?}",
+                chapter.keys
+            ));
+        }
+    }
+    problems
+}
+
 /// Splits `01-word-motions` into its number and name.
 fn split_stem(stem: &str) -> Option<(usize, &str)> {
     let (number, name) = stem.split_once('-')?;
@@ -384,6 +448,7 @@ fn check_lines(
 ///   markup only), and `start` and `goal` differ
 /// - `teach`, `gold` and `naive` parse, and `gold` has strictly fewer keys than `teach`
 /// - `language` is a language of `loader`
+/// - `CURRICULUM.md` agrees with the index, see [`check_curriculum`]
 pub fn validate(exercises: &[Exercise], dir: &Path, loader: &syntax::Loader) -> Vec<String> {
     let mut problems = Vec::new();
 
@@ -452,12 +517,17 @@ pub fn validate(exercises: &[Exercise], dir: &Path, loader: &syntax::Loader) -> 
                             "{name}/: directory is not a chapter of {INDEX_FILE}"
                         ));
                     }
-                } else if name != INDEX_FILE {
-                    problems.push(format!("{name}: unexpected file, only {INDEX_FILE} and chapter directories belong here"));
+                } else if name != INDEX_FILE && name != CURRICULUM_FILE {
+                    problems.push(format!("{name}: unexpected file, only {INDEX_FILE}, {CURRICULUM_FILE} and chapter directories belong here"));
                 }
             }
         }
         Err(err) => problems.push(format!("{}: {err}", dir.display())),
+    }
+
+    match std::fs::read_to_string(dir.join(CURRICULUM_FILE)) {
+        Ok(text) => problems.extend(check_curriculum(&chapters, &text)),
+        Err(err) => problems.push(format!("{CURRICULUM_FILE}: {err}")),
     }
 
     // the files of each chapter
@@ -773,9 +843,33 @@ naive = "dwwwd"
         assert_eq!(split_stem("01_word"), None);
     }
 
-    /// Writes an `index.toml` and the files given as (path, content) to a new directory.
+    /// The `CURRICULUM.md` that agrees with an index.
+    fn curriculum_of(index: &str) -> Option<String> {
+        let chapters = toml::from_str::<Index>(index).ok()?.chapters;
+        let mut text = String::from("# Curriculum\n\n");
+        for (n, chapter) in chapters.iter().enumerate() {
+            let keys: Vec<_> = chapter.keys.iter().map(|key| format!("`{key}`")).collect();
+            text += &format!(
+                "## {}. {}\n\nKeys: {}\n\nProse.\n\n",
+                n + 1,
+                chapter.title,
+                keys.join(" ")
+            );
+        }
+        Some(text)
+    }
+
+    /// Writes the files given as (path, content) to a new directory, and a `CURRICULUM.md` that
+    /// agrees with the `index.toml` among them, unless there is one.
     fn tree(files: &[(&str, String)]) -> tempfile::TempDir {
         let dir = tempfile::tempdir().unwrap();
+        if let Some((_, index)) = files.iter().find(|(path, _)| *path == INDEX_FILE) {
+            if let Some(text) = curriculum_of(index)
+                .filter(|_| !files.iter().any(|(path, _)| *path == CURRICULUM_FILE))
+            {
+                std::fs::write(dir.path().join(CURRICULUM_FILE), text).unwrap();
+            }
+        }
         for (path, content) in files {
             let path = dir.path().join(path);
             std::fs::create_dir_all(path.parent().unwrap()).unwrap();
@@ -1066,6 +1160,67 @@ naive = "dwwwd"
         assert!(out.contains("motions/: 0 challenges"), "{out}");
         let out = run(&["learn", "challenge", "challenge", "challenge"]);
         assert!(out.contains("motions/: 3 challenges"), "{out}");
+    }
+
+    #[test]
+    fn the_curriculum_agrees_with_the_index() {
+        let chapters = load_chapters(
+            tree(&[(
+                "index.toml",
+                format!("{INDEX}{}", chapter("goto", "\"gg\", \"`\", \"<A-.>\"")),
+            )])
+            .path(),
+        )
+        .unwrap();
+        let good = "# Curriculum\n\n## 1. Motions\n\nKeys: `w` `d`\n\n## 2. The goto\n\nText.\nKeys: `gg` `<A-.>`\n\n## Key names\n";
+        assert_eq!(check_curriculum(&chapters[..1], good), Vec::<String>::new());
+        // the second chapter has a key with a backtick in the index: the line can't list it
+        let out = check_curriculum(&chapters, good).join("\n");
+        assert!(out.contains("`## 2. The goto` lists the keys"), "{out}");
+        let chapters = &chapters[..1];
+        // a missing chapter, a missing line, other keys, another order
+        let out = check_curriculum(chapters, "## 1. Other\nKeys: `w` `d`\n").join("\n");
+        assert!(out.contains("no heading `## 1. Motions`"), "{out}");
+        let out = check_curriculum(chapters, "## 1. Motions\n\n## 2. Next\nKeys: `w` `d`\n");
+        assert!(
+            out[0].contains("has no line starting with `Keys:`"),
+            "{out:?}"
+        );
+        let out = check_curriculum(chapters, "## 1. Motions\nKeys: `w`\n").join("\n");
+        assert!(out.contains("lists the keys [\"w\"]"), "{out}");
+        let out = check_curriculum(chapters, "## 1. Motions\nKeys: `d` `w`\n");
+        assert_eq!(out.len(), 1);
+        let out = check_curriculum(chapters, "## 1. Motions\nKeys: w, d\n");
+        assert_eq!(out.len(), 1);
+    }
+
+    #[test]
+    fn a_tree_needs_its_curriculum() {
+        let dir = tree(&[
+            ("index.toml", INDEX.into()),
+            ("CURRICULUM.md", "## 1. Motions\nKeys: `w`\n".into()),
+            ("motions/01-a.toml", GOOD.into()),
+            ("motions/02-b.toml", challenge()),
+        ]);
+        let out = problems(dir.path()).join("\n");
+        assert!(
+            out.contains("CURRICULUM.md: `## 1. Motions` lists the keys"),
+            "{out}"
+        );
+        std::fs::remove_file(dir.path().join("CURRICULUM.md")).unwrap();
+        let out = problems(dir.path()).join("\n");
+        assert!(out.contains("CURRICULUM.md: "), "{out}");
+    }
+
+    #[test]
+    fn one_file_loads_on_its_own() {
+        let dir = tree(&[("somewhere/01-a.toml", GOOD.into())]);
+        let exercise = load_exercise_file(&dir.path().join("somewhere/01-a.toml")).unwrap();
+        assert_eq!(exercise.id, "somewhere/01-a");
+        assert_eq!(exercise.chapter, "motions");
+        assert_eq!(exercise.par(), 2);
+        let err = load_exercise_file(&dir.path().join("nowhere.toml")).unwrap_err();
+        assert!(err.to_string().contains("nowhere.toml"), "{err}");
     }
 
     #[test]

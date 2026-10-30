@@ -393,6 +393,7 @@ mod tests {
             solved_at: None,
             hints: 0,
             best: None,
+            commands: Vec::new(),
         }
     }
 

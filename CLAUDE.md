@@ -19,6 +19,7 @@ data in `runtime/practice/`:
 
 ```
 runtime/practice/index.toml                    # the chapters, in order: [[chapters]] dir, title, keys
+runtime/practice/CURRICULUM.md                  # the curriculum in prose, agrees with index.toml
 runtime/practice/<chapter>/<nn>-<name>.toml    # one exercise
 ```
 

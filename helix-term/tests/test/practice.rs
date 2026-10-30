@@ -1,5 +1,6 @@
 use std::cell::RefCell;
-use std::path::PathBuf;
+use std::collections::{BTreeMap, BTreeSet};
+use std::path::{Path, PathBuf};
 
 use helix_term::application::Application;
 use helix_term::practice::{self, Exercise};
@@ -14,11 +15,35 @@ use termina::event::{Event, KeyEvent};
 use super::*;
 
 /// Replays every solution of every exercise in the runtime directory, as keys typed in an
-/// application, and checks that it solves the exercise with exactly as many keys as the
-/// solution has, and that the data is well formed.
+/// application, and checks the data and the rules of the exercise format:
+///
+/// - `teach`, `gold` and `naive` each solve the exercise in exactly as many keys as they have,
+/// - `naive` has at least twice as many keys as `teach` (the par), and so has retyping the goal
+///   (`%c`, its characters, `<esc>`: the characters of the goal and 3),
+/// - the commands recorded while `teach` and `naive` run are all keys of the chapter of the
+///   exercise or of a chapter before it,
+/// - every key a chapter lists is recorded in the `teach` or `gold` of one of its exercises,
+/// - `CURRICULUM.md` agrees with `index.toml` (see `practice::validate`).
+///
+/// All failures are collected and reported together. A table of the numbers of keys is printed:
+/// run it with `--nocapture` to see it.
+///
+/// For authoring, two environment variables:
+///
+/// - `PRACTICE_DIR=<dir>` loads the exercises, `index.toml` and `CURRICULUM.md` from this
+///   directory instead of the runtime one,
+/// - `PRACTICE_FILTER=<substring>` replays only the exercises whose id contains it. The static
+///   checks still run on everything, and the check that every key of a chapter is used is skipped.
 #[tokio::test(flavor = "multi_thread")]
 async fn the_solutions_of_all_exercises_solve_them_in_exactly_their_keys() -> anyhow::Result<()> {
-    let dir = practice::exercise::exercises_dir()?;
+    let dir = match std::env::var_os("PRACTICE_DIR") {
+        Some(dir) => PathBuf::from(dir),
+        None => practice::exercise::exercises_dir()?,
+    };
+    let filter = std::env::var("PRACTICE_FILTER")
+        .ok()
+        .filter(|f| !f.is_empty());
+    let chapters = practice::exercise::load_chapters(&dir)?;
     let exercises = practice::load_exercises_from(&dir)?;
     assert!(!exercises.is_empty());
 
@@ -30,28 +55,109 @@ async fn the_solutions_of_all_exercises_solve_them_in_exactly_their_keys() -> an
         &test_syntax_loader(None),
     ));
 
-    println!("{:<44} {:>3}  gold", "id", "par");
+    // the commands recorded for the teach and gold solutions of each chapter
+    let mut used: BTreeMap<&str, BTreeSet<String>> = BTreeMap::new();
+
+    println!(
+        "{:<44} {:<9} {:>3} {:>4} {:>5} {:>6} {:>5}",
+        "id", "kind", "par", "gold", "naive", "retype", "n/par"
+    );
     let progress_dir = tempfile::tempdir()?;
     for exercise in &exercises {
+        if filter
+            .as_ref()
+            .is_some_and(|filter| !exercise.id.contains(filter))
+        {
+            continue;
+        }
         // (the shell commands of the shell chapter need a POSIX shell)
         if cfg!(windows) && exercise.chapter == "shell" {
             continue;
         }
+        let par = exercise.par();
+        let naive = exercise.naive_keys();
+        let retype = exercise.goal.chars().count() + 3;
         println!(
-            "{:<44} {:>3}  {}",
+            "{:<44} {:<9} {:>3} {:>4} {:>5} {:>6} {:>5.1}",
             exercise.id,
-            exercise.par(),
+            exercise.kind.name(),
+            par,
             exercise
                 .gold_par()
-                .map_or_else(|| "-".to_owned(), |gold| gold.to_string())
+                .map_or_else(|| "-".to_owned(), |gold| gold.to_string()),
+            naive,
+            retype,
+            naive as f64 / par.max(1) as f64
         );
+        if naive < 2 * par {
+            failures.push(format!(
+                "{}: naive has {naive} keys, at least 2 x par ({par}) = {}",
+                exercise.id,
+                2 * par
+            ));
+        }
+        if retype < 2 * par {
+            failures.push(format!(
+                "{}: retyping the goal takes {retype} keys, at least 2 x par ({par}) = {}",
+                exercise.id,
+                2 * par
+            ));
+        }
+
+        // the keys of the chapter and of the ones before it
+        let allowed: BTreeSet<&str> = chapters
+            .iter()
+            .take(exercise.chapter_number)
+            .flat_map(|chapter| chapter.keys.iter().map(String::as_str))
+            .collect();
         for (name, keys) in [
             ("teach", Some(&exercise.teach)),
             ("gold", exercise.gold.as_ref()),
+            ("naive", Some(&exercise.naive)),
         ] {
             let Some(keys) = keys else { continue };
-            if let Err(failure) = replay(exercise, keys, progress_dir.path().join("p.toml")).await {
-                failures.push(format!("{} [{name}: {keys}]: {failure}", exercise.id));
+            let progress = progress_dir.path().join("p.toml");
+            let commands = match replay(exercise, keys, progress).await {
+                Ok(commands) => commands,
+                Err(failure) => {
+                    failures.push(format!("{} [{name}: {keys}]: {failure}", exercise.id));
+                    continue;
+                }
+            };
+            if name != "gold" {
+                let unknown: BTreeSet<&str> = commands
+                    .iter()
+                    .map(String::as_str)
+                    .filter(|command| !allowed.contains(command))
+                    .collect();
+                if !unknown.is_empty() {
+                    failures.push(format!(
+                        "{} [{name}: {keys}]: uses keys that are not taught yet: {unknown:?} (recorded {commands:?})",
+                        exercise.id
+                    ));
+                }
+            }
+            if name != "naive" {
+                used.entry(exercise.chapter.as_str())
+                    .or_default()
+                    .extend(commands);
+            }
+        }
+    }
+
+    if filter.is_none() {
+        for chapter in &chapters {
+            if cfg!(windows) && chapter.dir == "shell" {
+                continue;
+            }
+            let recorded = used.get(chapter.dir.as_str());
+            for key in &chapter.keys {
+                if !recorded.is_some_and(|recorded| recorded.contains(key)) {
+                    failures.push(format!(
+                        "chapter {}: the key `{key}` is not recorded in the teach or gold of any of its exercises",
+                        chapter.dir
+                    ));
+                }
             }
         }
     }
@@ -65,8 +171,9 @@ async fn the_solutions_of_all_exercises_solve_them_in_exactly_their_keys() -> an
     Ok(())
 }
 
-/// Types `keys` into a fresh application that has just started `exercise`.
-async fn replay(exercise: &Exercise, keys: &str, progress: PathBuf) -> Result<(), String> {
+/// Types `keys` into a fresh application that has just started `exercise`, and returns the
+/// commands that were recorded.
+async fn replay(exercise: &Exercise, keys: &str, progress: PathBuf) -> Result<Vec<String>, String> {
     let _ = std::fs::remove_file(&progress);
     practice::reset_session();
     practice::set_progress_file(progress);
@@ -76,7 +183,7 @@ async fn replay(exercise: &Exercise, keys: &str, progress: PathBuf) -> Result<()
     practice::start_exercise(&mut app.editor, &exercise.id).map_err(|e| e.to_string())?;
 
     let expected = parse_macro(keys).map_err(|e| e.to_string())?.len();
-    let outcome = RefCell::new(Ok(()));
+    let outcome = RefCell::new(Ok(Vec::new()));
     test_key_sequence(
         &mut app,
         Some(keys),
@@ -94,7 +201,7 @@ async fn replay(exercise: &Exercise, keys: &str, progress: PathBuf) -> Result<()
                 Some(_) if text != exercise.goal => {
                     Err(format!("solved, but the text is {text:?}"))
                 }
-                Some(_) => Ok(()),
+                Some(_) => Ok(attempt.commands),
             };
         }),
         false,
@@ -1039,4 +1146,224 @@ async fn before_texts_are_the_undo_history_of_the_buffer() -> anyhow::Result<()>
         false,
     )
     .await
+}
+
+/// An exercise whose goal can't be reached by accident, to look at the recorded commands.
+fn sandbox() -> Vec<Exercise> {
+    numbered(vec![exercise(
+        "a/01-sandbox",
+        "foo (bar) foo\nsecond line\nthird line\n",
+        "never\n",
+        "x",
+    )])
+}
+
+/// The commands recorded after `:practice<ret>` and `keys`.
+async fn recorded(keys: &str) -> anyhow::Result<Vec<String>> {
+    let dir = tempfile::tempdir()?;
+    practice::reset_session();
+    practice::set_progress_file(dir.path().join("practice.toml"));
+    practice::set_exercises(sandbox());
+    let mut app = AppBuilder::new().build()?;
+    let commands = RefCell::new(Vec::new());
+    let keys = format!(":practice<ret>{keys}");
+    test_key_sequence(
+        &mut app,
+        Some(&keys),
+        Some(&|_| {
+            *commands.borrow_mut() = practice::attempt().expect("an attempt is running").commands
+        }),
+        false,
+    )
+    .await?;
+    Ok(commands.into_inner())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn the_keys_are_named_by_the_state_before_them() -> anyhow::Result<()> {
+    let cases: &[(&str, &[&str])] = &[
+        // counts, and a command that is complete
+        ("3w", &["count", "w"]),
+        ("10w", &["count", "count", "w"]),
+        ("gg", &["gg"]),
+        ("<A-o>", &["<A-o>"]),
+        ("<gt>", &["<gt>"]),
+        ("<lt>", &["<lt>"]),
+        ("w<space>", &["w"]),
+        // the argument of a command is text
+        ("mi(", &["mi"]),
+        ("\"ay", &["\"", "y"]),
+        ("fo", &["f"]),
+        ("rx", &["r"]),
+        // insert mode: the typed text is nothing
+        ("ifoo<esc>", &["i", "<esc>"]),
+        ("ifoo bar<ret><tab><backspace><esc>", &["i", "<esc>"]),
+        ("i<C-w><esc>", &["i", "insert:<C-w>", "<esc>"]),
+        ("ia<left><esc>", &["i", "insert:<left>", "<esc>"]),
+        ("i<C-r>a<esc>", &["i", "insert:<C-r>", "<esc>"]),
+        // prompts: the text is nothing, but the command line names the command
+        ("%sfoo<ret>", &["%", "s"]),
+        ("/bar<ret>", &["/"]),
+        (":sort<ret>", &[":sort"]),
+        (":sort -r<ret>", &[":sort"]),
+        (":foo<esc>", &[]),
+        // sticky mode
+        ("Mk", &["M", "k"]),
+        // a practice command leaves no trace
+        (":practice hint<ret>", &[]),
+        ("w:practice hint<ret>l", &["w", "l"]),
+        (":practice lesson<ret>:practice lesson<ret>", &[]),
+    ];
+    for (keys, expected) in cases {
+        assert_eq!(&recorded(keys).await?, expected, "{keys}");
+    }
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_practice_binding_leaves_no_trace_and_the_record_freezes_when_solved(
+) -> anyhow::Result<()> {
+    let (_dir, _) = setup();
+    let mut config = test_config();
+    config.keys = toml::from_str("[normal]\nH = \":practice hint\"")?;
+    let mut app = AppBuilder::new().with_config(config).build()?;
+    let commands = || practice::attempt().unwrap().commands;
+    test_key_sequences(
+        &mut app,
+        vec![
+            (
+                Some(":practice<ret>hHl"),
+                Some(&|_| assert_eq!(commands(), ["h", "l"])),
+            ),
+            // solved by `w`, `d`: the record stops there
+            (
+                Some("wd"),
+                Some(&|_| {
+                    assert_eq!(practice::attempt().unwrap().solved_at, Some(4));
+                    assert_eq!(commands(), ["h", "l", "w", "d"]);
+                }),
+            ),
+            (
+                Some("ll3j"),
+                Some(&|_| assert_eq!(commands(), ["h", "l", "w", "d"])),
+            ),
+            // starting again forgets them
+            (
+                Some(":practice reset<ret>"),
+                Some(&|_| assert!(commands().is_empty())),
+            ),
+        ],
+        false,
+    )
+    .await
+}
+
+/// An authoring tool, not a test: feeds the keys to an exercise one at a time and shows what
+/// happens after each. Run it with
+///
+/// ```text
+/// PRACTICE_TRY=path/to/01-name.toml cargo integration-test -- practice_try --ignored --nocapture
+/// ```
+///
+/// - `PRACTICE_TRY=<file>` (required) is an exercise file, which can be anywhere,
+/// - `PRACTICE_KEYS=<keys>` are the keys to type, the `teach` solution by default,
+/// - `PRACTICE_SOLUTION=gold|naive` types that solution of the exercise instead.
+///
+/// After each key it prints the key, the mode, the commands recorded so far, and the buffer with
+/// the selections in the markup of the tests (`#[a|]#` primary, `#(b|)#` others). At the end it
+/// says whether the exercise is solved and when, and if not, how the text differs from the goal.
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "an authoring tool, see its doc comment"]
+async fn practice_try() -> anyhow::Result<()> {
+    let path = std::env::var_os("PRACTICE_TRY")
+        .ok_or_else(|| anyhow::anyhow!("PRACTICE_TRY is not set: the exercise file to try"))?;
+    let exercise = practice::load_exercise_file(Path::new(&path))?;
+    let keys = match (
+        std::env::var("PRACTICE_KEYS").ok(),
+        std::env::var("PRACTICE_SOLUTION").ok().as_deref(),
+    ) {
+        (Some(keys), _) => keys,
+        (None, None | Some("teach")) => exercise.teach.clone(),
+        (None, Some("naive")) => exercise.naive.clone(),
+        (None, Some("gold")) => exercise
+            .gold
+            .clone()
+            .ok_or_else(|| anyhow::anyhow!("the exercise has no gold solution"))?,
+        (None, Some(other)) => anyhow::bail!("PRACTICE_SOLUTION is gold or naive, not `{other}`"),
+    };
+    let events = parse_macro(&keys)?;
+    anyhow::ensure!(!events.is_empty(), "there are no keys to type");
+    println!("{}: {keys}  ({} keys)", exercise.id, events.len());
+
+    let dir = tempfile::tempdir()?;
+    practice::reset_session();
+    practice::set_progress_file(dir.path().join("practice.toml"));
+    practice::set_exercises(vec![exercise.clone()]);
+    let mut app = AppBuilder::new().build()?;
+    practice::start_exercise(&mut app.editor, &exercise.id)?;
+
+    fn frame(app: &Application) -> String {
+        let (view, doc) = helix_view::current_ref!(app.editor);
+        let text = helix_core::test::plain(doc.text().slice(..), doc.selection(view.id));
+        let mut out = String::from("----\n");
+        for line in text.lines() {
+            out += &format!("    {line}\n");
+        }
+        out + "----"
+    }
+    println!("start\n{}", frame(&app));
+
+    let total = events.len();
+    // (`<{key}>` is how every key, plain or not, is spelled in a macro)
+    let names: Vec<String> = events.iter().map(|event| format!("<{event}>")).collect();
+    type Check = Box<dyn Fn(&Application)>;
+    let checks: Vec<Check> = names
+        .iter()
+        .enumerate()
+        .map(|(n, name)| {
+            let (n, name) = (n + 1, name.clone());
+            let exercise = exercise.clone();
+            Box::new(move |app: &Application| {
+                let attempt = practice::attempt().expect("the attempt is running");
+                println!(
+                    "{n}/{total} key {name}  mode {:?}  commands {:?}\n{}",
+                    app.editor.mode(),
+                    attempt.commands,
+                    frame(app)
+                );
+                if n < total {
+                    return;
+                }
+                match attempt.solved_at {
+                    Some(at) if at == total => println!("SOLVED at the last key ({at})"),
+                    Some(at) => println!("SOLVED early, at key {at} of {total}"),
+                    None => {
+                        println!("NOT SOLVED after {total} keys (goal -, text +)");
+                        let text = helix_view::doc!(app.editor).text().to_string();
+                        let (goal, text): (Vec<_>, Vec<_>) =
+                            (exercise.goal.lines().collect(), text.lines().collect());
+                        for n in 0..goal.len().max(text.len()) {
+                            match (goal.get(n), text.get(n)) {
+                                (Some(a), Some(b)) if a == b => println!("    {a}"),
+                                (a, b) => {
+                                    if let Some(a) = a {
+                                        println!("  - {a}");
+                                    }
+                                    if let Some(b) = b {
+                                        println!("  + {b}");
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }) as Check
+        })
+        .collect();
+    let inputs = names
+        .iter()
+        .zip(&checks)
+        .map(|(name, check)| (Some(name.as_str()), Some(&**check)))
+        .collect();
+    test_key_sequences(&mut app, inputs, false).await
 }

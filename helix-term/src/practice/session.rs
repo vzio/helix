@@ -17,7 +17,8 @@ use anyhow::anyhow;
 use helix_core::Rope;
 use helix_view::document::Mode;
 use helix_view::editor::Action;
-use helix_view::input::Event;
+use helix_view::input::{Event, KeyEvent};
+use helix_view::keyboard::{KeyCode, KeyModifiers};
 use helix_view::{current, Document, DocumentId, Editor};
 
 use super::command::Row;
@@ -25,7 +26,7 @@ use super::exercise::{load_exercises, Exercise};
 use super::progress::{progress_file, Progress};
 use crate::compositor::Compositor;
 use crate::ui::overlay::Overlay;
-use crate::ui::{Picker, Prompt};
+use crate::ui::{EditorView, Picker, Prompt};
 
 /// The exercise that is being practiced.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -43,6 +44,10 @@ pub struct Attempt {
     /// The fewest keys this exercise was ever solved with, as of the start of the attempt or
     /// its solution.
     pub best: Option<usize>,
+    /// The commands used so far, in the key names of `index.toml` (`w`, `count`, `mi`, `<esc>`,
+    /// `insert:<C-w>`, `:sort`, ...), see [`key_name`] and the table in the format description.
+    /// Frozen when solved.
+    pub commands: Vec<String>,
 }
 
 #[derive(Default)]
@@ -58,6 +63,12 @@ struct Session {
     count_before_prompt: Option<usize>,
     /// Set by `:practice`: the keys that typed it don't count.
     restore_count: bool,
+    /// The keys of the sequence the keymap is waiting to complete, as named.
+    pending_keys: Vec<String>,
+    /// The number of commands recorded before the key that is being handled.
+    commands_before_key: usize,
+    /// The number of commands recorded before the key that opened the command line that is open.
+    commands_before_prompt: Option<usize>,
 }
 
 thread_local! {
@@ -171,7 +182,10 @@ pub fn start_index(editor: &mut Editor, index: usize) -> anyhow::Result<()> {
             solved_at: None,
             hints: 0,
             best,
+            commands: Vec::new(),
         });
+        session.pending_keys.clear();
+        session.commands_before_prompt = None;
         // The same exercise again keeps the hints the person has seen.
         if let Some(previous) = &previous {
             if previous.exercise == index {
@@ -253,6 +267,8 @@ fn sync(editor: &Editor) {
             session.attempt = None;
             session.restore_count = false;
             session.count_before_prompt = None;
+            session.commands_before_prompt = None;
+            session.pending_keys.clear();
         }
     });
 }
@@ -267,14 +283,84 @@ fn picker_open(compositor: &mut Compositor) -> bool {
     compositor.find::<Overlay<Picker<Row, ()>>>().is_some()
 }
 
-/// Call before an event from the terminal is handled: counts the keys.
+/// The name of a key in the notation of macros, which is also how `index.toml` names it: a
+/// character without modifiers is itself (`w`, `%`, `"`), anything else is `<...>` as
+/// `parse_macro` reads it (`<esc>`, `<ret>`, `<space>`, `<C-o>`, `<A-;>`, `<S-tab>`), and so are
+/// `<` and `>` themselves, as `<lt>` and `<gt>`. Shift is part of a character (`A`), not a
+/// modifier.
+pub fn key_name(key: &KeyEvent) -> String {
+    let mut key = *key;
+    if matches!(key.code, KeyCode::Char(_)) {
+        key.modifiers.remove(KeyModifiers::SHIFT);
+    }
+    match key.code {
+        KeyCode::Char(c) if key.modifiers.is_empty() && !matches!(c, ' ' | '<' | '>') => {
+            c.to_string()
+        }
+        _ => format!("<{key}>"),
+    }
+}
+
+/// What a key is, by the state before it (see the table in the format description).
+enum Class {
+    /// Text, or the argument of a command.
+    Nothing,
+    /// A command that is complete with this key.
+    Command(String),
+    /// A digit of a count.
+    Count,
+    /// A key of a sequence of the keymap, which may need more keys to be a command.
+    Sequence(String),
+}
+
+fn classify(key: &KeyEvent, editor: &Editor, compositor: &mut Compositor) -> Class {
+    use helix_view::keyboard::KeyCode::*;
+    if let Some(prompt) = compositor.find::<Prompt>() {
+        let plain_enter = key.code == Enter && key.modifiers.is_empty();
+        if prompt.history_register() == Some(':') && plain_enter {
+            let word = prompt.line().split_whitespace().next().unwrap_or_default();
+            return Class::Command(format!(":{word}"));
+        }
+        return Class::Nothing;
+    }
+    let (awaits_char, idle) = compositor
+        .find::<EditorView>()
+        .map_or((false, true), |view| {
+            (view.awaits_char(), view.keymaps.pending().is_empty())
+        });
+    if awaits_char {
+        return Class::Nothing;
+    }
+    match editor.mode {
+        Mode::Insert => {
+            let shifted = key.modifiers.difference(KeyModifiers::SHIFT).is_empty();
+            match key.code {
+                Esc if key.modifiers.is_empty() => Class::Command(key_name(key)),
+                Char(_) if shifted => Class::Nothing,
+                Enter | Tab | Backspace | Delete if key.modifiers.is_empty() => Class::Nothing,
+                _ => Class::Command(format!("insert:{}", key_name(key))),
+            }
+        }
+        Mode::Normal | Mode::Select => match key.code {
+            Char(digit @ '0'..='9')
+                if idle && key.modifiers.is_empty() && (digit != '0' || editor.count.is_some()) =>
+            {
+                Class::Count
+            }
+            _ => Class::Sequence(key_name(key)),
+        },
+    }
+}
+
+/// Call before an event from the terminal is handled: counts the keys and names the commands.
 pub fn before_event(event: &Event, editor: &mut Editor, compositor: &mut Compositor) {
     sync(editor);
     if with(|session| session.attempt.is_none()) {
         return;
     }
     // The picker of `:practice list` is open before and after the keys that use it.
-    let keys = if picker_open(compositor) {
+    let picker = picker_open(compositor);
+    let keys = if picker {
         0
     } else {
         match event {
@@ -283,37 +369,71 @@ pub fn before_event(event: &Event, editor: &mut Editor, compositor: &mut Composi
             _ => 0,
         }
     };
+    let class = match event {
+        Event::Key(key) if !picker => classify(key, editor, compositor),
+        _ => Class::Nothing,
+    };
     with(|session| {
         let attempt = session.attempt.as_mut().unwrap();
         session.count_before_key = attempt.keys;
+        session.commands_before_key = attempt.commands.len();
         if attempt.solved_at.is_none() {
             attempt.keys += keys;
+            match class {
+                Class::Nothing => (),
+                Class::Command(name) => attempt.commands.push(name),
+                Class::Count => attempt.commands.push("count".to_owned()),
+                Class::Sequence(name) => session.pending_keys.push(name),
+            }
         }
     });
 }
 
-/// Call after an event from the terminal was handled: takes back the keys of `:practice`
-/// commands, keeps the buffer of the exercise unmodified so that it never blocks quitting, and
-/// checks for the goal.
+/// Call after an event from the terminal was handled: names the command of a finished sequence
+/// of keys, takes back the keys of `:practice` commands, keeps the buffer of the exercise
+/// unmodified so that it never blocks quitting, and checks for the goal.
 pub fn after_event(editor: &mut Editor, compositor: &mut Compositor) {
     sync(editor);
     let prompt_open = command_line_open(compositor);
+    let keymap_idle = compositor
+        .find::<EditorView>()
+        .is_none_or(|view| view.keymaps.pending().is_empty());
     let doc_id = with(|session| {
         let was_open = std::mem::replace(&mut session.prompt_open, prompt_open);
         let Some(attempt) = session.attempt.as_mut() else {
             session.count_before_prompt = None;
+            session.commands_before_prompt = None;
+            session.pending_keys.clear();
             return None;
         };
+        if attempt.solved_at.is_some() {
+            session.pending_keys.clear();
+        } else if keymap_idle && !session.pending_keys.is_empty() {
+            let sequence = std::mem::take(&mut session.pending_keys).concat();
+            // `:` opens the command line, which names the command when it is run
+            if sequence != ":" {
+                attempt.commands.push(sequence);
+            }
+        }
         if prompt_open && !was_open {
             session.count_before_prompt = Some(session.count_before_key);
+            session.commands_before_prompt = Some(attempt.commands.len());
         }
         if std::mem::take(&mut session.restore_count) {
             attempt.keys = session
                 .count_before_prompt
                 .unwrap_or(session.count_before_key);
+            if attempt.solved_at.is_none() {
+                attempt.commands.truncate(
+                    session
+                        .commands_before_prompt
+                        .unwrap_or(session.commands_before_key),
+                );
+            }
         }
         if !prompt_open {
             session.count_before_prompt = None;
+            session.commands_before_prompt = None;
         }
         Some(attempt.doc)
     });
@@ -369,5 +489,60 @@ fn solved(editor: &mut Editor, exercise: &Exercise, keys: usize) {
         Err(err) => editor.set_error(format!(
             "Solved in {keys} {unit} · par {par} · progress is not saved: {err}"
         )),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use helix_view::input::parse_macro;
+
+    #[test]
+    fn key_names_read_back_with_parse_macro() {
+        for name in [
+            "<esc>",
+            "<ret>",
+            "<space>",
+            "<C-o>",
+            "<A-;>",
+            "<A-.>",
+            "<S-tab>",
+            "\"",
+            "%",
+            "w",
+            "A",
+            "-",
+            "<tab>",
+            "<backspace>",
+            "<C-w>",
+            "<A-ret>",
+        ] {
+            let keys = parse_macro(name).unwrap();
+            assert_eq!(keys.len(), 1, "{name}");
+            assert_eq!(key_name(&keys[0]), name);
+        }
+    }
+
+    #[test]
+    fn less_than_and_greater_than_are_lt_and_gt() {
+        // (a lone `<` or `>` is not a macro)
+        for name in ["<lt>", "<gt>", "<C-lt>", "<A-gt>"] {
+            let key = parse_macro(name).unwrap()[0];
+            assert_eq!(key_name(&key), name);
+        }
+    }
+
+    #[test]
+    fn shift_is_part_of_a_character() {
+        let shifted = KeyEvent {
+            code: KeyCode::Char('A'),
+            modifiers: KeyModifiers::SHIFT,
+        };
+        assert_eq!(key_name(&shifted), "A");
+        let tab = KeyEvent {
+            code: KeyCode::Tab,
+            modifiers: KeyModifiers::SHIFT,
+        };
+        assert_eq!(key_name(&tab), "<S-tab>");
     }
 }
