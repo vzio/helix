@@ -1,0 +1,20 @@
+title = "Skip ahead"
+topic = "motions"
+feature = "Counts: 3w"
+lesson = """
+A number before a motion repeats it: `3w` does `w` three times. The selection
+is then only the last word reached (`d` would delete just that one), not all
+three.
+"""
+start = """
+#[o|]#ne two three four five
+"""
+goal = """
+one two four five
+"""
+hints = [
+  "The third word has to go.",
+  "Put a count in front of the word motion to land on it.",
+  "`3w` selects the third word, then `d`.",
+]
+teach = "3wd"

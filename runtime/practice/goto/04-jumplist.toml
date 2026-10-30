@@ -1,0 +1,26 @@
+title = "And back again"
+topic = "goto"
+feature = "Jumplist: C-o jumps back"
+lesson = """
+Big jumps like `gg`, `ge` and `G` are recorded in the jumplist. `C-o` goes
+back to where you were, selection included, `C-i` forward again. `C-s` saves
+the position by hand.
+"""
+start = """
+Ada
+one
+two
+Dear #[,|]# welcome
+"""
+goal = """
+Ada
+one
+two
+Dear Ada, welcome
+"""
+hints = [
+  "The name is at the top, the cursor is at the bottom.",
+  "Yank the name, then jump back to where you were.",
+  "`gg`, `e`, `y` to copy `Ada`, `C-o` to return, `P` to paste before the comma.",
+]
+teach = "ggey<C-o>P"

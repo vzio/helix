@@ -1,0 +1,26 @@
+title = "Cursors on the next lines"
+topic = "selections"
+feature = "Copy the cursor down: C"
+lesson = """
+`C` copies the cursor to the next line, `3C` three lines down. Then any edit
+happens on all cursors at once: `A` appends at the end of each line.
+"""
+start = """
+let a = 1
+let b = 2
+let c = 3
+let d = 4
+"""
+goal = """
+let a = 1;
+let b = 2;
+let c = 3;
+let d = 4;
+"""
+hints = [
+  "Every line needs a semicolon at the end.",
+  "Put a cursor on every line, then append once.",
+  "`3C` adds three cursors below, then `A`, `;` and `Esc`.",
+]
+teach = "CCCA;<esc>"
+gold = "3CA;<esc>"

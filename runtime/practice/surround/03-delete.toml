@@ -1,0 +1,19 @@
+title = "Drop the parentheses"
+topic = "surround"
+feature = "Delete surrounding: md"
+lesson = """
+`md<char>` deletes the pair around the cursor and keeps what was inside: `md(`
+removes parentheses, `md"` quotes. The cursor can be anywhere inside.
+"""
+start = """
+let x = (a #[+|]# b);
+"""
+goal = """
+let x = a + b;
+"""
+hints = [
+  "The parentheses are useless here.",
+  "Delete the surrounding pair, not its content.",
+  "`md(` with the cursor inside the parentheses.",
+]
+teach = "md("

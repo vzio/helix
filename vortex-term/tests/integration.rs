@@ -24,6 +24,7 @@ mod test {
     mod move_lines;
     mod movement;
     mod picker_modes;
+    mod practice;
     mod splits;
     mod x_empty_line;
 }

@@ -1,0 +1,25 @@
+title = "Delete the blank line"
+topic = "fork"
+feature = "x on an empty line selects only that line"
+lesson = """
+In this fork `x` on an empty line selects just that line (upstream also
+swallows the next one). `xd` deletes the blank line; `x` again still grows;
+`3x` selects exactly 3 lines.
+"""
+start = """
+alpha
+beta
+#[
+|]#gamma
+"""
+goal = """
+alpha
+beta
+gamma
+"""
+hints = [
+  "Remove the blank line only.",
+  "Select the empty line as a line, then delete it.",
+  "`x` selects just the blank line, `d` deletes it.",
+]
+teach = "xd"

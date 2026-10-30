@@ -4221,7 +4221,18 @@ pub const TYPABLE_COMMAND_LIST: &[TypableCommand] = &[
         fun: exclude_workspace,
         completer: CommandCompleter::none(),
         signature: Signature { positionals: (0, None), ..Signature::DEFAULT },
-    }
+    },
+    TypableCommand {
+        name: "practice",
+        aliases: &[],
+        doc: crate::practice::command::DOC,
+        fun: crate::practice::command::practice,
+        completer: CommandCompleter::positional(&[crate::practice::command::complete]),
+        signature: Signature {
+            positionals: (0, Some(1)),
+            ..Signature::DEFAULT
+        },
+    },
 ];
 
 pub static TYPABLE_COMMAND_MAP: LazyLock<HashMap<&'static str, &'static TypableCommand>> =

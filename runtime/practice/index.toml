@@ -1,0 +1,3 @@
+# Topic order for :practice. Every directory under runtime/practice is listed here, and nothing else.
+topics = ["motions", "selections", "text-objects", "surround", "syntax", "registers", "macros",
+          "pipe", "search-replace", "goto", "fork"]

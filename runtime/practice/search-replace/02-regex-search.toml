@@ -1,0 +1,23 @@
+title = "Search with a regex"
+topic = "search-replace"
+feature = "Regex search: / with \\d+"
+lesson = """
+`/` searches with a regex and selects the first match after the cursor. `\\d+`
+is a run of digits. `C-a` adds one to the number in the selection (`C-x`
+subtracts).
+"""
+start = """
+name = app
+build = 41
+"""
+goal = """
+name = app
+build = 42
+"""
+hints = [
+  "Bump the build number.",
+  "Search for a number, then increment it.",
+  "`/` then `\\d+` and Enter selects `41`, `C-a` adds one.",
+]
+teach = '/\d+<ret><C-a>'
+gold = "jgl<C-a>"

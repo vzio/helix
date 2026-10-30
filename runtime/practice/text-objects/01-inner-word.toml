@@ -1,0 +1,20 @@
+title = "Fix the whole word"
+topic = "text-objects"
+feature = "Inner word: miw"
+lesson = """
+`mi` + an object key selects the inside of that object, from anywhere within
+it: `miw` is the word under the cursor. `ma` selects around it (a word plus
+its trailing space).
+"""
+start = """
+The q#[i|]#uck brown fox
+"""
+goal = """
+The quick brown fox
+"""
+hints = [
+  "The cursor is in the middle of a misspelled word.",
+  "Select the whole word under the cursor and replace it.",
+  "`miw` selects the word, `c`, type `quick`, `Esc`.",
+]
+teach = "miwcquick<esc>"

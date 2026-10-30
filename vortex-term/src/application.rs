@@ -769,7 +769,13 @@ impl Application {
             }) => false,
             #[cfg(not(windows))]
             event if event.is_escape() => false,
-            event => self.compositor.handle_event(&event.into(), &mut cx),
+            event => {
+                let event = event.into();
+                crate::practice::before_event(&event, cx.editor, &mut self.compositor);
+                let redraw = self.compositor.handle_event(&event, &mut cx);
+                crate::practice::after_event(cx.editor, &mut self.compositor);
+                redraw
+            }
         };
 
         if should_redraw && !self.editor.should_close() {

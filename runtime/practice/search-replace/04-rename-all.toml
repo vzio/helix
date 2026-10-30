@@ -1,0 +1,23 @@
+title = "Rename everywhere"
+topic = "search-replace"
+feature = "Search, then select every match: * then s"
+lesson = """
+After `*` the search register holds the word. `%s` + Enter (empty regex)
+reuses it and selects all matches, so one `c` renames them all at once.
+"""
+start = """
+#[t|]#otal = 0
+total += price
+show total
+"""
+goal = """
+sum = 0
+sum += price
+show sum
+"""
+hints = [
+  "One name changes on every line.",
+  "Search for the name, then select all of its matches and change them.",
+  "`miw`, `*`, `%`, `s` Enter, then `c`, type `sum`, `Esc`.",
+]
+teach = "miw*%s<ret>csum<esc>"
