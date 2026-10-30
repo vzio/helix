@@ -42,6 +42,7 @@ bug-fixed version of it in omentic's [helix-ext](https://github.com/omentic/heli
 - [Staged files in the changed files picker](#staged-files-in-the-changed-files-picker)
 - [File tree overlay](#file-tree-overlay)
 - [Inline git blame](#inline-git-blame)
+- [`x` on an empty line](#x-on-an-empty-line)
 - [Move lines](#move-lines)
 
 ## Code layout
@@ -55,6 +56,7 @@ Each feature lives in its own modules, to keep rebasing on upstream cheap:
 | Staged files, commit diffs | `helix-vcs/src/git.rs`, `helix-vcs/src/lib.rs`, `helix-vcs/src/status.rs` |
 | File tree | `helix-term/src/ui/explorer.rs`, `helix-term/src/ui/explorer/`, `helix-term/benches/explorer.rs` |
 | Inline blame | `helix-vcs/src/git/blame.rs`, `helix-vcs/src/blame_stub.rs`, `helix-vcs/benches/blame.rs`, `helix-stdx/src/time.rs`, `helix-view/src/blame.rs`, `helix-term/src/handlers/blame.rs`, `helix-term/src/commands/blame.rs`, `helix-term/src/ui/text_decorations/blame.rs` |
+| `x` on an empty line | `helix-term/src/handlers/line_select.rs` |
 | Move lines | `helix-term/src/commands/move_lines.rs` |
 
 Hooks into core files: commands and keys in `helix-term/src/commands.rs`,
@@ -439,6 +441,23 @@ so it looks like inlay hints everywhere.
 - After a commit made outside the editor, blame updates on the next save, `:reload` or terminal
   focus, not by itself.
 - Blame is for the committed file at `HEAD`; staged-but-uncommitted lines show "Not committed yet".
+
+## `x` on an empty line
+
+Upstream's `x` (`extend_line_below`) on an empty line selects that line and the next one
+([helix-editor/helix#3077](https://github.com/helix-editor/helix/issues/3077)): the cursor on an
+empty line already covers the whole line (its line ending), so `x` takes the line as selected and
+extends. That breaks `xd` and `<count>x` (with relative line numbers, `3x` should select 3 lines).
+In this fork `x` selects only the empty line, `3x` selects exactly 3 lines starting at it, and
+pressing `x` again extends by one line as usual (`xx` selects 2 lines, `xxx` 3).
+
+- It works for each cursor, so multiple cursors can be on empty and text lines at once. Lines with
+  only whitespace are text lines, and `X`, `extend_line_above` and `extend_line` are unchanged.
+- An empty line selected by `x` can't be told from a cursor on it, so `x` remembers the selection
+  it set (`helix-term/src/handlers/line_select.rs`) and forgets it on any other selection change or
+  edit: `x`, `k`, `j`, `x` on an empty line selects just that line, but a selection that moved and
+  came back is a cursor again. An empty line selected by another command (`X`, for example) is a
+  cursor to `x` too.
 
 ## Move lines
 

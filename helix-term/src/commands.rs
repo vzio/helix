@@ -2814,22 +2814,27 @@ fn extend_line(cx: &mut Context) {
         Direction::Forward => Extend::Below,
         Direction::Backward => Extend::Above,
     };
-    extend_line_impl(cx, extend);
+    extend_line_impl(cx, extend, false);
 }
 
 fn extend_line_below(cx: &mut Context) {
-    extend_line_impl(cx, Extend::Below);
+    extend_line_impl(cx, Extend::Below, true);
 }
 
 fn extend_line_above(cx: &mut Context) {
-    extend_line_impl(cx, Extend::Above);
+    extend_line_impl(cx, Extend::Above, false);
 }
-fn extend_line_impl(cx: &mut Context, extend: Extend) {
+/// With `empty_line_cursor`, a range that is just an empty line is a cursor, unless `x` itself
+/// selected it (see `handlers::line_select`), so that `x` on an empty line selects only that line.
+fn extend_line_impl(cx: &mut Context, extend: Extend, empty_line_cursor: bool) {
     let count = cx.count();
     let (view, doc) = current!(cx.editor);
 
     let text = doc.text();
-    let selection = doc.selection(view.id).clone().transform(|range| {
+    let old_selection = doc.selection(view.id);
+    let selected_by_x = empty_line_cursor
+        && crate::handlers::line_select::is_marked(doc.id(), view.id, old_selection);
+    let selection = old_selection.clone().transform(|range| {
         let (start_line, end_line) = range.line_range(text.slice(..));
 
         let start = text.line_to_char(start_line);
@@ -2838,8 +2843,14 @@ fn extend_line_impl(cx: &mut Context, extend: Extend) {
                 .min(text.len_lines()),
         );
 
+        let is_empty_line = start_line == end_line
+            && start < end
+            && line_end_char_index(&text.slice(..), start_line) == start;
+
         // extend to previous/next line if current line is selected
-        let (anchor, head) = if range.from() == start && range.to() == end {
+        let selected = range.from() == start && range.to() == end;
+        let (anchor, head) = if selected && !(empty_line_cursor && is_empty_line && !selected_by_x)
+        {
             match extend {
                 Extend::Above => (end, text.line_to_char(start_line.saturating_sub(count))),
                 Extend::Below => (
@@ -2861,6 +2872,10 @@ fn extend_line_impl(cx: &mut Context, extend: Extend) {
     });
 
     doc.set_selection(view.id, selection);
+    if empty_line_cursor {
+        // after `set_selection`, which clears the marker
+        crate::handlers::line_select::mark(doc.id(), view.id, doc.selection(view.id));
+    }
 }
 fn select_line_below(cx: &mut Context) {
     select_line_impl(cx, Extend::Below);
