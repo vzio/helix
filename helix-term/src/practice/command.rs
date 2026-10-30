@@ -145,14 +145,12 @@ fn running(editor: &Editor) -> anyhow::Result<session::Attempt> {
 
 fn resume(editor: &mut Editor, topic: Option<&str>) -> anyhow::Result<()> {
     let exercises = exercises()?;
-    let (progress, error) = session::load_progress();
+    // (a progress file that can't be read is reported when the exercise starts)
+    let (progress, _) = session::load_progress();
     let (index, notice) = choose(&exercises, &progress, topic)?;
     open(editor, index)?;
-    // after the start, which says if the progress can't be saved
-    match (error, notice) {
-        (None, Some(notice)) => editor.set_status(notice),
-        (Some(error), _) => editor.set_error(format!("progress is not saved: {error}")),
-        _ => (),
+    if let Some(notice) = notice {
+        editor.set_status(notice);
     }
     Ok(())
 }

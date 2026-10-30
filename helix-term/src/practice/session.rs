@@ -128,6 +128,8 @@ pub fn start_index(editor: &mut Editor, index: usize) -> anyhow::Result<()> {
         editor.config.clone(),
         editor.syn_loader.clone(),
     );
+    // The text has `\n`, whatever line ending is the default.
+    doc.line_ending = helix_core::line_ending::LineEnding::LF;
     if let Some(language) = &exercise.language {
         doc.set_language_by_language_id(language, &editor.syn_loader.load())?;
     }

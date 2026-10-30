@@ -25,9 +25,14 @@ type Line = (String, bool);
 /// What the panel shows, for lines that are `width` columns wide.
 struct Content {
     title: String,
-    /// The heading, lesson, goal and hints, which are cut off when there is no room.
-    body: Vec<Line>,
-    /// The count or the result, always shown first.
+    /// The title of the exercise.
+    heading: Line,
+    /// The lesson, the first to be cut off when there is no room: the goal is needed to solve the
+    /// exercise, and the hints were asked for.
+    lesson: Vec<Line>,
+    /// The goal and the hints that were revealed.
+    task: Vec<Line>,
+    /// The count or the result, the last to be cut off.
     footer: Vec<Line>,
 }
 
@@ -86,6 +91,36 @@ fn wrap(text: &str, width: usize, hanging: usize) -> Vec<String> {
     lines
 }
 
+/// The lines of a lesson as the panel wraps them. The lesson is written in lines of 80 columns,
+/// which the panel breaks again to its own width, so a line break is a space, unless the next
+/// line is blank (a paragraph break, which stays) or starts a list item or is indented.
+fn reflow(text: &str) -> Vec<String> {
+    let starts_item = |line: &str| {
+        let trimmed = line.trim_start();
+        trimmed.len() < line.len()
+            || trimmed.starts_with(['-', '*', '•'])
+            || trimmed.split_once(['.', ')']).is_some_and(|(number, _)| {
+                !number.is_empty() && number.chars().all(|c| c.is_ascii_digit())
+            })
+    };
+    let mut lines: Vec<String> = Vec::new();
+    let mut continues = false;
+    for line in text.trim_end().lines() {
+        if line.trim().is_empty() {
+            lines.push(String::new());
+            continues = false;
+        } else if continues && !starts_item(line) {
+            let last = lines.last_mut().unwrap();
+            last.push(' ');
+            last.push_str(line.trim());
+        } else {
+            lines.push(line.trim_end().to_owned());
+            continues = true;
+        }
+    }
+    lines
+}
+
 fn content(exercises: &[Exercise], attempt: &Attempt, width: usize) -> Content {
     let exercise = &exercises[attempt.exercise];
     let topic = topic_of(exercise);
@@ -100,18 +135,18 @@ fn content(exercises: &[Exercise], attempt: &Attempt, width: usize) -> Content {
     debug_assert!(topics(exercises).contains(&topic));
     let title = format!("practice · {topic} {position}/{}", in_topic.len());
 
-    let mut body: Vec<Line> = vec![(exercise.title.clone(), true)];
-    for line in exercise.lesson.trim_end().lines() {
-        body.extend(wrap(line, width, 0).into_iter().map(|line| (line, false)));
+    let mut lesson: Vec<Line> = Vec::new();
+    for line in reflow(&exercise.lesson) {
+        lesson.extend(wrap(&line, width, 0).into_iter().map(|line| (line, false)));
     }
-    body.push(("Goal:".to_owned(), true));
+    let mut task: Vec<Line> = vec![("Goal:".to_owned(), true)];
     for line in exercise.goal.lines() {
         // not wrapped, it is text to compare with
-        body.push((format!("  {line}"), false));
+        task.push((format!("  {line}"), false));
     }
     for (n, hint) in exercise.hints.iter().take(attempt.hints).enumerate() {
         let text = format!("Hint {}: {hint}", n + 1);
-        body.extend(wrap(&text, width, 2).into_iter().map(|line| (line, false)));
+        task.extend(wrap(&text, width, 2).into_iter().map(|line| (line, false)));
     }
 
     let par = exercise.par();
@@ -144,16 +179,40 @@ fn content(exercises: &[Exercise], attempt: &Attempt, width: usize) -> Content {
     }
     Content {
         title,
-        body,
+        heading: (exercise.title.clone(), true),
+        lesson,
+        task,
         footer,
     }
 }
 
-/// The lines that fit in `height` rows: the footer, and as much of the body as there is room for
-/// before it.
-fn fit(content: Content, height: usize) -> Vec<Line> {
-    let footer = content.footer.len().min(height);
-    let mut lines: Vec<Line> = content.body.into_iter().take(height - footer).collect();
+/// The lines that fit in `height` rows of `width` columns, in the order of the panel. When
+/// there is not room for all, the lesson is the first to go (cut off with a `…`), then the title,
+/// then the rest of the footer, then the hints and the goal, last the count or the result.
+fn fit(content: Content, height: usize, width: usize) -> Vec<Line> {
+    let mut room = height;
+    let mut take = |wanted: usize| {
+        let taken = wanted.min(room);
+        room -= taken;
+        taken
+    };
+    let footer_first = take(content.footer.len().min(1));
+    let task = take(content.task.len());
+    let footer = footer_first + take(content.footer.len() - footer_first);
+    let heading = take(1);
+    let lesson = take(content.lesson.len());
+
+    let mut lines: Vec<Line> = Some(content.heading).into_iter().take(heading).collect();
+    let cut = lesson < content.lesson.len();
+    lines.extend(content.lesson.into_iter().take(lesson));
+    if cut && lesson > 0 {
+        let (last, _) = lines.last_mut().unwrap();
+        while last.width() >= width.max(1) {
+            last.pop();
+        }
+        last.push('…');
+    }
+    lines.extend(content.task.into_iter().take(task));
     lines.extend(content.footer.into_iter().take(footer));
     lines
 }
@@ -223,7 +282,7 @@ pub fn render(editor: &Editor, editor_area: Rect, surface: &mut Surface) {
     let content = content(&exercises, &attempt, usize::from(width.saturating_sub(4)));
     let title = content.title.clone();
     let rows = usize::from(max_height(editor_area).saturating_sub(2));
-    let lines = fit(content, rows);
+    let lines = fit(content, rows, usize::from(width.saturating_sub(4)));
     let area = panel_area(editor_area, lines.len());
     if area.width < 5 || area.height < 3 {
         return;
@@ -267,6 +326,25 @@ mod tests {
             ["the quick", "brown fox"]
         );
         assert_eq!(wrap("the quick brown fox", 100, 0), ["the quick brown fox"]);
+    }
+
+    #[test]
+    fn reflow_joins_lines_except_paragraphs_and_items() {
+        assert_eq!(reflow("one\ntwo\nthree\n"), ["one two three"]);
+        assert_eq!(reflow("one\ntwo\n\nthree"), ["one two", "", "three"]);
+        assert_eq!(
+            reflow("Keys:\n- `w` word\n- `b` back\n  more of it\n1. first\n2) second"),
+            [
+                "Keys:",
+                "- `w` word",
+                "- `b` back",
+                "  more of it",
+                "1. first",
+                "2) second"
+            ]
+        );
+        assert_eq!(reflow("a\n`b` c\n3 apples"), ["a `b` c 3 apples"]);
+        assert_eq!(reflow(""), Vec::<String>::new());
     }
 
     #[test]
@@ -333,19 +411,19 @@ mod tests {
         let content = content(&exercises(), &attempt, 30);
         assert_eq!(content.title, "practice · motions 1/2");
         assert_eq!(
-            text(&content.body),
+            text_owned(fit(content, 100, 30)).join("\n"),
             [
                 "Word by word",
                 "`w` selects to the start of",
-                "the next word.",
-                "Second line.",
+                "the next word. Second line.",
                 "Goal:",
                 "  The quick brown fox",
                 "Hint 1: one",
-                "Hint 2: two"
+                "Hint 2: two",
+                "Keys 3 · par 2 · best 5"
             ]
+            .join("\n")
         );
-        assert_eq!(text(&content.footer), ["Keys 3 · par 2 · best 5"]);
     }
 
     #[test]
@@ -375,20 +453,41 @@ mod tests {
     }
 
     #[test]
-    fn fit_keeps_the_footer() {
+    fn fit_cuts_the_lesson_first_and_keeps_the_count_and_the_goal() {
         let make = || content(&exercises(), &attempt(0), 50);
-        let all = text_owned(fit(make(), 100));
+        let all = text_owned(fit(make(), 100, 50));
+        assert_eq!(all.len(), 6);
         assert_eq!(all.last().unwrap(), "Keys 3 · par 2");
-        let few = text_owned(fit(make(), 3));
+        // no room for the lesson
         assert_eq!(
-            few,
+            text_owned(fit(make(), 4, 50)),
             [
                 "Word by word",
-                "`w` selects to the start of the next word.",
+                "Goal:",
+                "  The quick brown fox",
                 "Keys 3 · par 2"
             ]
         );
-        assert_eq!(text_owned(fit(make(), 0)), Vec::<String>::new());
+        // room for a line of it, which says that there is more
+        assert_eq!(
+            text_owned(fit(make(), 5, 50)),
+            [
+                "Word by word",
+                "`w` selects to the start of the next word. Second…",
+                "Goal:",
+                "  The quick brown fox",
+                "Keys 3 · par 2"
+            ]
+        );
+        assert_eq!(text_owned(fit(make(), 5, 20))[1], "`w` selects to the …");
+        // then the title goes, then the goal, the count stays
+        assert_eq!(
+            text_owned(fit(make(), 3, 50)),
+            ["Goal:", "  The quick brown fox", "Keys 3 · par 2"]
+        );
+        assert_eq!(text_owned(fit(make(), 2, 50)), ["Goal:", "Keys 3 · par 2"]);
+        assert_eq!(text_owned(fit(make(), 1, 50)), ["Keys 3 · par 2"]);
+        assert_eq!(text_owned(fit(make(), 0, 50)), Vec::<String>::new());
     }
 
     fn text_owned(lines: Vec<Line>) -> Vec<String> {
