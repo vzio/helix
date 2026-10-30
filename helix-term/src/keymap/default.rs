@@ -86,8 +86,8 @@ pub fn default() -> HashMap<Mode, KeyTrie> {
         "S" => split_selection,
         ";" => collapse_selection,
         "A-;" => flip_selections,
-        "A-o" => expand_selection,
-        "A-i" => shrink_selection,
+        "A-o" | "A-up" => expand_selection,
+        "A-i" | "A-down" => shrink_selection,
         "A-I" | "A-S-down" => select_all_children,
         "A-p" | "A-left" => select_prev_sibling,
         "A-n" | "A-right" => select_next_sibling,
@@ -167,8 +167,6 @@ pub fn default() -> HashMap<Mode, KeyTrie> {
         "A-J" => join_selections_space,
         "K" => keep_selections,
         "A-K" => remove_selections,
-        "A-j" | "A-down" => move_lines_down,
-        "A-k" | "A-up" => move_lines_up,
 
         "," => keep_primary_selection,
         "A-," => remove_primary_selection,
@@ -332,6 +330,10 @@ pub fn default() -> HashMap<Mode, KeyTrie> {
             "?" => rsearch,
             "n" => search_next,
             "N" => search_prev,
+        },
+        "M" => { "Move" sticky=true mode="MOV"
+            "j" | "down" => move_lines_down,
+            "k" | "up" => move_lines_up,
         },
 
         "\"" => select_register,
