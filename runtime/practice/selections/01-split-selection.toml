@@ -1,0 +1,24 @@
+title = "Many cursors"
+topic = "selections"
+feature = "Split a selection with a regex: s"
+lesson = """
+`s` splits the selection into one selection per match of a regex: many cursors at once.
+What you do next (`c`, `r`, `d`, ...) is done at every cursor. `%` selects the whole buffer.
+"""
+start = """
+#[|a = 1
+b = 1
+c = 1
+]#"""
+goal = """
+a = 2
+b = 2
+c = 2
+"""
+hints = [
+  "Every 1 has to become a 2.",
+  "Select the whole buffer, then split the selection into one cursor per 1.",
+  "`%` then `s`, type `1` and <ret>; `c` changes all of them, type `2`, then <esc>.",
+]
+teach = "%s1<ret>c2<esc>"
+gold = "%s1<ret>r2"
