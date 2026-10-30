@@ -8,10 +8,11 @@
 //! `editor.explorer.hide-gitignored`), files changed in git are marked (see [`git_status`]), and
 //! the tree can create, rename, move (cut and paste) and delete files.
 //!
-//! Helix pickers send the letters typed to their prompt, but the tree needs them as keys, so it has
-//! two modes. In tree mode the keys move in the tree and act on its entries. `/` enters filter
-//! mode, where the keys go to the prompt of the picker and fuzzy filter the whole workspace (see
-//! [`filter`]); `Esc` goes back to tree mode and keeps the filter.
+//! Helix pickers send the letters typed to their prompt, but the tree needs them as keys, so it
+//! uses the modes of the picker ([`Picker::with_modes`]). In normal mode the keys move in the tree
+//! and act on its entries. `s` enters filter mode, where the keys go to the prompt of the picker
+//! and fuzzy filter the whole workspace (see [`filter`]); `Esc` goes back to normal mode and keeps
+//! the filter.
 
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
@@ -30,6 +31,7 @@ use crate::compositor::{self, Component, Compositor, Context, Event, EventResult
 use crate::job::Callback;
 use crate::ui::editor::canonicalize_key;
 use crate::ui::overlay::{overlaid, Overlay};
+use crate::ui::picker::PickerMode;
 use crate::ui::{self, Picker, PickerColumn, Prompt, PromptEvent};
 use crate::{alt, commands, ctrl, key, shift};
 
@@ -47,20 +49,11 @@ use tree::Tree;
 pub const ID: &str = "explorer";
 
 /// Shown in the status line when the tree opens.
-const HINT: &str = "/ filter, a add, r rename, x/p move, d del, ? help";
+const HINT: &str = "s filter, a add, r rename, x/p move, d del, ? help";
 
-const HELP: &str = "/: filter  l/h: expand/collapse  enter: open  a: new (end with / for a \
+const HELP: &str = "s: filter  l/h: expand/collapse  enter: open  a: new (end with / for a \
                     directory)  r: rename  x: cut  p: paste  d: delete  R: refresh  \
                     H: show/hide git ignored  q: close";
-
-/// Where the keys go.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-enum Focus {
-    /// The keys move in the tree and act on its entries.
-    Tree,
-    /// The keys edit the query of the picker, which filters the tree.
-    Filter,
-}
 
 /// What `rebuild` selects once the rows have changed.
 enum Select {
@@ -77,7 +70,6 @@ pub struct ExplorerPicker {
     /// The rows of the picker.
     entries: Vec<Entry>,
     git: GitStatus,
-    focus: Focus,
     /// The query the entries were filtered with.
     query: String,
     /// The walk of the workspace that filtering needs, started with the first query.
@@ -88,8 +80,6 @@ pub struct ExplorerPicker {
     hits: Vec<Hit>,
     /// Directories folded in the filtered tree, whose hits are hidden.
     collapsed: HashSet<PathBuf>,
-    /// `g` was pressed, the next key completes the command (`gg`, `ge`).
-    goto: bool,
     /// Path marked with `x`, moved by `p`.
     cut: Option<PathBuf>,
     /// `H` flips `editor.explorer.hide-gitignored` for this session.
@@ -120,6 +110,7 @@ impl ExplorerPicker {
         let picker = Picker::new(columns, 0, Vec::new(), (), |_, _, _| {})
             .with_preview(|_editor, row| Some((row.path.as_path().into(), None)))
             .with_external_filter()
+            .with_modes()
             .with_lookup(find_picker)
             // The indentation matters more than the start of the name.
             .truncate_start(false);
@@ -128,13 +119,11 @@ impl ExplorerPicker {
             tree: Tree::new(workspace_root()),
             entries: Vec::new(),
             git: GitStatus::default(),
-            focus: Focus::Tree,
             query: String::new(),
             walk: None,
             found: None,
             hits: Vec::new(),
             collapsed: HashSet::new(),
-            goto: false,
             cut: None,
             flip_hidden: false,
             confirm_delete: None,
@@ -269,7 +258,7 @@ impl ExplorerPicker {
     fn clear_query(&mut self, editor: &Editor) {
         self.picker.set_query_line(String::new(), editor);
         self.query_changed(editor);
-        self.focus = Focus::Tree;
+        self.picker.set_mode(PickerMode::Normal);
     }
 
     /// The walk is out of date: it starts again with the next query, or now if there is one.
@@ -411,17 +400,16 @@ impl ExplorerPicker {
 
     fn handle_key(&mut self, mut key: KeyEvent, cx: &mut Context) -> EventResult {
         canonicalize_key(&mut key);
-        match self.focus {
-            Focus::Tree => self.tree_key(key, cx),
-            Focus::Filter => self.filter_key(key, cx),
+        match self.picker.mode() {
+            PickerMode::Normal => self.tree_key(key, cx),
+            PickerMode::Filter => self.filter_key(key, cx),
         }
     }
 
     /// A key in filter mode: the ones that act on the tree, the others are for the picker (the
-    /// prompt, and the keys that move in the list).
+    /// prompt, the keys that move in the list, and `Esc` that goes back to normal mode).
     fn filter_key(&mut self, key: KeyEvent, cx: &mut Context) -> EventResult {
         match key {
-            key!(Esc) => self.focus = Focus::Tree,
             key!(Enter) => return self.activate(cx.editor),
             alt!(Enter) => return self.open_selected(cx.editor, Action::Replace, false),
             ctrl!('s') => return self.open_selected(cx.editor, Action::HorizontalSplit, true),
@@ -446,22 +434,20 @@ impl ExplorerPicker {
             }
             return EventResult::Consumed(None);
         }
-        if std::mem::take(&mut self.goto) {
-            match key {
-                key!('g') => self.picker.to_start(),
-                key!('e') => self.picker.to_end(),
-                _ => {}
-            }
+        // The second key of `gg`/`ge` is the picker's.
+        if self.picker.pending_key() {
+            self.picker.handle_event(&Event::Key(key), cx);
             return EventResult::Consumed(None);
         }
 
         match key {
-            key!('j') => self.picker.move_by(1, Direction::Forward),
-            key!('k') => self.picker.move_by(1, Direction::Backward),
-            key!('g') => self.goto = true,
-            key!('G') => self.picker.to_end(),
-            // Moving and the preview are the picker's.
-            key!(Up)
+            // Moving, the preview and the filter mode are the picker's.
+            key!('j')
+            | key!('k')
+            | key!('g')
+            | key!('G')
+            | key!('s')
+            | key!(Up)
             | key!(Down)
             | key!(Tab)
             | shift!(Tab)
@@ -482,7 +468,6 @@ impl ExplorerPicker {
             alt!(Enter) => return self.open_selected(cx.editor, Action::Replace, false),
             ctrl!('s') => return self.open_selected(cx.editor, Action::HorizontalSplit, true),
             ctrl!('v') => return self.open_selected(cx.editor, Action::VerticalSplit, true),
-            key!('/') => self.focus = Focus::Filter,
             key!('a') => return self.prompt_create(),
             key!('r') => return self.prompt_rename(),
             key!('x') => {
@@ -642,13 +627,12 @@ impl Component for ExplorerPicker {
     fn handle_event(&mut self, event: &Event, cx: &mut Context) -> EventResult {
         match event {
             Event::Key(key) => self.handle_key(*key, cx),
-            Event::Paste(_) if self.focus == Focus::Filter => {
+            // The picker ignores it in normal mode.
+            Event::Paste(_) => {
                 self.picker.handle_event(event, cx);
                 self.query_changed(cx.editor);
                 EventResult::Consumed(None)
             }
-            // There is no prompt to paste into in tree mode.
-            Event::Paste(_) => EventResult::Consumed(None),
             _ => self.picker.handle_event(event, cx),
         }
     }
@@ -660,10 +644,7 @@ impl Component for ExplorerPicker {
 
     /// The cursor is in the prompt in filter mode only.
     fn cursor(&self, area: Rect, editor: &Editor) -> (Option<Position>, CursorKind) {
-        match self.focus {
-            Focus::Filter => self.picker.cursor(area, editor),
-            Focus::Tree => (None, CursorKind::Hidden),
-        }
+        self.picker.cursor(area, editor)
     }
 
     fn required_size(&mut self, viewport: (u16, u16)) -> Option<(u16, u16)> {
