@@ -13,16 +13,11 @@ use crate::ui::prompt::{Completion, PromptEvent};
 use crate::ui::{overlay::overlaid, Picker, PickerColumn};
 
 pub const DOC: &str = "\
-Practice with exercises that count your keystrokes. Each exercise teaches a feature, then you can \
-come back for it with fewer keys. Without an argument it continues with the first exercise that is \
-not solved yet. Arguments:
-  <topic>  the first unsolved exercise of a topic
-  list     pick any exercise
-  hint     reveal the next hint
-  reset    start the exercise again
-  next     the exercise after this one
-  prev     the exercise before this one
-  lesson   show or hide the lesson panel";
+Practice with exercises that count your keystrokes: each teaches a feature, then you can come \
+back and solve it with fewer keys. Without an argument it continues with the first exercise that \
+is not solved yet. Arguments: a topic name (its first unsolved exercise), list (pick an \
+exercise), hint (reveal the next hint), reset (start the exercise again), next, prev, lesson \
+(show or hide the lesson panel).";
 
 const SUBCOMMANDS: [&str; 6] = ["list", "hint", "reset", "next", "prev", "lesson"];
 

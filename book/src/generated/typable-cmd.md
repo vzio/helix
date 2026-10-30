@@ -104,3 +104,4 @@
 | `:workspace-trust` | Allow language servers and local config for the current workspace. |
 | `:workspace-untrust` | Revoke the current workspace's trust grant or exclusion. |
 | `:workspace-exclude` | Mark the current workspace as never-prompt. Never prompts for trust again. |
+| `:practice` | Practice with exercises that count your keystrokes: each teaches a feature, then you can come back and solve it with fewer keys. Without an argument it continues with the first exercise that is not solved yet. Arguments: a topic name (its first unsolved exercise), list (pick an exercise), hint (reveal the next hint), reset (start the exercise again), next, prev, lesson (show or hide the lesson panel). |
