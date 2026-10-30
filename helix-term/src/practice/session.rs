@@ -115,15 +115,27 @@ pub fn start_exercise(editor: &mut Editor, id: &str) -> anyhow::Result<()> {
 /// Starts the exercise at `index` in [`exercises`] in the current view: a new buffer with its
 /// text and selection replaces the buffer of the view, and the count starts at 0. A buffer of
 /// the attempt before is closed.
+///
+/// When the exercise has `before` texts, the buffer starts with the first one and each later text
+/// (the rest of `before`, then `start`) is applied as a transaction that is committed to the undo
+/// history as a revision of its own, so that `u` goes back through them one by one. The buffer is
+/// never modified as far as saving goes.
 pub fn start_index(editor: &mut Editor, index: usize) -> anyhow::Result<()> {
     let exercises = exercises()?;
     let exercise = exercises
         .get(index)
         .ok_or_else(|| anyhow!("no exercise number {index}"))?;
     let (text, selection) = exercise.start_state()?;
+    // The texts the buffer goes through, the first one is how it starts.
+    let mut texts = exercise
+        .before
+        .iter()
+        .map(String::as_str)
+        .collect::<Vec<_>>();
+    texts.push(&text);
 
     let mut doc = Document::from(
-        Rope::from(text),
+        Rope::from(texts[0]),
         None,
         editor.config.clone(),
         editor.syn_loader.clone(),
@@ -136,7 +148,14 @@ pub fn start_index(editor: &mut Editor, index: usize) -> anyhow::Result<()> {
 
     let doc_id = editor.new_file_from_document(Action::Replace, doc);
     let (view, doc) = current!(editor);
+    for pair in texts.windows(2) {
+        let transaction =
+            helix_core::diff::compare_ropes(&Rope::from(pair[0]), &Rope::from(pair[1]));
+        doc.apply(&transaction, view.id);
+        doc.append_changes_to_history(view);
+    }
     doc.set_selection(view.id, selection);
+    doc.reset_modified();
 
     let (best, error) = {
         let (progress, error) = load_progress();

@@ -33,8 +33,8 @@ async fn the_solutions_of_all_exercises_solve_them_in_exactly_their_keys() -> an
     println!("{:<44} {:>3}  gold", "id", "par");
     let progress_dir = tempfile::tempdir()?;
     for exercise in &exercises {
-        // (the shell commands of the pipe topic need a POSIX shell)
-        if cfg!(windows) && exercise.topic == "pipe" {
+        // (the shell commands of the shell chapter need a POSIX shell)
+        if cfg!(windows) && exercise.chapter == "shell" {
             continue;
         }
         println!(
@@ -107,12 +107,15 @@ async fn replay(exercise: &Exercise, keys: &str, progress: PathBuf) -> Result<()
 // The tests of the runner use small exercises of their own, not the ones of the runtime directory.
 
 fn exercise(id: &str, start: &str, goal: &str, teach: &str) -> Exercise {
+    let chapter = id.split('/').next().unwrap();
     Exercise {
         id: id.to_owned(),
         title: format!("Title of {id}"),
-        topic: id.split('/').next().unwrap().to_owned(),
+        chapter: chapter.to_owned(),
+        kind: practice::exercise::Kind::Learn,
         feature: "A feature".to_owned(),
         lesson: "The lesson of this exercise.\nA second line of the lesson.\n".to_owned(),
+        before: Vec::new(),
         start: start.to_owned(),
         goal: goal.to_owned(),
         language: None,
@@ -121,11 +124,40 @@ fn exercise(id: &str, start: &str, goal: &str, teach: &str) -> Exercise {
             .to_vec(),
         teach: teach.to_owned(),
         gold: None,
+        naive: teach.to_owned(),
+        // (set by `exercises`)
+        chapter_number: 0,
+        chapter_title: format!("Chapter {chapter}"),
+        number: 0,
+        chapter_len: 0,
     }
 }
 
+/// Numbers the exercises like the loader does: the chapters in order of first appearance.
+fn numbered(mut exercises: Vec<Exercise>) -> Vec<Exercise> {
+    let mut chapters: Vec<String> = Vec::new();
+    for exercise in &exercises {
+        if !chapters.contains(&exercise.chapter) {
+            chapters.push(exercise.chapter.clone());
+        }
+    }
+    for (n, chapter) in chapters.iter().enumerate() {
+        let len = exercises.iter().filter(|e| &e.chapter == chapter).count();
+        for (i, exercise) in exercises
+            .iter_mut()
+            .filter(|e| &e.chapter == chapter)
+            .enumerate()
+        {
+            exercise.chapter_number = n + 1;
+            exercise.number = i + 1;
+            exercise.chapter_len = len;
+        }
+    }
+    exercises
+}
+
 fn exercises() -> Vec<Exercise> {
-    vec![
+    numbered(vec![
         // 2 keys
         exercise(
             "a/01-first",
@@ -137,7 +169,7 @@ fn exercises() -> Vec<Exercise> {
         exercise("a/02-second", "foo\nbar\n", "foo\n", "jxd"),
         // 3 keys, types text
         exercise("b/01-third", "x\n", "xy\n", "ay<esc>"),
-    ]
+    ])
 }
 
 /// An application with the exercises above and a progress file in the returned directory.
@@ -371,7 +403,7 @@ async fn practice_resumes_at_the_first_unsolved_exercise() -> anyhow::Result<()>
                     assert_eq!(keys(), 0);
                 }),
             ),
-            // a topic: its first unsolved exercise
+            // a chapter: its first unsolved exercise
             (
                 Some(":practice b<ret>"),
                 Some(&|_| assert_eq!(exercise_index(), 2)),
@@ -386,7 +418,7 @@ async fn practice_resumes_at_the_first_unsolved_exercise() -> anyhow::Result<()>
                     assert_eq!(exercise_index(), 1);
                     assert_eq!(
                         status(app),
-                        "'practice': unknown topic `nonesuch`, the topics are: a, b"
+                        "'practice': unknown chapter `nonesuch`, the chapters are: a, b"
                     );
                 }),
             ),
@@ -653,17 +685,20 @@ async fn the_list_shows_the_status_best_and_par() -> anyhow::Result<()> {
                             .join(" ")
                     };
                     assert!(
-                        row("Title of a/01-first").contains("✓ 2 4 Title of a/01-first a"),
+                        row("Title of a/01-first")
+                            .contains("✓ 2 4 1.1 Title of a/01-first Chapter a"),
                         "{}",
                         row("Title of a/01-first")
                     );
                     assert!(
-                        row("Title of a/02-second").contains("★ 3 3 Title of a/02-second a"),
+                        row("Title of a/02-second")
+                            .contains("★ 3 3 1.2 Title of a/02-second Chapter a"),
                         "{}",
                         row("Title of a/02-second")
                     );
                     assert!(
-                        row("Title of b/01-third").contains("· 3 Title of b/01-third b"),
+                        row("Title of b/01-third")
+                            .contains("· 3 2.1 Title of b/01-third Chapter b"),
                         "{}",
                         row("Title of b/01-third")
                     );
@@ -693,7 +728,7 @@ async fn the_panel_shows_the_lesson_and_the_count() -> anyhow::Result<()> {
                     let rows = rows(app);
                     let title = rows
                         .iter()
-                        .position(|row| row.contains("practice · a 1/2"))
+                        .position(|row| row.contains("practice · 1.1 / 2 · Chapter a"))
                         .expect("the title");
                     assert_eq!(title, 0, "{rows:#?}");
                     assert!(rows[0].find("practice").unwrap() >= 50, "{}", rows[0]);
@@ -763,7 +798,7 @@ async fn the_panel_is_a_band_at_the_bottom_on_a_narrow_terminal() -> anyhow::Res
                 assert_eq!(rows.len(), 20);
                 let title = rows
                     .iter()
-                    .position(|row| row.contains("practice · a 1/2"))
+                    .position(|row| row.contains("practice · 1.1 / 2 · Chapter a"))
                     .expect("the title");
                 // at most half the height, above the statusline and the command line
                 assert!(title >= 9, "{rows:#?}");
@@ -934,7 +969,7 @@ async fn a_corrupt_progress_file_is_not_overwritten() -> anyhow::Result<()> {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn completion_offers_subcommands_and_topics() -> anyhow::Result<()> {
+async fn completion_offers_subcommands_and_chapters() -> anyhow::Result<()> {
     let (_dir, mut app) = setup();
     test_key_sequences(
         &mut app,
@@ -947,6 +982,60 @@ async fn completion_offers_subcommands_and_topics() -> anyhow::Result<()> {
                 assert!(rows.iter().any(|row| row.contains("hint")), "{rows:#?}");
             }),
         )],
+        false,
+    )
+    .await
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn before_texts_are_the_undo_history_of_the_buffer() -> anyhow::Result<()> {
+    let dir = tempfile::tempdir()?;
+    practice::reset_session();
+    practice::set_progress_file(dir.path().join("practice.toml"));
+    let mut with_history = exercise("a/01-history", "t#[h|]#ree\n", "four\n", "cwfour<esc>");
+    with_history.before = vec!["one\n".into(), "two\nmore\n".into()];
+    practice::set_exercises(numbered(vec![with_history]));
+    let mut app = AppBuilder::new().build()?;
+
+    let text = |app: &Application| helix_view::doc!(app.editor).text().to_string();
+    test_key_sequences(
+        &mut app,
+        vec![
+            (
+                Some(":practice<ret>"),
+                Some(&|app| {
+                    // it starts at `start`, with its selection, never modified
+                    assert_eq!(text(app), "three\n");
+                    assert_eq!(
+                        helix_view::doc!(app.editor)
+                            .selection(helix_view::view!(app.editor).id)
+                            .primary()
+                            .from(),
+                        1
+                    );
+                    assert!(!helix_view::doc!(app.editor).is_modified());
+                    assert_eq!(keys(), 0);
+                }),
+            ),
+            // `u` goes back through the `before` texts one by one
+            (
+                Some("u"),
+                Some(&|app| {
+                    assert_eq!(text(app), "two\nmore\n");
+                    assert!(!helix_view::doc!(app.editor).is_modified());
+                }),
+            ),
+            (Some("u"), Some(&|app| assert_eq!(text(app), "one\n"))),
+            // nothing before the first
+            (Some("u"), Some(&|app| assert_eq!(text(app), "one\n"))),
+            // `U` goes forward again, to `start`
+            (Some("U"), Some(&|app| assert_eq!(text(app), "two\nmore\n"))),
+            (Some("U"), Some(&|app| assert_eq!(text(app), "three\n"))),
+            // an edit after the history is a revision of its own: `u` gives `start` back
+            (Some("xd"), Some(&|app| assert_eq!(text(app), ""))),
+            (Some("u"), Some(&|app| assert_eq!(text(app), "three\n"))),
+            (Some("u"), Some(&|app| assert_eq!(text(app), "two\nmore\n"))),
+        ],
         false,
     )
     .await

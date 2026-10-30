@@ -10,7 +10,6 @@ use helix_view::Editor;
 use tui::buffer::Buffer as Surface;
 use tui::widgets::{Block, Widget};
 
-use super::command::{topic_of, topics};
 use super::exercise::Exercise;
 use super::session::{self, Attempt};
 
@@ -123,17 +122,10 @@ fn reflow(text: &str) -> Vec<String> {
 
 fn content(exercises: &[Exercise], attempt: &Attempt, width: usize) -> Content {
     let exercise = &exercises[attempt.exercise];
-    let topic = topic_of(exercise);
-    let in_topic: Vec<_> = exercises
-        .iter()
-        .filter(|other| topic_of(other) == topic)
-        .collect();
-    let position = in_topic
-        .iter()
-        .position(|other| other.id == exercise.id)
-        .map_or(1, |position| position + 1);
-    debug_assert!(topics(exercises).contains(&topic));
-    let title = format!("practice · {topic} {position}/{}", in_topic.len());
+    let title = format!(
+        "practice · {}.{} / {} · {}",
+        exercise.chapter_number, exercise.number, exercise.chapter_len, exercise.chapter_title
+    );
 
     let mut lesson: Vec<Line> = Vec::new();
     for line in reflow(&exercise.lesson) {
@@ -375,22 +367,21 @@ mod tests {
     }
 
     fn exercises() -> Vec<Exercise> {
-        let exercise = |id: &str, gold: Option<&str>| Exercise {
-            id: id.into(),
+        let exercise = |id: &str, number: usize, gold: Option<&str>| Exercise {
             title: "Word by word".into(),
-            topic: "motions".into(),
-            feature: String::new(),
             lesson: "`w` selects to the start of the next word.\nSecond line.\n".into(),
-            start: String::new(),
             goal: "The quick brown fox\n".into(),
-            language: None,
             hints: vec!["one".into(), "two".into(), "three".into()],
-            teach: "wd".into(),
             gold: gold.map(str::to_owned),
+            chapter_number: 3,
+            chapter_title: "Words, lines and counts".into(),
+            number,
+            chapter_len: 7,
+            ..Exercise::for_test(id, "wd")
         };
         vec![
-            exercise("motions/01-a", None),
-            exercise("motions/02-b", Some("d")),
+            exercise("motions/01-a", 2, None),
+            exercise("motions/02-b", 7, Some("d")),
         ]
     }
 
@@ -415,7 +406,10 @@ mod tests {
         attempt.hints = 2;
         attempt.best = Some(5);
         let content = content(&exercises(), &attempt, 30);
-        assert_eq!(content.title, "practice · motions 1/2");
+        assert_eq!(
+            content.title,
+            "practice · 3.2 / 7 · Words, lines and counts"
+        );
         assert_eq!(
             text_owned(fit(content, 100, 30)).join("\n"),
             [
@@ -438,7 +432,10 @@ mod tests {
         solved.solved_at = Some(2);
         solved.best = Some(2);
         let content = content(&exercises(), &solved, 40);
-        assert_eq!(content.title, "practice · motions 2/2");
+        assert_eq!(
+            content.title,
+            "practice · 3.7 / 7 · Words, lines and counts"
+        );
         // at par, a gold exists; it is the last exercise
         assert_eq!(
             text(&content.footer),

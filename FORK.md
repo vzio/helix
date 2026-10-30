@@ -537,7 +537,7 @@ nothing else: no timers, no leaderboards, no extra modes.
 | Command | Action |
 | --- | --- |
 | `:practice` | Continue with the first exercise that is not solved yet |
-| `:practice <topic>` | The first unsolved exercise of a topic (`Tab` completes them) |
+| `:practice <chapter>` | The first unsolved exercise of a chapter (`Tab` completes them) |
 | `:practice list` | Pick any exercise; shows its status, par and your best |
 | `:practice hint` | Reveal the next hint (three per exercise, from vague to the keys) |
 | `:practice reset` | Start the exercise again |
@@ -562,12 +562,12 @@ known (`gold`) solution if there is one. Solve it again (`:practice reset`) to b
   the keys of the `:practice list` picker. Keys replayed by a macro don't count, the `q` does.
 - The par is the number of keys of the exercise's `teach` solution.
 
-### Topics
+### Chapters
 
-The first batch has 35 exercises: motions (4), selections and multiple cursors (4), text objects
-(4), surround (3), syntax tree selection (2), registers (3), macros (2), pipe (3), search and
-replace (4), goto and the jumplist (4), and this fork's features (2: `x` on an empty line, move
-lines).
+The exercises are grouped in chapters, in the order of `runtime/practice/index.toml`. Each
+chapter introduces some keys, and an exercise may only use the keys of its chapter and of the
+chapters before it. (The exercises are being rewritten for this layout: for now there is one
+chapter, `basics`, with placeholders.)
 
 ### Progress
 
@@ -580,7 +580,7 @@ it and the statusline says why.
 
 ### Exercises
 
-The exercises are TOML files in `runtime/practice/<topic>/`, in the order of
+The exercises are TOML files in `runtime/practice/<chapter>/`, in the order of
 `runtime/practice/index.toml`. [CLAUDE.md](CLAUDE.md) describes the format. The replay test
 (`cargo integration-test -- practice`) checks every file and replays every solution through the
 editor, so an exercise that a keymap change breaks fails the tests.
@@ -594,4 +594,4 @@ editor, so an exercise that a keymap change breaks fails the tests.
 - The selection is not part of the goal, only the text is.
 - On a short terminal the panel cuts the lesson first (the last line shown ends with `…`), then the
   title, the hints and the goal; the count is always shown. `:practice lesson` hides it.
-- Renaming an exercise file loses its progress, which is keyed by `<topic>/<file name>`.
+- Renaming an exercise file loses its progress, which is keyed by `<chapter>/<file name>`.

@@ -1,3 +1,8 @@
-# Topic order for :practice. Every directory under runtime/practice is listed here, and nothing else.
-topics = ["motions", "selections", "text-objects", "surround", "syntax", "registers", "macros",
-          "pipe", "search-replace", "goto", "fork"]
+# The chapters of :practice, in order: each is a directory here, explained in CURRICULUM.md.
+# `keys` are the commands the chapter introduces. The `teach` and `naive` solutions of an exercise
+# may only use the keys of its chapter and of the chapters before it (the replay test checks this).
+
+[[chapters]]
+dir = "basics"
+title = "Modes and moving"
+keys = ["h", "j", "k", "l", "i", "a", "I", "A", "o", "O", "<esc>"]
