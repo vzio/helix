@@ -96,6 +96,8 @@ Normal mode is the default mode when you launch helix. You can return to it from
 | `Alt-d`     | Delete selection, without yanking                                    | `delete_selection_noyank` |
 | `c`         | Change selection (delete and enter insert mode)                      | `change_selection`        |
 | `Alt-c`     | Change selection (delete and enter insert mode, without yanking)     | `change_selection_noyank` |
+| `Alt-j`, `Alt-down` | Move the selected lines down (a count moves them that many lines) | `move_lines_down`     |
+| `Alt-k`, `Alt-up`   | Move the selected lines up (a count moves them that many lines)   | `move_lines_up`       |
 | `Ctrl-a`    | Increment object (number) under cursor                               | `increment`               |
 | `Ctrl-x`    | Decrement object (number) under cursor                               | `decrement`               |
 | `Q`         | Start/stop macro recording to the selected register (experimental)   | `record_macro`            |
@@ -144,8 +146,8 @@ Normal mode is the default mode when you launch helix. You can return to it from
 | `K`                      | Keep selections matching the regex                                | `keep_selections`                    |
 | `Alt-K`                  | Remove selections matching the regex                              | `remove_selections`                  |
 | `Ctrl-c`                 | Comment/uncomment the selections                                  | `toggle_comments`                    |
-| `Alt-o`, `Alt-up`        | Expand selection to parent syntax node (**TS**)                   | `expand_selection`                   |
-| `Alt-i`, `Alt-down`      | Shrink syntax tree object selection (**TS**)                      | `shrink_selection`                   |
+| `Alt-o`                  | Expand selection to parent syntax node (**TS**)                   | `expand_selection`                   |
+| `Alt-i`                  | Shrink syntax tree object selection (**TS**)                      | `shrink_selection`                   |
 | `Alt-p`, `Alt-left`      | Select previous sibling node in syntax tree (**TS**)              | `select_prev_sibling`                |
 | `Alt-n`, `Alt-right`     | Select next sibling node in syntax tree (**TS**)                  | `select_next_sibling`                |
 | `Alt-a`                  | Select all sibling nodes in syntax tree (**TS**)                  | `select_all_siblings`                |

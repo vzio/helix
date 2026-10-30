@@ -30,6 +30,11 @@ Inline git blame is ported from Helix
 hadn't landed upstream when it was ported. It is adapted to current master and reworked so that
 blame is computed entirely in the background (see [Inline git blame](#inline-git-blame)).
 
+Moving lines up and down is a rewrite, not a port, but it started from two earlier attempts: Helix
+[PR #4545](https://github.com/helix-editor/helix/pull/4545) by sireliah (never merged) and the
+bug-fixed version of it in omentic's [helix-ext](https://github.com/omentic/helix-ext) fork. See
+[Move lines](#move-lines).
+
 ## Contents
 
 - [Side by side git diff](#side-by-side-git-diff)
@@ -37,6 +42,7 @@ blame is computed entirely in the background (see [Inline git blame](#inline-git
 - [Staged files in the changed files picker](#staged-files-in-the-changed-files-picker)
 - [File tree overlay](#file-tree-overlay)
 - [Inline git blame](#inline-git-blame)
+- [Move lines](#move-lines)
 
 ## Code layout
 
@@ -49,6 +55,7 @@ Each feature lives in its own modules, to keep rebasing on upstream cheap:
 | Staged files, commit diffs | `helix-vcs/src/git.rs`, `helix-vcs/src/lib.rs`, `helix-vcs/src/status.rs` |
 | File tree | `helix-term/src/ui/explorer.rs`, `helix-term/src/ui/explorer/`, `helix-term/benches/explorer.rs` |
 | Inline blame | `helix-vcs/src/git/blame.rs`, `helix-vcs/src/blame_stub.rs`, `helix-vcs/benches/blame.rs`, `helix-stdx/src/time.rs`, `helix-view/src/blame.rs`, `helix-term/src/handlers/blame.rs`, `helix-term/src/commands/blame.rs`, `helix-term/src/ui/text_decorations/blame.rs` |
+| Move lines | `helix-term/src/commands/move_lines.rs` |
 
 Hooks into core files: commands and keys in `helix-term/src/commands.rs`,
 `helix-term/src/commands/typed.rs` and `helix-term/src/keymap/default.rs`; `C-g`, the hooks the
@@ -429,3 +436,45 @@ so it looks like inlay hints everywhere.
   focus, not by itself.
 - Blame is for the committed file at `HEAD`; staged-but-uncommitted lines show "Not committed yet".
 
+## Move lines
+
+Moves the lines touched by the selections up or down by one line, or by a count of lines, and keeps
+the selections on the moved text. Upstream has no such command
+([#2245](https://github.com/helix-editor/helix/issues/2245) was rejected); the usual macro
+workaround overwrites registers, misbehaves at the end of the file, loses text with several
+selections and drops the column.
+
+### Usage
+
+| Keys | Action |
+| --- | --- |
+| `Alt-j`, `Alt-down` | `move_lines_down` |
+| `Alt-k`, `Alt-up` | `move_lines_up` |
+
+In normal and select mode. `3 Alt-j` moves the lines 3 lines down, as one undo step. `Alt-up` and
+`Alt-down` used to be aliases of `expand_selection` and `shrink_selection`: they are taken over,
+`Alt-o` and `Alt-i` still do those.
+
+### Behaviour
+
+- Every line touched by a selection (`Range::line_range`, so a selection that ends at the start of
+  a line doesn't touch that line) moves. Each selection stays on the moved text, with the same anchor
+  and head, so the direction and the column are kept.
+- Line ranges that overlap or are adjacent are one block, which moves as a whole. Moving a block
+  down swaps it with the single line below it. With several blocks every block moves by the same
+  number of lines, and the lines between them stay between them. A count of `n` is `n` of these
+  moves, in one transaction.
+- At the top (bottom) of the file, everything moves by the room the nearest block has, and by
+  nothing if there is none: then nothing changes, not even the undo history. The empty line after
+  the final line ending is not a line, a cursor on it doesn't move.
+- A last line without a line ending stays the last line without one: the line ending is passed on to
+  the line that takes its place. `\r\n` files keep `\r\n`.
+- No register or the clipboard is used. The lines are moved by a transaction that only deletes and
+  inserts the lines that the blocks jump over, so the blocks themselves are not edited and the
+  selections of other views on the same file follow them.
+
+### Limitations
+
+- The indentation is not changed to fit the new place of a line.
+- If the file has no final line ending, a selection that ends with the line ending of the line that
+  becomes the last one is shortened by it, as that line ending is gone.
