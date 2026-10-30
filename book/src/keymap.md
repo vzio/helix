@@ -8,6 +8,7 @@
   - [Search](#search)
   - [Minor modes](#minor-modes)
     - [View mode](#view-mode)
+    - [Move mode](#move-mode)
     - [Goto mode](#goto-mode)
     - [Match mode](#match-mode)
     - [Window mode](#window-mode)
@@ -178,6 +179,7 @@ These sub-modes are accessible from normal mode and typically switch back to nor
 | `:`      | Enter command mode                                 | `command_mode` |
 | `z`      | Enter [view mode](#view-mode)                      | N/A            |
 | `Z`      | Enter sticky [view mode](#view-mode)               | N/A            |
+| `M`      | Enter sticky [move mode](#move-mode)               | N/A            |
 | `Ctrl-w` | Enter [window mode](#window-mode)                  | N/A            |
 | `Space`  | Enter [space mode](#space-mode)                    | N/A            |
 
@@ -206,6 +208,28 @@ useful when you're simply looking over text and not actively editing it.
 | `Ctrl-b`, `PageUp`   | Move page up                                              | `page_up`               |
 | `Ctrl-u`             | Move cursor and page half page up                         | `page_cursor_half_up`   |
 | `Ctrl-d`             | Move cursor and page half page down                       | `page_cursor_half_down` |
+
+#### Move mode
+
+Accessed by typing `M` in [normal mode](#normal-mode) or
+[select mode](#select--extend-mode).
+
+Move mode moves the lines touched by the selections up and down, keeping the
+selections on the moved text. It is "sticky" like the sticky
+[view mode](#view-mode): it stays active until it is exited with the escape key,
+so that `M` followed by `jjj` moves the lines three times (a key that is not in
+the table does nothing). A count works as usual: `M` `3j` moves the lines three
+lines down, as one undo step. While the mode is active the statusline shows
+`MOV` instead of `NOR`/`SEL`. Each move is one undo step. In select mode the
+escape key leaves the move mode and select mode together.
+
+| Key         | Description                  | Command           |
+| -----       | -----------                  | -------           |
+| `j`, `down` | Move the selected lines down | `move_lines_down` |
+| `k`, `up`   | Move the selected lines up   | `move_lines_up`   |
+
+The commands can be bound to other keys, and they are also available as
+`:move-lines-down [count]` and `:move-lines-up [count]`.
 
 #### Goto mode
 

@@ -331,6 +331,10 @@ pub fn default() -> HashMap<Mode, KeyTrie> {
             "n" => search_next,
             "N" => search_prev,
         },
+        "M" => { "Move" sticky=true mode="MOV"
+            "j" | "down" => move_lines_down,
+            "k" | "up" => move_lines_up,
+        },
 
         "\"" => select_register,
         "|" => shell_pipe,

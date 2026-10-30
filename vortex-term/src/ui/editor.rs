@@ -246,6 +246,7 @@ impl EditorView {
 
         let mut context =
             statusline::RenderContext::new(editor, doc, view, is_focused, &self.spinners);
+        context.mode_label = self.keymaps.sticky().and_then(|node| node.mode_label);
 
         statusline::render(&mut context, statusline_area, surface);
     }

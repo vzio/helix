@@ -21,6 +21,9 @@ pub struct RenderContext<'a> {
     pub view: &'a View,
     pub focused: bool,
     pub spinners: &'a ProgressSpinners,
+    /// Shown by the mode element in place of the name of the editor mode (an active sticky
+    /// keymap node, like "MOV" for the move mode). The colors still follow the editor mode.
+    pub mode_label: Option<&'a str>,
     pub parts: RenderBuffer<'a>,
 }
 
@@ -38,6 +41,7 @@ impl<'a> RenderContext<'a> {
             view,
             focused,
             spinners,
+            mode_label: None,
             parts: RenderBuffer::default(),
         }
     }
@@ -168,11 +172,11 @@ where
     let visible = context.focused;
     let config = context.editor.config();
     let modenames = &config.statusline.mode;
-    let mode_str = match context.editor.mode() {
+    let mode_str = context.mode_label.unwrap_or(match context.editor.mode() {
         Mode::Insert => &modenames.insert,
         Mode::Select => &modenames.select,
         Mode::Normal => &modenames.normal,
-    };
+    });
     let content = if visible {
         format!(" {mode_str} ")
     } else {
