@@ -24,4 +24,5 @@ mod test {
     mod movement;
     mod picker_modes;
     mod splits;
+    mod x_empty_line;
 }
