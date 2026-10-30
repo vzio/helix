@@ -151,11 +151,13 @@ pub fn start_index(editor: &mut Editor, index: usize) -> anyhow::Result<()> {
         editor.config.clone(),
         editor.syn_loader.clone(),
     );
-    // The text has `\n`, whatever line ending is the default.
-    doc.line_ending = helix_core::line_ending::LineEnding::LF;
     if let Some(language) = &exercise.language {
         doc.set_language_by_language_id(language, &editor.syn_loader.load())?;
     }
+    // Indent like the text, else like the language, as a file that is opened would.
+    doc.detect_indent_and_line_ending();
+    // The text has `\n`, whatever line ending is the default.
+    doc.line_ending = helix_core::line_ending::LineEnding::LF;
 
     let doc_id = editor.new_file_from_document(Action::Replace, doc);
     let (view, doc) = current!(editor);
