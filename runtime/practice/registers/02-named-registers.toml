@@ -1,0 +1,26 @@
+title = "Stash a yank"
+topic = "registers"
+feature = "Named registers: \"a, and the black hole \"_"
+lesson = """
+`d` and `c` overwrite the default register. `"a` before `y` or `R` picks
+register `a` instead, which stays put. `"_` is the black hole: `"_d` deletes
+without yanking.
+"""
+start = """
+#[v|]#2
+# junk
+a = v1
+b = v1
+"""
+goal = """
+v2
+a = v2
+b = v2
+"""
+hints = [
+  "Delete the junk line without losing the text you want to paste.",
+  "Yank into a named register first, so deleting cannot overwrite it.",
+  "`e\"ay`, delete the junk line, `%s` `v1` Enter, then `\"aR`.",
+]
+teach = 'e"ayjxd%sv1<ret>"aR'
+gold = 'eyjx"_d%sv1<ret>R'

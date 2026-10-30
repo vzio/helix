@@ -1,24 +1,20 @@
-title = "Many cursors"
+title = "Select inside the selection"
 topic = "selections"
-feature = "Split a selection with a regex: s"
+feature = "Select regex matches in the selection: s"
 lesson = """
-`s` splits the selection into one per match of a regex: many cursors at once.
-What you do next (`c`, `r`, `d`, ...) happens at every cursor. `%` selects all.
+`s` asks for a regex and turns the selection into one cursor per match inside
+it. First select an area (`x` is the line), then `s`: every `;` gets its own
+selection.
 """
 start = """
-a = 1
-b = 1
-c = 1
+one;two;three;four
 """
 goal = """
-a = 2
-b = 2
-c = 2
+one,two,three,four
 """
 hints = [
-  "Every 1 has to become a 2.",
-  "Select the whole buffer, then split the selection into one cursor per 1.",
-  "`%` then `s`, type `1` and <ret>; `c` changes all of them, type `2`, then <esc>.",
+  "All the semicolons change to commas.",
+  "Select the line, then select every semicolon inside it with a regex.",
+  "`x`, `s;` Enter, then `r,` replaces every selected character.",
 ]
-teach = "%s1<ret>c2<esc>"
-gold = "%s1<ret>r2"
+teach = "xs;<ret>r,"

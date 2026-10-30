@@ -24,13 +24,11 @@ async fn the_solutions_of_all_exercises_solve_them_in_exactly_their_keys() -> an
 
     let mut failures = Vec::new();
 
-    // Topics of the index without exercises are the topics that are not written yet. Remove this
-    // filter when all of them are.
-    let problems: Vec<_> = practice::validate(&exercises, &dir, &test_syntax_loader(None))
-        .into_iter()
-        .filter(|problem| !problem.ends_with("has no exercises"))
-        .collect();
-    failures.extend(problems);
+    failures.extend(practice::validate(
+        &exercises,
+        &dir,
+        &test_syntax_loader(None),
+    ));
 
     println!("{:<44} {:>3}  gold", "id", "par");
     let progress_dir = tempfile::tempdir()?;
@@ -655,17 +653,17 @@ async fn the_list_shows_the_status_best_and_par() -> anyhow::Result<()> {
                             .join(" ")
                     };
                     assert!(
-                        row("Title of a/01-first").contains("✓ a Title of a/01-first 4 2"),
+                        row("Title of a/01-first").contains("✓ 2 4 Title of a/01-first a"),
                         "{}",
                         row("Title of a/01-first")
                     );
                     assert!(
-                        row("Title of a/02-second").contains("★ a Title of a/02-second 3 3"),
+                        row("Title of a/02-second").contains("★ 3 3 Title of a/02-second a"),
                         "{}",
                         row("Title of a/02-second")
                     );
                     assert!(
-                        row("Title of b/01-third").contains("· b Title of b/01-third 3"),
+                        row("Title of b/01-third").contains("· 3 Title of b/01-third b"),
                         "{}",
                         row("Title of b/01-third")
                     );
