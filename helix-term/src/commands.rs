@@ -3,6 +3,7 @@ pub(crate) mod dap;
 pub(crate) mod diff_view;
 pub(crate) mod git_log;
 pub(crate) mod lsp;
+pub(crate) mod move_lines;
 pub(crate) mod syntax;
 pub(crate) mod typed;
 
@@ -16,6 +17,7 @@ use helix_stdx::{
 };
 use helix_vcs::{FileChange, Hunk};
 pub use lsp::*;
+pub use move_lines::*;
 pub use syntax::*;
 use tui::{
     text::{Span, Spans},
@@ -609,6 +611,8 @@ impl MappableCommand {
         shell_keep_pipe, "Filter selections with shell predicate",
         suspend, "Suspend and return to shell",
         git_diff_view, "Open a side by side git diff of the current file",
+        move_lines_up, "Move selected lines up",
+        move_lines_down, "Move selected lines down",
         blame_line, "Show the git blame of the current line",
         toggle_inline_blame, "Toggle inline git blame",
         commit_picker, "Open the git commit log picker",
