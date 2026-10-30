@@ -8,6 +8,8 @@ use helix_core::{
     SmallVec, Tendril, Transaction,
 };
 
+use helix_view::Editor;
+
 use super::Context;
 
 /// Move the lines of the selections up by `count` lines, in one undo step.
@@ -22,7 +24,13 @@ pub fn move_lines_down(cx: &mut Context) {
 
 fn move_lines_impl(cx: &mut Context, direction: Direction) {
     let count = cx.count();
-    let (view, doc) = current!(cx.editor);
+    move_lines_by(cx.editor, direction, count)
+}
+
+/// Moves the lines of the current selections by `count` lines. The history is committed by the
+/// caller, as for any command.
+pub fn move_lines_by(editor: &mut Editor, direction: Direction, count: usize) {
+    let (view, doc) = current!(editor);
     let Some(transaction) = move_lines(doc.text(), doc.selection(view.id), direction, count) else {
         // at the edge of the file, or nothing to move: no change, no history entry
         return;
