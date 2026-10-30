@@ -67,6 +67,10 @@ letters are keys, filter mode where they are typed) and the cursor accessors in
 has one field on `Document`, one decoration in `render_view`, `is_last_visual_line` in
 `helix-term/src/ui/document.rs`, and refresh calls on save (`application.rs`), on focus
 (`ui/editor.rs`) and in `:reload`/`:reload-all`.
+The move mode label (`MOV`) is a generic `mode="..."` option of sticky nodes in the `keymap!` macro
+(`mode_label` on `KeyTrieNode`, `helix-term/src/keymap.rs` and `keymap/macros.rs`), which
+`render_view` passes to the statusline's mode element (`RenderContext::mode_label` in
+`helix-term/src/ui/statusline.rs`).
 
 To build: `cargo install --path helix-term --locked`.
 
@@ -446,14 +450,30 @@ selections and drops the column.
 
 ### Usage
 
+`M` in normal or select mode enters the sticky *move mode* (like `Z` is for the view), where:
+
 | Keys | Action |
 | --- | --- |
-| `Alt-j`, `Alt-down` | `move_lines_down` |
-| `Alt-k`, `Alt-up` | `move_lines_up` |
+| `j`, `down` | `move_lines_down` |
+| `k`, `up` | `move_lines_up` |
 
-In normal and select mode. `3 Alt-j` moves the lines 3 lines down, as one undo step. `Alt-up` and
-`Alt-down` used to be aliases of `expand_selection` and `shrink_selection`: they are taken over,
-`Alt-o` and `Alt-i` still do those.
+`3j` moves the lines 3 lines down, as one undo step. The mode stays until `Esc` (in select mode
+that `Esc` also leaves select mode, as it does in the view mode), so `Mjjj` moves three times, as
+three undo steps. Other keys do nothing in the mode. The which-key popup shows the keys and the
+statusline shows `MOV` in place of `NOR`/`SEL`, in the colors of the mode that it was entered from.
+
+There are no Alt or Ctrl keys, they are taken by window managers on some systems. `A-up` and
+`A-down` are upstream's `expand_selection` and `shrink_selection` as before. The commands are
+static commands, so they can be bound anywhere, for example in `config.toml`:
+
+```toml
+[keys.normal]
+"C-j" = "move_lines_down"
+"C-k" = "move_lines_up"
+```
+
+They are also in the command palette, and as the typable commands `:move-lines-down [count]` and
+`:move-lines-up [count]` (one undo step too).
 
 ### Behaviour
 

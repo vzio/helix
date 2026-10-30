@@ -222,8 +222,8 @@
 | `rotate_selection_contents_forward` | Rotate selection contents forward | normal: `` <A-)> ``, select: `` <A-)> `` |
 | `rotate_selection_contents_backward` | Rotate selections contents backward | normal: `` <A-(> ``, select: `` <A-(> `` |
 | `reverse_selection_contents` | Reverse selections contents |  |
-| `expand_selection` | Expand selection to parent syntax node | normal: `` <A-o> ``, select: `` <A-o> `` |
-| `shrink_selection` | Shrink selection to previously expanded syntax node | normal: `` <A-i> ``, select: `` <A-i> `` |
+| `expand_selection` | Expand selection to parent syntax node | normal: `` <A-o> ``, `` <A-up> ``, select: `` <A-o> ``, `` <A-up> `` |
+| `shrink_selection` | Shrink selection to previously expanded syntax node | normal: `` <A-i> ``, `` <A-down> ``, select: `` <A-i> ``, `` <A-down> `` |
 | `select_next_sibling` | Select next sibling in the syntax tree | normal: `` <A-n> ``, `` <A-right> ``, select: `` <A-n> ``, `` <A-right> `` |
 | `select_prev_sibling` | Select previous sibling the in syntax tree | normal: `` <A-p> ``, `` <A-left> ``, select: `` <A-p> ``, `` <A-left> `` |
 | `select_all_siblings` | Select all siblings of the current node | normal: `` <A-a> ``, select: `` <A-a> `` |
@@ -302,8 +302,8 @@
 | `shell_keep_pipe` | Filter selections with shell predicate | normal: `` $ ``, select: `` $ `` |
 | `suspend` | Suspend and return to shell | normal: `` <C-z> ``, select: `` <C-z> `` |
 | `git_diff_view` | Open a side by side git diff of the current file | normal: `` <space>= ``, select: `` <space>= `` |
-| `move_lines_up` | Move selected lines up | normal: `` <A-k> ``, `` <A-up> ``, select: `` <A-k> ``, `` <A-up> `` |
-| `move_lines_down` | Move selected lines down | normal: `` <A-j> ``, `` <A-down> ``, select: `` <A-j> ``, `` <A-down> `` |
+| `move_lines_up` | Move selected lines up | normal: `` Mk ``, `` M<up> ``, select: `` Mk ``, `` M<up> `` |
+| `move_lines_down` | Move selected lines down | normal: `` Mj ``, `` M<down> ``, select: `` Mj ``, `` M<down> `` |
 | `blame_line` | Show the git blame of the current line |  |
 | `toggle_inline_blame` | Toggle inline git blame | normal: `` <space>B ``, select: `` <space>B `` |
 | `commit_picker` | Open the git commit log picker | normal: `` <space>l ``, select: `` <space>l `` |

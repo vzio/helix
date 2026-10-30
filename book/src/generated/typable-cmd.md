@@ -78,6 +78,8 @@
 | `:get-option`, `:get` | Get the current value of a config option. |
 | `:sort` | Sort ranges in selection. |
 | `:reflow` | Hard-wrap the current selection of lines to a given width. |
+| `:move-lines-up` | Move the lines of the selections up, by one line or by a given count. |
+| `:move-lines-down` | Move the lines of the selections down, by one line or by a given count. |
 | `:tree-sitter-subtree`, `:ts-subtree` | Display the smallest tree-sitter subtree that spans the primary selection, primarily for debugging queries. |
 | `:config-reload` | Refresh user config. |
 | `:config-open` | Open the user config.toml file. |
