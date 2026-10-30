@@ -1,0 +1,20 @@
+title = "Select inside the selection"
+topic = "selections"
+feature = "Select regex matches in the selection: s"
+lesson = """
+`s` asks for a regex and turns the selection into one cursor per match inside
+it. First select an area (`x` is the line), then `s`: every `;` gets its own
+selection.
+"""
+start = """
+one;two;three;four
+"""
+goal = """
+one,two,three,four
+"""
+hints = [
+  "All the semicolons change to commas.",
+  "Select the line, then select every semicolon inside it with a regex.",
+  "`x`, `s;` Enter, then `r,` replaces every selected character.",
+]
+teach = "xs;<ret>r,"

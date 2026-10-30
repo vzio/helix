@@ -1,0 +1,22 @@
+title = "Paste while typing"
+topic = "registers"
+feature = "Insert a register: C-r in insert mode"
+lesson = """
+In insert mode, `C-r` followed by a register name types that register's
+content. `C-r"` inserts the last yank without leaving insert mode, in the
+middle of what you are typing.
+"""
+start = """
+user: #[a|]#nn
+Hello,
+"""
+goal = """
+user: ann
+Hello, ann.
+"""
+hints = [
+  "The name is typed again on the second line.",
+  "Yank the name, then paste it from insert mode while typing the line.",
+  "`ey`, `j`, `A`, type a space, `C-r` `\"`, type `.`, `Esc`.",
+]
+teach = 'eyjA <C-r>".<esc>'

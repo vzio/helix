@@ -1,0 +1,24 @@
+title = "Keep only what matches"
+topic = "selections"
+feature = "Filter selections: K (keep) and A-s (split lines)"
+lesson = """
+`A-s` splits the selection into one selection per line. `K` keeps only the
+selections that match a regex (`A-K` removes them). Then `x` makes each one a
+whole line.
+"""
+start = """
+# build
+cc main.c
+# link
+ld main.o
+"""
+goal = """
+cc main.c
+ld main.o
+"""
+hints = [
+  "The comment lines have to go.",
+  "Make one selection per line, keep the comment ones, delete them.",
+  "`%` `A-s` `K#` Enter, then `x` to take whole lines, then `d`.",
+]
+teach = "%<A-s>K#<ret>xd"

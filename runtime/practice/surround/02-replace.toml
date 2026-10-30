@@ -1,0 +1,20 @@
+title = "Swap the quotes"
+topic = "surround"
+feature = "Replace surrounding: mr"
+lesson = """
+`mr<old><new>` replaces the pair around the cursor: `mr'"` turns single quotes
+into double ones. No need to select anything, the cursor just has to be
+inside.
+"""
+start = """
+greeting = 'he#[l|]#lo'
+"""
+goal = """
+greeting = "hello"
+"""
+hints = [
+  "Only the quote characters change.",
+  "Replace the surrounding pair, naming the old one then the new one.",
+  "`mr'\"` with the cursor inside the quotes.",
+]
+teach = "mr'\""

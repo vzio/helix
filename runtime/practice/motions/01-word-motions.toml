@@ -1,0 +1,20 @@
+title = "Word by word"
+topic = "motions"
+feature = "Word motions: w, b, e"
+lesson = """
+`w` selects to the start of the next word, `b` to the start of the previous
+one, `e` to the end. A motion leaves what it passed over selected, so `d`
+right after deletes it.
+"""
+start = """
+The #[q|]#uick quick brown fox
+"""
+goal = """
+The quick brown fox
+"""
+hints = [
+  "One word is there twice.",
+  "Select a whole word with a word motion, then delete it.",
+  "`w` selects `quick ` from the cursor, then `d`.",
+]
+teach = "wd"
