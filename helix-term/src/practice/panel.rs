@@ -230,21 +230,25 @@ fn panel_width(editor_area: Rect) -> u16 {
 }
 
 /// The most rows the panel gets, border included. The column leaves the row of the statusline of
-/// the view free, the band is at most half of the area.
-fn max_height(editor_area: Rect) -> u16 {
+/// the view free. The band leaves the `text_rows` lines of the buffer visible above it, and gets
+/// at least half of the area when they need more.
+fn max_height(editor_area: Rect, text_rows: u16) -> u16 {
+    let below_statusline = editor_area.height.saturating_sub(1);
     if is_wide(editor_area) {
-        editor_area.height.saturating_sub(1)
+        below_statusline
     } else {
-        editor_area.height / 2
+        below_statusline
+            .saturating_sub(text_rows)
+            .max(editor_area.height / 2)
     }
 }
 
 /// The area of the panel in `editor_area`, for `lines` lines of text.
-fn panel_area(editor_area: Rect, lines: usize) -> Rect {
+fn panel_area(editor_area: Rect, text_rows: u16, lines: usize) -> Rect {
     let width = panel_width(editor_area);
     let height = u16::try_from(lines + 2)
         .unwrap_or(u16::MAX)
-        .min(max_height(editor_area));
+        .min(max_height(editor_area, text_rows));
     if is_wide(editor_area) {
         Rect::new(editor_area.right() - width, editor_area.y, width, height)
     } else {
@@ -263,7 +267,7 @@ pub fn render(editor: &Editor, editor_area: Rect, surface: &mut Surface) {
     let Some(attempt) = session::live_attempt(editor) else {
         return;
     };
-    let (view, _) = current_ref!(editor);
+    let (view, doc) = current_ref!(editor);
     if view.doc != attempt.doc || (editor.autoinfo.is_some() && editor.config().auto_info) {
         return;
     }
@@ -281,9 +285,11 @@ pub fn render(editor: &Editor, editor_area: Rect, surface: &mut Surface) {
     let width = panel_width(editor_area);
     let content = content(&exercises, &attempt, usize::from(width.saturating_sub(4)));
     let title = content.title.clone();
-    let rows = usize::from(max_height(editor_area).saturating_sub(2));
+    // the lines of the buffer, without the empty one after the final line ending
+    let text_rows = u16::try_from(doc.text().len_lines().saturating_sub(1)).unwrap_or(u16::MAX);
+    let rows = usize::from(max_height(editor_area, text_rows).saturating_sub(2));
     let lines = fit(content, rows, usize::from(width.saturating_sub(4)));
-    let area = panel_area(editor_area, lines.len());
+    let area = panel_area(editor_area, text_rows, lines.len());
     if area.width < 5 || area.height < 3 {
         return;
     }
@@ -497,22 +503,25 @@ mod tests {
     #[test]
     fn areas() {
         // wide: a column at the top right, 45% capped at 60
-        let area = panel_area(Rect::new(0, 1, 100, 29), 10);
+        let area = panel_area(Rect::new(0, 1, 100, 29), 3, 10);
         assert_eq!(area, Rect::new(55, 1, 45, 12));
-        let area = panel_area(Rect::new(0, 0, 200, 50), 10);
+        let area = panel_area(Rect::new(0, 0, 200, 50), 3, 10);
         assert_eq!(area, Rect::new(140, 0, 60, 12));
         // the column leaves the row of the statusline
-        assert_eq!(panel_area(Rect::new(0, 0, 100, 10), 50).height, 9);
-        // narrow: the bottom, above the statusline, at most half the height
-        let area = panel_area(Rect::new(0, 0, 50, 19), 30);
-        assert_eq!(area, Rect::new(0, 9, 50, 9));
-        let area = panel_area(Rect::new(0, 0, 50, 19), 4);
+        assert_eq!(panel_area(Rect::new(0, 0, 100, 10), 3, 50).height, 9);
+        // narrow: the bottom, above the statusline, below the lines of the buffer
+        let area = panel_area(Rect::new(0, 0, 50, 19), 3, 30);
+        assert_eq!(area, Rect::new(0, 3, 50, 15));
+        let area = panel_area(Rect::new(0, 0, 50, 19), 3, 4);
         assert_eq!(area, Rect::new(0, 12, 50, 6));
+        // and at least half the height when the buffer is long
+        let area = panel_area(Rect::new(0, 0, 50, 19), 12, 30);
+        assert_eq!(area, Rect::new(0, 9, 50, 9));
         // tiny sizes don't overflow
         for width in 0..8 {
             for height in 0..8 {
-                let _ = panel_area(Rect::new(0, 0, width, height), 100);
-                let _ = panel_area(Rect::new(3, 2, width, height), 0);
+                let _ = panel_area(Rect::new(0, 0, width, height), u16::MAX, 100);
+                let _ = panel_area(Rect::new(3, 2, width, height), 0, 0);
             }
         }
     }
