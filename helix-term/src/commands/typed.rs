@@ -2527,6 +2527,45 @@ fn reflow(cx: &mut compositor::Context, args: Args, event: PromptEvent) -> anyho
     Ok(())
 }
 
+fn move_lines_up(
+    cx: &mut compositor::Context,
+    args: Args,
+    event: PromptEvent,
+) -> anyhow::Result<()> {
+    move_lines_typed(cx, args, event, helix_core::movement::Direction::Backward)
+}
+
+fn move_lines_down(
+    cx: &mut compositor::Context,
+    args: Args,
+    event: PromptEvent,
+) -> anyhow::Result<()> {
+    move_lines_typed(cx, args, event, helix_core::movement::Direction::Forward)
+}
+
+fn move_lines_typed(
+    cx: &mut compositor::Context,
+    args: Args,
+    event: PromptEvent,
+    direction: helix_core::movement::Direction,
+) -> anyhow::Result<()> {
+    if event != PromptEvent::Validate {
+        return Ok(());
+    }
+
+    let count = args
+        .first()
+        .map(|count| count.parse::<usize>())
+        .transpose()?
+        .unwrap_or(1);
+    ensure!(count > 0, "The number of lines to move must be at least 1");
+
+    super::move_lines::move_lines_by(cx.editor, direction, count);
+    let (view, doc) = current!(cx.editor);
+    doc.append_changes_to_history(view);
+    Ok(())
+}
+
 fn tree_sitter_subtree(
     cx: &mut compositor::Context,
     _args: Args,
@@ -3914,6 +3953,28 @@ pub const TYPABLE_COMMAND_LIST: &[TypableCommand] = &[
         aliases: &[],
         doc: "Hard-wrap the current selection of lines to a given width.",
         fun: reflow,
+        completer: CommandCompleter::none(),
+        signature: Signature {
+            positionals: (0, Some(1)),
+            ..Signature::DEFAULT
+        },
+    },
+    TypableCommand {
+        name: "move-lines-up",
+        aliases: &[],
+        doc: "Move the lines of the selections up, by one line or by a given count.",
+        fun: move_lines_up,
+        completer: CommandCompleter::none(),
+        signature: Signature {
+            positionals: (0, Some(1)),
+            ..Signature::DEFAULT
+        },
+    },
+    TypableCommand {
+        name: "move-lines-down",
+        aliases: &[],
+        doc: "Move the lines of the selections down, by one line or by a given count.",
+        fun: move_lines_down,
         completer: CommandCompleter::none(),
         signature: Signature {
             positionals: (0, Some(1)),

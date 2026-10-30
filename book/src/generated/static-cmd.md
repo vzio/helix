@@ -302,6 +302,8 @@
 | `shell_keep_pipe` | Filter selections with shell predicate | normal: `` $ ``, select: `` $ `` |
 | `suspend` | Suspend and return to shell | normal: `` <C-z> ``, select: `` <C-z> `` |
 | `git_diff_view` | Open a side by side git diff of the current file | normal: `` <space>= ``, select: `` <space>= `` |
+| `move_lines_up` | Move selected lines up | normal: `` Mk ``, `` M<up> ``, select: `` Mk ``, `` M<up> `` |
+| `move_lines_down` | Move selected lines down | normal: `` Mj ``, `` M<down> ``, select: `` Mj ``, `` M<down> `` |
 | `blame_line` | Show the git blame of the current line |  |
 | `toggle_inline_blame` | Toggle inline git blame | normal: `` <space>B ``, select: `` <space>B `` |
 | `commit_picker` | Open the git commit log picker | normal: `` <space>l ``, select: `` <space>l `` |

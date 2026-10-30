@@ -30,6 +30,11 @@ Inline git blame is ported from Helix
 hadn't landed upstream when it was ported. It is adapted to current master and reworked so that
 blame is computed entirely in the background (see [Inline git blame](#inline-git-blame)).
 
+Moving lines up and down is a rewrite, not a port, but it started from two earlier attempts: Helix
+[PR #4545](https://github.com/helix-editor/helix/pull/4545) by sireliah (never merged) and the
+bug-fixed version of it in omentic's [helix-ext](https://github.com/omentic/helix-ext) fork. See
+[Move lines](#move-lines).
+
 ## Contents
 
 - [Side by side git diff](#side-by-side-git-diff)
@@ -38,6 +43,7 @@ blame is computed entirely in the background (see [Inline git blame](#inline-git
 - [File tree overlay](#file-tree-overlay)
 - [Inline git blame](#inline-git-blame)
 - [`x` on an empty line](#x-on-an-empty-line)
+- [Move lines](#move-lines)
 
 ## Code layout
 
@@ -51,6 +57,7 @@ Each feature lives in its own modules, to keep rebasing on upstream cheap:
 | File tree | `helix-term/src/ui/explorer.rs`, `helix-term/src/ui/explorer/`, `helix-term/benches/explorer.rs` |
 | Inline blame | `helix-vcs/src/git/blame.rs`, `helix-vcs/src/blame_stub.rs`, `helix-vcs/benches/blame.rs`, `helix-stdx/src/time.rs`, `helix-view/src/blame.rs`, `helix-term/src/handlers/blame.rs`, `helix-term/src/commands/blame.rs`, `helix-term/src/ui/text_decorations/blame.rs` |
 | `x` on an empty line | `helix-term/src/handlers/line_select.rs` |
+| Move lines | `helix-term/src/commands/move_lines.rs` |
 
 Hooks into core files: commands and keys in `helix-term/src/commands.rs`,
 `helix-term/src/commands/typed.rs` and `helix-term/src/keymap/default.rs`; `C-g`, the hooks the
@@ -62,6 +69,10 @@ letters are keys, filter mode where they are typed) and the cursor accessors in
 has one field on `Document`, one decoration in `render_view`, `is_last_visual_line` in
 `helix-term/src/ui/document.rs`, and refresh calls on save (`application.rs`), on focus
 (`ui/editor.rs`) and in `:reload`/`:reload-all`.
+The move mode label (`MOV`) is a generic `mode="..."` option of sticky nodes in the `keymap!` macro
+(`mode_label` on `KeyTrieNode`, `helix-term/src/keymap.rs` and `keymap/macros.rs`), which
+`render_view` passes to the statusline's mode element (`RenderContext::mode_label` in
+`helix-term/src/ui/statusline.rs`).
 
 To build: `cargo install --path helix-term --locked`.
 
@@ -447,3 +458,62 @@ pressing `x` again extends by one line as usual (`xx` selects 2 lines, `xxx` 3).
   edit: `x`, `k`, `j`, `x` on an empty line selects just that line, but a selection that moved and
   came back is a cursor again. An empty line selected by another command (`X`, for example) is a
   cursor to `x` too.
+
+## Move lines
+
+Moves the lines touched by the selections up or down by one line, or by a count of lines, and keeps
+the selections on the moved text. Upstream has no such command
+([#2245](https://github.com/helix-editor/helix/issues/2245) was rejected); the usual macro
+workaround overwrites registers, misbehaves at the end of the file, loses text with several
+selections and drops the column.
+
+### Usage
+
+`M` in normal or select mode enters the sticky *move mode* (like `Z` is for the view), where:
+
+| Keys | Action |
+| --- | --- |
+| `j`, `down` | `move_lines_down` |
+| `k`, `up` | `move_lines_up` |
+
+`3j` moves the lines 3 lines down, as one undo step. The mode stays until `Esc` (in select mode
+that `Esc` also leaves select mode, as it does in the view mode), so `Mjjj` moves three times, as
+three undo steps. Other keys do nothing in the mode. The which-key popup shows the keys and the
+statusline shows `MOV` in place of `NOR`/`SEL`, in the colors of the mode that it was entered from.
+
+There are no Alt or Ctrl keys, they are taken by window managers on some systems. `A-up` and
+`A-down` are upstream's `expand_selection` and `shrink_selection` as before. The commands are
+static commands, so they can be bound anywhere, for example in `config.toml`:
+
+```toml
+[keys.normal]
+"C-j" = "move_lines_down"
+"C-k" = "move_lines_up"
+```
+
+They are also in the command palette, and as the typable commands `:move-lines-down [count]` and
+`:move-lines-up [count]` (one undo step too).
+
+### Behaviour
+
+- Every line touched by a selection (`Range::line_range`, so a selection that ends at the start of
+  a line doesn't touch that line) moves. Each selection stays on the moved text, with the same anchor
+  and head, so the direction and the column are kept.
+- Line ranges that overlap or are adjacent are one block, which moves as a whole. Moving a block
+  down swaps it with the single line below it. With several blocks every block moves by the same
+  number of lines, and the lines between them stay between them. A count of `n` is `n` of these
+  moves, in one transaction.
+- At the top (bottom) of the file, everything moves by the room the nearest block has, and by
+  nothing if there is none: then nothing changes, not even the undo history. The empty line after
+  the final line ending is not a line, a cursor on it doesn't move.
+- A last line without a line ending stays the last line without one: the line ending is passed on to
+  the line that takes its place. `\r\n` files keep `\r\n`.
+- No register or the clipboard is used. The lines are moved by a transaction that only deletes and
+  inserts the lines that the blocks jump over, so the blocks themselves are not edited and the
+  selections of other views on the same file follow them.
+
+### Limitations
+
+- The indentation is not changed to fit the new place of a line.
+- If the file has no final line ending, a selection that ends with the line ending of the line that
+  becomes the last one is shortened by it, as that line ending is gone.

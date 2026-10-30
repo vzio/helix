@@ -137,7 +137,7 @@ The following statusline elements can be configured:
 
 | Key    | Description |
 | ------ | ----------- |
-| `mode` | The current editor mode (`mode.normal`/`mode.insert`/`mode.select`) |
+| `mode` | The current editor mode (`mode.normal`/`mode.insert`/`mode.select`), or `MOV` while the [move mode](./keymap.md#move-mode) is active |
 | `spinner` | A progress spinner indicating LSP activity |
 | `file-name` | The path/name of the opened file |
 | `file-absolute-path` | The absolute path/name of the opened file |

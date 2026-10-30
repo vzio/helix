@@ -28,6 +28,10 @@ pub struct KeyTrieNode {
     map: IndexMap<KeyEvent, KeyTrie>,
     #[serde(skip)]
     pub is_sticky: bool,
+    /// A short label (like "MOV") for the statusline's mode element while this sticky node is
+    /// active, in place of the editor mode's.
+    #[serde(skip)]
+    pub mode_label: Option<&'static str>,
 }
 
 impl KeyTrieNode {
@@ -36,6 +40,7 @@ impl KeyTrieNode {
             name: name.to_string(),
             map,
             is_sticky: false,
+            mode_label: None,
         }
     }
 

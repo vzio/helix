@@ -21,6 +21,7 @@ mod test {
     mod explorer;
     mod git_log;
     mod inline_blame;
+    mod move_lines;
     mod movement;
     mod picker_modes;
     mod splits;
