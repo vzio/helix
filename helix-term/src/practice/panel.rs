@@ -376,7 +376,7 @@ mod tests {
 
     #[test]
     fn fit_keeps_the_footer() {
-        let make = || content(&exercises(), &attempt(0), 40);
+        let make = || content(&exercises(), &attempt(0), 50);
         let all = text_owned(fit(make(), 100));
         assert_eq!(all.last().unwrap(), "Keys 3 · par 2");
         let few = text_owned(fit(make(), 3));

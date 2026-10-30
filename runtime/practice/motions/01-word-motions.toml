@@ -2,8 +2,8 @@ title = "Word by word"
 topic = "motions"
 feature = "Word motions: w, b, e"
 lesson = """
-`w` selects to the start of the next word, `b` to the start of the previous one, `e` to the end.
-A motion leaves what it passed over selected, so `d` right after deletes it.
+`w` selects to the start of the next word, `b` to the start of the previous one,
+`e` to the end. A motion leaves what it passed over selected, so `d` deletes it.
 """
 start = """
 The #[q|]#uick quick brown fox

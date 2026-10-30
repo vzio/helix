@@ -2,14 +2,14 @@ title = "Many cursors"
 topic = "selections"
 feature = "Split a selection with a regex: s"
 lesson = """
-`s` splits the selection into one selection per match of a regex: many cursors at once.
-What you do next (`c`, `r`, `d`, ...) is done at every cursor. `%` selects the whole buffer.
+`s` splits the selection into one per match of a regex: many cursors at once.
+What you do next (`c`, `r`, `d`, ...) happens at every cursor. `%` selects all.
 """
 start = """
-#[|a = 1
+a = 1
 b = 1
 c = 1
-]#"""
+"""
 goal = """
 a = 2
 b = 2
