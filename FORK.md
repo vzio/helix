@@ -4,6 +4,9 @@ This fork ([vzio/helix](https://github.com/vzio/helix)) is upstream
 [Helix](https://github.com/helix-editor/helix) plus the features below. Everything else works and
 is documented exactly as in the [Helix documentation](https://docs.helix-editor.com/).
 
+Every feature, original or ported, ships with at least one `:practice` exercise (see
+[Practice](#practice), and [CLAUDE.md](CLAUDE.md) for how to write one).
+
 ## Credits
 
 The git diff viewer and the file explorer are ported from
@@ -44,6 +47,7 @@ bug-fixed version of it in omentic's [helix-ext](https://github.com/omentic/heli
 - [Inline git blame](#inline-git-blame)
 - [`x` on an empty line](#x-on-an-empty-line)
 - [Move lines](#move-lines)
+- [Practice](#practice)
 
 ## Code layout
 
@@ -58,6 +62,7 @@ Each feature lives in its own modules, to keep rebasing on upstream cheap:
 | Inline blame | `helix-vcs/src/git/blame.rs`, `helix-vcs/src/blame_stub.rs`, `helix-vcs/benches/blame.rs`, `helix-stdx/src/time.rs`, `helix-view/src/blame.rs`, `helix-term/src/handlers/blame.rs`, `helix-term/src/commands/blame.rs`, `helix-term/src/ui/text_decorations/blame.rs` |
 | `x` on an empty line | `helix-term/src/handlers/line_select.rs` |
 | Move lines | `helix-term/src/commands/move_lines.rs` |
+| Practice | `helix-term/src/practice.rs`, `helix-term/src/practice/`, `runtime/practice/`, `helix-term/tests/test/practice.rs` |
 
 Hooks into core files: commands and keys in `helix-term/src/commands.rs`,
 `helix-term/src/commands/typed.rs` and `helix-term/src/keymap/default.rs`; `C-g`, the hooks the
@@ -73,6 +78,9 @@ The move mode label (`MOV`) is a generic `mode="..."` option of sticky nodes in 
 (`mode_label` on `KeyTrieNode`, `helix-term/src/keymap.rs` and `keymap/macros.rs`), which
 `render_view` passes to the statusline's mode element (`RenderContext::mode_label` in
 `helix-term/src/ui/statusline.rs`).
+`:practice` counts keys from two calls around the dispatch of terminal events in
+`Application::handle_terminal_events`, draws its panel from one call in `EditorView::render`, has
+one entry in `typed.rs`, and opens its buffers with `Editor::new_file_from_document`, made public.
 
 To build: `cargo install --path helix-term --locked`.
 
@@ -517,3 +525,73 @@ They are also in the command palette, and as the typable commands `:move-lines-d
 - The indentation is not changed to fit the new place of a line.
 - If the file has no final line ending, a selection that ends with the line ending of the line that
   becomes the last one is shortened by it, as that line ending is gone.
+
+## Practice
+
+A built-in trainer, Rustlings crossed with VimGolf: each exercise teaches a feature with a short
+lesson, then counts your keystrokes, so you can come back later and solve it with fewer. There is
+nothing else: no timers, no leaderboards, no extra modes.
+
+### Usage
+
+| Command | Action |
+| --- | --- |
+| `:practice` | Continue with the first exercise that is not solved yet |
+| `:practice <topic>` | The first unsolved exercise of a topic (`Tab` completes them) |
+| `:practice list` | Pick any exercise; shows its status, par and your best |
+| `:practice hint` | Reveal the next hint (three per exercise, from vague to the keys) |
+| `:practice reset` | Start the exercise again |
+| `:practice next`, `:practice prev` | The next or previous exercise |
+| `:practice lesson` | Hide or show the lesson panel |
+
+The exercise opens in a scratch buffer in the current view. A panel shows its title, the lesson,
+the goal, the hints you revealed and the count of keys against the par. On a terminal 100 columns
+wide or more it is a column at the top right; on narrower ones (a phone) it is a band at the
+bottom, below the lines of the buffer. It gives way to the which-key popup.
+
+The buffer is checked after every key: once its text is the goal and you are in normal mode, the
+exercise is solved and the count stops. The statusline and the panel show the keys you used, the
+par and your best, then the `teach` solution, and, once your best is at or under par, the shortest
+known (`gold`) solution if there is one. Solve it again (`:practice reset`) to beat your best.
+
+### Counting
+
+- Every key event counts: `Esc`, counts, mode switches, undo, the keys typed into prompts
+  (`s`, `|`, `/`, ...) and other commands (`:sort`). A paste counts one per character.
+- `:practice` commands don't count, from the command line or from a key binding, and neither do
+  the keys of the `:practice list` picker. Keys replayed by a macro don't count, the `q` does.
+- The par is the number of keys of the exercise's `teach` solution.
+
+### Topics
+
+The first batch has 35 exercises: motions (4), selections and multiple cursors (4), text objects
+(4), surround (3), syntax tree selection (2), registers (3), macros (2), pipe (3), search and
+replace (4), goto and the jumplist (4), and this fork's features (2: `x` on an empty line, move
+lines).
+
+### Progress
+
+Your best count per exercise is kept in `practice.toml` in Helix's data directory
+(`~/.local/share/helix/practice.toml` on Linux, `~/Library/Application Support/helix/` on macOS,
+`%AppData%\helix\` on Windows), never in the repository. An exercise is unsolved (`·`), solved
+(`✓`) or at or under par (`★`). The file is read when needed and written on every solve, so two
+Helix instances don't overwrite each other's results; if it can't be read, nothing is written to
+it and the statusline says why.
+
+### Exercises
+
+The exercises are TOML files in `runtime/practice/<topic>/`, in the order of
+`runtime/practice/index.toml`. [CLAUDE.md](CLAUDE.md) describes the format. The replay test
+(`cargo integration-test -- practice`) checks every file and replays every solution through the
+editor, so an exercise that a keymap change breaks fails the tests.
+
+### Limitations
+
+- The fork's git features (diff view, commit log, staged files, file tree, inline blame) have no
+  exercise yet: they don't change text, and exercises are checked by the text of the buffer.
+- Registers, the last search and macros you recorded before stay available in an exercise, which
+  can make a solution shorter than it would be from a fresh start (the replay test uses one).
+- The selection is not part of the goal, only the text is.
+- On a short terminal the panel cuts the lesson first (the last line shown ends with `…`), then the
+  title, the hints and the goal; the count is always shown. `:practice lesson` hides it.
+- Renaming an exercise file loses its progress, which is keyed by `<topic>/<file name>`.

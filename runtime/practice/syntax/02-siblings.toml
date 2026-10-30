@@ -1,0 +1,25 @@
+title = "Swap the parameters"
+topic = "syntax"
+feature = "Siblings: A-a, then rotate contents with A-)"
+language = "rust"
+lesson = """
+`A-a` selects all siblings of the current node (here, every parameter), `A-n`
+/ `A-p` the next / previous one. `A-)` rotates the text between selections: it
+swaps them.
+"""
+start = """
+fn area(#[w|]#: u32, h: u32) -> u32 {
+    w * h
+}
+"""
+goal = """
+fn area(h: u32, w: u32) -> u32 {
+    w * h
+}
+"""
+hints = [
+  "The two parameters trade places.",
+  "Select both parameters as siblings, then rotate their contents.",
+  "`A-o` selects `w: u32`, `A-a` its siblings, `A-)` swaps them.",
+]
+teach = "<A-o><A-a><A-)>"

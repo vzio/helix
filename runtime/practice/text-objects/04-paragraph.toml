@@ -1,0 +1,26 @@
+title = "A whole paragraph"
+topic = "text-objects"
+feature = "Paragraphs: mip and map"
+lesson = """
+`mip` selects the paragraph around the cursor, `map` also takes the blank line
+after it. So `mapd` removes a paragraph without leaving a double gap.
+"""
+start = """
+First paragraph.
+
+Second one is
+#[t|]#wo lines.
+
+Third.
+"""
+goal = """
+First paragraph.
+
+Third.
+"""
+hints = [
+  "Remove the middle paragraph and keep the spacing tidy.",
+  "Select around the paragraph and delete.",
+  "`map` selects the paragraph and its blank line, then `d`.",
+]
+teach = "mapd"
