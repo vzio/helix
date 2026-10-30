@@ -60,6 +60,15 @@ use helix_view::{
 pub use self::handlers::PickerLookup;
 use self::handlers::{DynamicQueryChange, DynamicQueryHandler, PreviewHighlightHandler};
 
+/// The mode of a picker that has modes, see [`Picker::with_modes`].
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum PickerMode {
+    /// Letters are keys: they move in the list or are left to the owner of the picker.
+    Normal,
+    /// Letters are typed in the prompt, as in every other picker.
+    Filter,
+}
+
 pub const ID: &str = "picker";
 
 pub const MIN_AREA_WIDTH_FOR_PREVIEW: u16 = 72;
@@ -301,6 +310,10 @@ pub struct Picker<T: 'static + Send + Sync, D: 'static> {
     dividers: Option<Dividers<T, D>>,
     /// Rows that are drawn as marked, see [`Picker::with_marked_rows`].
     marked: Option<PickerMarked<T>>,
+    /// The mode of the picker, if it has modes, see [`Picker::with_modes`].
+    mode: Option<PickerMode>,
+    /// `g` was typed in normal mode, the next key completes the command (`gg`, `ge`).
+    goto: bool,
 }
 
 impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
@@ -420,6 +433,8 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
             key_handlers: Vec::new(),
             dividers: None,
             marked: None,
+            mode: None,
+            goto: false,
         }
     }
 
@@ -575,6 +590,39 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
         self
     }
 
+    /// The picker has two modes instead of always sending the letters typed to its prompt, like
+    /// the normal and insert modes of the editor. It opens in [`PickerMode::Normal`], where `j`
+    /// and `k` move the cursor, `gg`/`ge`/`G` go to the start/end, `s` enters filter mode, `Esc`
+    /// clears the query if there is one and closes the picker otherwise, `q` closes it, and the
+    /// other letters do nothing (they are for the owner of the picker to use, see
+    /// [`Picker::pending_key`]); pasting is ignored. The keys of pickers without modes work in
+    /// both modes. In [`PickerMode::Filter`] everything works as in a picker without modes, and
+    /// `Esc` goes back to normal mode, keeping the query. The cursor of the prompt is only shown
+    /// in filter mode.
+    pub fn with_modes(mut self) -> Self {
+        self.mode = Some(PickerMode::Normal);
+        self
+    }
+
+    /// The mode of the picker, always [`PickerMode::Filter`] if it has no modes.
+    pub fn mode(&self) -> PickerMode {
+        self.mode.unwrap_or(PickerMode::Filter)
+    }
+
+    /// Changes the mode of a picker that has modes, see [`Picker::with_modes`].
+    pub fn set_mode(&mut self, mode: PickerMode) {
+        if self.mode.is_some() {
+            self.mode = Some(mode);
+            self.goto = false;
+        }
+    }
+
+    /// Whether the picker is in the middle of a command of several keys in normal mode (`g` was
+    /// typed): the owner should give it the next key as it is.
+    pub fn pending_key(&self) -> bool {
+        self.goto
+    }
+
     /// The position of the cursor among the items that match the query.
     pub fn cursor_index(&self) -> u32 {
         self.cursor
@@ -594,6 +642,14 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
         self.matcher
             .snapshot()
             .get_item(index)
+            .map(|item| item.data)
+    }
+
+    /// The `index`th item that matches the query, in the order they are listed in.
+    pub fn matched_item(&self, index: u32) -> Option<&T> {
+        self.matcher
+            .snapshot()
+            .get_matched_item(index)
             .map(|item| item.data)
     }
 
@@ -1326,7 +1382,17 @@ impl<I: 'static + Send + Sync, D: 'static + Send + Sync> Component for Picker<I,
         // TODO: keybinds for scrolling preview
 
         let key_event = match event {
+            Event::Key(event) if self.mode.is_some() => {
+                // A terminal may send `G` with shift, which no key of the picker has.
+                let mut event = *event;
+                ui::editor::canonicalize_key(&mut event);
+                event
+            }
             Event::Key(event) => *event,
+            // There is no prompt to paste into in normal mode.
+            Event::Paste(..) if self.mode == Some(PickerMode::Normal) => {
+                return EventResult::Consumed(None)
+            }
             Event::Paste(..) => return self.prompt_handle_event(event, ctx),
             Event::Resize(..) => return EventResult::Consumed(None),
             // Picker is a modal and should consume mouse events so clicks don't fall
@@ -1358,6 +1424,17 @@ impl<I: 'static + Send + Sync, D: 'static + Send + Sync> Component for Picker<I,
             EventResult::Consumed(Some(callback))
         };
 
+        let normal = self.mode == Some(PickerMode::Normal);
+        // The key after `g` completes `gg`/`ge`, whatever it is.
+        if normal && std::mem::take(&mut self.goto) {
+            match key_event {
+                key!('g') => self.to_start(),
+                key!('e') => self.to_end(),
+                _ => {}
+            }
+            return EventResult::Consumed(None);
+        }
+
         if let Some((_, handler, close)) =
             self.key_handlers.iter().find(|(key, ..)| *key == key_event)
         {
@@ -1371,6 +1448,18 @@ impl<I: 'static + Send + Sync, D: 'static + Send + Sync> Component for Picker<I,
         }
 
         match key_event {
+            key!(Esc) if self.mode == Some(PickerMode::Filter) => {
+                self.mode = Some(PickerMode::Normal);
+            }
+            key!('j') if normal => self.move_by(1, Direction::Forward),
+            key!('k') if normal => self.move_by(1, Direction::Backward),
+            key!('g') if normal => self.goto = true,
+            key!('G') if normal => self.to_end(),
+            key!('s') if normal => self.mode = Some(PickerMode::Filter),
+            key!(Esc) if normal && !self.prompt.line().is_empty() => {
+                self.set_query_line(String::new(), ctx.editor);
+            }
+            key!(Esc) | key!('q') if normal => return close_fn(self),
             shift!(Tab) | key!(Up) | ctrl!('p') => {
                 self.move_by(1, Direction::Backward);
             }
@@ -1445,6 +1534,7 @@ impl<I: 'static + Send + Sync, D: 'static + Send + Sync> Component for Picker<I,
             ctrl!('t') => {
                 self.toggle_preview();
             }
+            _ if normal => {}
             _ => {
                 self.prompt_handle_event(event, ctx);
             }
@@ -1454,6 +1544,9 @@ impl<I: 'static + Send + Sync, D: 'static + Send + Sync> Component for Picker<I,
     }
 
     fn cursor(&self, area: Rect, editor: &Editor) -> (Option<Position>, CursorKind) {
+        if self.mode == Some(PickerMode::Normal) {
+            return (None, CursorKind::Hidden);
+        }
         let block = Block::bordered();
         // calculate the inner area inside the box
         let inner = block.inner(area);
