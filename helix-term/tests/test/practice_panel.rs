@@ -171,10 +171,10 @@ async fn the_panel_shows_the_lesson_and_the_count() -> anyhow::Result<()> {
                     let rows = rows(app);
                     let title = rows
                         .iter()
-                        .position(|row| row.contains("1.1 / 2 · Chapter a"))
+                        .position(|row| row.contains("1. 1/2 · Chapter a"))
                         .expect("the title");
                     assert_eq!(title, 0, "{rows:#?}");
-                    assert!(rows[0].find("1.1").unwrap() >= 50, "{}", rows[0]);
+                    assert!(rows[0].find("1. 1/2").unwrap() >= 50, "{}", rows[0]);
                     for text in [
                         "Title of a/01-first",
                         "Lesson",
@@ -245,7 +245,7 @@ async fn the_panel_is_a_band_at_the_bottom_on_a_narrow_terminal() -> anyhow::Res
                 assert_eq!(rows.len(), 20);
                 let title = rows
                     .iter()
-                    .position(|row| row.contains("1.1 / 2 · Chapter a"))
+                    .position(|row| row.contains("1. 1/2 · Chapter a"))
                     .expect("the title");
                 // below the lines of the buffer
                 assert!(rows[0].contains("The quick quick brown fox"), "{rows:#?}");
@@ -343,7 +343,7 @@ async fn snapshot_of_the_fresh_panel() -> anyhow::Result<()> {
             assert_eq!(
                 panel_text(app, PANEL),
                 "\
-┌3.2 / 7 · Words, lines and counts─────────────────────┐
+┌3. 2/7 · Words, lines and counts──────────────────────┐
 │                                                      │
 │ Append at the end of a line                          │
 │                                                      │
@@ -388,7 +388,7 @@ async fn snapshot_with_two_hints() -> anyhow::Result<()> {
             assert_eq!(
                 panel_text(app, PANEL),
                 "\
-┌3.2 / 7 · Words, lines and counts─────────────────────┐
+┌3. 2/7 · Words, lines and counts──────────────────────┐
 │                                                      │
 │ Append at the end of a line                          │
 │                                                      │
@@ -437,7 +437,7 @@ async fn snapshot_of_the_solved_panel() -> anyhow::Result<()> {
             assert_eq!(
                 panel_text(app, PANEL),
                 "\
-┌3.2 / 7 · Words, lines and counts─────────────────────┐
+┌3. 2/7 · Words, lines and counts──────────────────────┐
 │                                                      │
 │ Append at the end of a line                          │
 │                                                      │

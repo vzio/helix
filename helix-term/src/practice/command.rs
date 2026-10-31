@@ -201,9 +201,10 @@ fn list(cx: &mut compositor::Context) -> anyhow::Result<()> {
 }
 
 fn picker(rows: Vec<Row>, initial: usize) -> Picker<Row, ()> {
-    // The numbers come before the titles, so that they show on narrow terminals.
     let columns = [
+        PickerColumn::new("exercise", |row: &Row, _: &()| row.title.as_str().into()),
         PickerColumn::new(" ", |row: &Row, _: &()| row.status.symbol().into()),
+        PickerColumn::new("#", |row: &Row, _: &()| row.number.as_str().into()),
         PickerColumn::new("par", |row: &Row, _: &()| row.par.to_string().into()),
         PickerColumn::new("best", |row: &Row, _: &()| {
             row.best
@@ -211,13 +212,11 @@ fn picker(rows: Vec<Row>, initial: usize) -> Picker<Row, ()> {
                 .unwrap_or_default()
                 .into()
         }),
-        PickerColumn::new("#", |row: &Row, _: &()| row.number.as_str().into()),
-        PickerColumn::new("exercise", |row: &Row, _: &()| row.title.as_str().into()),
         PickerColumn::new("chapter", |row: &Row, _: &()| {
             row.chapter_title.as_str().into()
         }),
     ];
-    Picker::new(columns, 4, rows, (), |cx, row, _action| {
+    Picker::new(columns, 0, rows, (), |cx, row, _action| {
         if let Err(err) = start_index(cx.editor, row.index) {
             cx.editor.set_error(err.to_string());
         }
