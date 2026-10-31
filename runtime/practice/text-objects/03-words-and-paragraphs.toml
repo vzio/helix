@@ -1,0 +1,40 @@
+title = "Words and paragraphs"
+chapter = "text-objects"
+kind = "learn"
+feature = "miw selects a word, map a paragraph"
+lesson = """
+`w` is the word object and `p` the paragraph: `miw` is the word under the
+cursor, wherever in it the cursor is, and `map` is the whole paragraph with
+the blank line after it.
+"""
+language = "markdown"
+start = '''
+# fetchd
+
+fetchd fetches your feeds on a schedule and
+keeps them in a local database, so you can
+read them offline.
+
+**Note:** this page was written for 0.2,
+and most of it no longer applies. The new
+docs are on the website; this paragraph is
+only kept for history.
+
+Run `fetchd --help` for the options.
+'''
+goal = '''
+# fetchd
+
+fetchd fetches your feeds on a schedule and
+keeps them in a SQLite database, so you can
+read them offline.
+
+Run `fetchd --help` for the options.
+'''
+hints = [
+  "One word changes, and one whole paragraph goes, blank line included.",
+  "`miw` selects the word the cursor is on, from any of its letters. `map` selects the paragraph around the cursor and the blank line after it.",
+  "`3jfl` puts the cursor on the `l` of `local`, `miwcSQLite<esc>`. Then `3j` into the note, `mapd`.",
+]
+teach = "3jflmiwcSQLite<esc>3jmapd"
+naive = "jjjlllllllllllllllldddddiSQLite<esc>jjjhhhhhhhhhhhhhhhhhhhhhhdddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
