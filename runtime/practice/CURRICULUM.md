@@ -34,7 +34,7 @@ Assumes: nothing.
 
 ## 2. Lines and characters
 
-Keys: `d` `x` `~` `J` `<gt>` `<lt>` `<C-c>` `insert:<C-w>`
+Keys: `d` `x` `~` `` ` `` `` <A-`> `` `J` `<gt>` `<lt>` `<C-c>` `insert:<C-w>`
 
 Helix selects first and acts second. So far the selection was just the cursor, one character, and
 `d` deletes it. `x` selects the whole line (press it again to add the next one). On an empty line
@@ -43,7 +43,7 @@ Helix also takes the next line there; this fork doesn't). The commands of this c
 whatever is selected:
 
 - `xd` deletes lines;
-- `~` switches the case;
+- `~` switches the case, `` ` `` sets lower case and `` <A-`> `` upper case;
 - `J` joins lines;
 - `>` and `<` indent and unindent;
 - `<C-c>` comments lines out or back in.
@@ -90,12 +90,14 @@ Assumes: chapters 1-3.
 
 ## 5. Undo, redo and repeat
 
-Keys: `u` `U` `.`
+Keys: `u` `U` `.` `insert:<right>`
 
 `u` undoes and `U` redoes. Some exercises start with an undo history (`before`), so undoing is
 the fastest way back. `.` repeats the last insert, including the command that started it
 (`A;<esc>` once, then `.` everywhere else). This is the first chapter where doing a change
-once and repeating it beats doing it by hand.
+once and repeating it beats doing it by hand. The repeat includes the arrow keys pressed while
+inserting, so moving with `<left>` and `<right>` inside one insert makes a change in two nearby
+places one repeatable change.
 
 Assumes: chapters 1-4.
 
@@ -107,19 +109,19 @@ How to get somewhere without counting lines or columns:
 
 - searching: `/` forward and `?` backward, with a regex; `n` and `N` for the next and previous
   match; `*` to search for the selection as a whole word. A match is a selection, so `c`
-  changes it, and `n.` repeats that on the next one;
+  changes it, and `n.` repeats that on the next one. In select mode (`v`), `n` and `N` add the
+  next match as one more selection instead, so one `c` changes them all;
 - coming back: a search is a jump, and `<C-o>` returns to where you were before it;
 - the ends of the file: `gg` and `ge`.
 
-The lessons also mention the related keys that no exercise needs: `12G` for line 12, `<C-s>`
-to save a position in the jumplist yourself, `<C-i>` to go forward again, and `g.` for the
-last change.
+The jumplist itself (`<C-s>`, `<C-i>`, the `<space>j` picker), `12G` for line 12 and `g.` for
+the last change are explained in `:tutor`, with the rest of moving around files.
 
 Assumes: chapters 1-5.
 
 ## 7. Many selections
 
-Keys: `%` `s` `S` `C` `,` `<A-s>` `K` `<A-K>` `&`
+Keys: `%` `s` `S` `C` `<A-C>` `,` `<A-s>` `K` `<A-K>` `&` `(` `)` `<A-,>` `<A-(>` `<A-)>`
 
 Helix's multiple selections. One edit applies to every selection at once:
 
@@ -127,9 +129,11 @@ Helix's multiple selections. One edit applies to every selection at once:
 - `s` selects the matches of a regex inside the selection, and `S` splits the selection on a
   regex;
 - `<A-s>` splits it into lines;
-- `C` copies the cursor to the next line;
+- `C` and `<A-C>` copy the cursor to the next and the previous line;
 - `K` and `<A-K>` keep or drop the selections that match a regex;
-- `,` keeps only the primary selection;
+- one selection is the primary: `)` and `(` make the next or previous one primary, `<A-,>`
+  removes it, and `,` keeps only it;
+- `<A-)>` and `<A-(>` rotate the contents of the selections forward and back (with two, a swap);
 - `&` aligns the selections in columns.
 
 From here on, many earlier exercises have a much shorter answer.

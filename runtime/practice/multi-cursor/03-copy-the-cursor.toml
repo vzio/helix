@@ -1,19 +1,19 @@
 title = "A cursor in each row"
 chapter = "multi-cursor"
 kind = "learn"
-feature = "C copies the cursor to the next line"
+feature = "C copies the cursor to the next line, Alt-C to the line above"
 lesson = """
-`C` adds a copy of the selection on the next line, in the same column. Press
-it a few times for a column of cursors, then type once: every row gets the
-same edit at the same place.
+`C` adds a copy of the selection on the next line, in the same column, and
+`<A-C>` on the line above. Press them a few times for a column of cursors,
+then type once: every row gets the same edit at the same place.
 """
 language = "sql"
 start = '''
 INSERT INTO plans (name, price, seats)
 VALUES
-  (#[|']#free',           0,   1),
+  ('free',           0,   1),
   ('solo',         900,   1),
-  ('team',        4900,  10),
+  (#[|']#team',        4900,  10),
   ('business',   19900,  50),
   ('enterprise', 99900, 500);
 '''
@@ -28,8 +28,8 @@ VALUES
 '''
 hints = [
   "Every row gets the same new first value, in the same column; the column list gets its name.",
-  "`C` puts a copy of the cursor on the line below, same column. With five cursors, `i` types in all five rows.",
-  "`CCCC` for a cursor in each row, `itrue, <esc>`. Then `,` back to one cursor, `gg`, `f(a` and `active, <esc>` for the header.",
+  "`C` puts a copy of the cursor on the line below, same column, and `<A-C>` on the line above. With five cursors, `i` types in all five rows.",
+  "`CC<A-C><A-C>` for a cursor in each row, `itrue, <esc>`. Then `,` back to one cursor, `gg`, `f(a` and `active, <esc>` for the header.",
 ]
-teach = "CCCCitrue, <esc>,ggf(aactive, <esc>"
-naive = "kklllllllllllllllliactive, <esc>jjhhhhhhhhhhhhhhhhhhhhhhhhitrue, <esc>jhhhhhhitrue, <esc>jhhhhhhitrue, <esc>jhhhhhhitrue, <esc>jhhhhhhitrue, <esc>"
+teach = "CC<A-C><A-C>itrue, <esc>,ggf(aactive, <esc>"
+naive = "kkkklllllllllllllllliactive, <esc>jjhhhhhhhhhhhhhhhhhhhhhhhhitrue, <esc>jhhhhhhitrue, <esc>jhhhhhhitrue, <esc>jhhhhhhitrue, <esc>jhhhhhhitrue, <esc>"

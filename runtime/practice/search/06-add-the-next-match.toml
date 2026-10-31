@@ -1,0 +1,41 @@
+title = "Only this function"
+chapter = "search"
+kind = "apply"
+feature = "In select mode, n adds the next match as a selection"
+lesson = """
+In select mode (`v`), `n` doesn't jump to the next match, it adds it as one
+more selection. Search for a word with `*`, add matches with `n` as far as
+you need, and change them all at once. `.` would take two keys per match.
+"""
+language = "javascript"
+start = '''
+async function loadFeeds(url) {
+  const #[|d]#ata = await (await fetch(url)).json();
+  if (!data.ok) throw new Error(data.error);
+  cache.set(url, data.items);
+  return data.items;
+}
+
+function render(data) {
+  return data.items.map(view).join("");
+}
+'''
+goal = '''
+async function loadFeeds(url) {
+  const body = await (await fetch(url)).json();
+  if (!body.ok) throw new Error(body.error);
+  cache.set(url, body.items);
+  return body.items;
+}
+
+function render(data) {
+  return data.items.map(view).join("");
+}
+'''
+hints = [
+  "`data` becomes `body` in the first function only: five times. `render` keeps its parameter.",
+  "`*` searches for the selected word. In select mode, `n` adds the next match to the selections; then one `c` changes them all.",
+  "`e*` searches for `data`, `v` starts select mode, `nnnn` adds the next four matches, `cbody<esc>`.",
+]
+teach = "e*vnnnncbody<esc>"
+naive = "ddddibody<esc>jhhhhhddddibody<esc>lllllllllllllllllllllddddibody<esc>jhhhhhhhhhhhhddddibody<esc>jhhhhhhhhhhhddddibody<esc>"

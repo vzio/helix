@@ -1,0 +1,39 @@
+title = "Dates with dashes"
+chapter = "undo-repeat"
+kind = "learn"
+feature = "The repeat includes the arrow keys pressed while inserting"
+lesson = """
+`.` replays an insert exactly as you typed it, arrow keys included. So when
+a change touches two places close together, move between them with
+`<left>` and `<right>` inside one insert: then it is one change, and `.`
+repeats all of it.
+"""
+start = '''
+date,feed,items
+20240601,rust-blog,12
+20240602,this-week-in-rust,31
+20240603,lwn,8
+20240604,rust-blog,4
+20240605,hn-best,25
+20240606,lwn,11
+20240607,this-week-in-rust,29
+20240608,hn-best,17
+'''
+goal = '''
+date,feed,items
+2024-06-01,rust-blog,12
+2024-06-02,this-week-in-rust,31
+2024-06-03,lwn,8
+2024-06-04,rust-blog,4
+2024-06-05,hn-best,25
+2024-06-06,lwn,11
+2024-06-07,this-week-in-rust,29
+2024-06-08,hn-best,17
+'''
+hints = [
+  "Every date gets two dashes, after the year and after the month, in the same columns on every line.",
+  "Two inserts would leave `.` repeating only the second. In insert mode `<right>` moves the cursor without leaving insert mode, and `.` replays the moves too. `I` starts at the beginning of the line, wherever the cursor is.",
+  "`jI`, four `<right>`, `-`, two `<right>`, `-`, `<esc>`. Then `j.` for each of the other seven lines.",
+]
+teach = "jI<right><right><right><right>-<right><right>-<esc>j.j.j.j.j.j.j."
+naive = "jI<right><right><right><right>-<right><right>-<esc>jI<right><right><right><right>-<right><right>-<esc>jI<right><right><right><right>-<right><right>-<esc>jI<right><right><right><right>-<right><right>-<esc>jI<right><right><right><right>-<right><right>-<esc>jI<right><right><right><right>-<right><right>-<esc>jI<right><right><right><right>-<right><right>-<esc>jI<right><right><right><right>-<right><right>-<esc>"
