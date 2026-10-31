@@ -45,7 +45,7 @@ keys = ["mi", "ma", "mm"]
 [[chapters]]
 dir = "syntax"
 title = "The syntax tree"
-keys = ["<A-o>", "<A-i>", "<A-n>", "<A-p>", "<A-a>", "]f"]
+keys = ["<A-o>", "<A-n>", "<A-p>", "<A-a>", "]f"]
 
 [[chapters]]
 dir = "surround"

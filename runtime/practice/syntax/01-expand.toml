@@ -1,0 +1,29 @@
+title = "Grow the selection"
+chapter = "syntax"
+kind = "learn"
+feature = "Alt-o expands the selection to the enclosing syntax node"
+lesson = """
+Helix parses the code, and `<A-o>` grows the selection to the next bigger
+piece of it: a name, then the call around it, then the argument list, the
+statement... `<A-i>` shrinks it back. No counting characters.
+"""
+language = "python"
+start = '''
+def notify(user, event):
+    send(#[|r]#ender(user, event.kind), retries=3)
+    audit(entry(user.id, event, now()), sync=True)
+'''
+goal = '''
+def notify(user, event):
+    msg = render(user, event.kind)
+    send(msg, retries=3)
+    record = entry(user.id, event, now())
+    audit(record, sync=True)
+'''
+hints = [
+  "Each first argument, a whole call, moves to a variable of its own on the line above.",
+  "`<A-o>` grows the selection from the name to the whole call; `c` replaces it and yanks it; `<C-r>\"` pastes that yank while typing.",
+  "`<A-o><A-o>cmsg<esc>`, `Omsg = <C-r>\"<esc>`. Then `jj`, `gsf(l` onto `entry`, and the same with `record`.",
+]
+teach = "<A-o><A-o>cmsg<esc>Omsg = <C-r>\"<esc>jjgsf(l<A-o><A-o>crecord<esc>Orecord = <C-r>\"<esc>"
+naive = "Omsg = render(user, event.kind)<esc>jhhhhhhhhhhhhhhhhhhhhhhhhhddddddddddddddddddddddddimsg<esc>jOrecord = entry(user.id, event, now())<esc>jhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhddddddddddddddddddddddddddddirecord<esc>"

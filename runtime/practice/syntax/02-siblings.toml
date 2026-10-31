@@ -1,0 +1,27 @@
+title = "Next argument, please"
+chapter = "syntax"
+kind = "learn"
+feature = "Alt-n and Alt-p select the next and previous sibling node"
+lesson = """
+`<A-n>` selects the next node at the same level, `<A-p>` the previous one.
+Between two arguments sits a comma, which is a node too: two presses go from
+one argument to the next, however long each is.
+"""
+language = "python"
+start = '''
+db = connect(host, cert(p, strict=False), 30)
+mq = subscribe(topic, cert(p, strict=False), 10)
+kv = open_store(dir, cert(p, strict=False), 60)
+'''
+goal = '''
+db = connect(host, None, 30)
+mq = subscribe(topic, None, 10)
+kv = open_store(dir, None, 60)
+'''
+hints = [
+  "The middle argument of each call goes; it is a call itself, with arguments of its own.",
+  "`<A-o>` selects the argument under the cursor as a node; `<A-n>` moves to the next node and `<A-p>` to the previous one; the comma in between is a node as well.",
+  "`f(l<A-o><A-n><A-n>cNone<esc>` for the first line. On the others, from the end: `jglh<A-o><A-p><A-p>cNone<esc>`.",
+]
+teach = "f(l<A-o><A-n><A-n>cNone<esc>jglh<A-o><A-p><A-p>cNone<esc>jglh<A-o><A-p><A-p>cNone<esc>"
+naive = "llllllllllllllllllldddddddddddddddddddddiNone<esc>jhdddddddddddddddddddddiNone<esc>jhhhhhdddddddddddddddddddddiNone<esc>"
