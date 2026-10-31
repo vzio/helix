@@ -1,0 +1,36 @@
+title = "Constants"
+chapter = "edit"
+kind = "learn"
+feature = "~ switches the case of the selection"
+lesson = """
+`~` turns lower case into upper case and the other way round, for everything
+selected. With `x` that is the whole line: digits, spaces and `=` stay as
+they are.
+"""
+start = '''
+max_retries = 3
+retry_delay_ms = 250
+page_size = 50
+cache_ttl_seconds = 300
+
+
+def fetch(api, page):
+    return api.get(page)
+'''
+goal = '''
+MAX_RETRIES = 3
+RETRY_DELAY_MS = 250
+PAGE_SIZE = 50
+CACHE_TTL_SECONDS = 300
+
+
+def fetch(api, page):
+    return api.get(page)
+'''
+hints = [
+  "By Python convention, module-level constants are written in capitals. Only the first four lines change.",
+  "`~` switches the case of the selection, and `x` selects a whole line; the digits and `=` don't have a case.",
+  "`x~` on the first line, then `jx~` on each of the next three.",
+]
+teach = "x~jx~jx~jx~"
+naive = "IMAX_RETRIES<esc>dddddddddddjIRETRY_DELAY_MS<esc>ddddddddddddddjIPAGE_SIZE<esc>dddddddddjICACHE_TTL_SECONDS<esc>ddddddddddddddddd"

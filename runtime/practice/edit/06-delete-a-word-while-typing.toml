@@ -1,0 +1,30 @@
+title = "Retype the value"
+chapter = "edit"
+kind = "learn"
+feature = "Ctrl-w in insert mode deletes the word before the cursor"
+lesson = """
+In insert mode `<C-w>` deletes the word before the cursor in one key, where
+backspace takes one key per letter. `A<C-w>` therefore replaces the last word
+of a line: append, wipe it, type the new one.
+"""
+start = '''
+APP_ENV=development_local
+LOG_LEVEL=verbose_tracing
+CACHE_BACKEND=in_memory_default
+QUEUE_DRIVER=synchronous_inline
+MAILER=log_to_stdout
+'''
+goal = '''
+APP_ENV=prod
+LOG_LEVEL=warn
+CACHE_BACKEND=redis
+QUEUE_DRIVER=sqs
+MAILER=smtp
+'''
+hints = [
+  "Every value after the `=` is replaced, and each is a single long word.",
+  "`A` starts typing at the end of the line, and `<C-w>` then deletes the whole word before the cursor.",
+  "On each line: `A`, `<C-w>`, the new value, `<esc>`, then `j` (no `j` after the last line).",
+]
+teach = "A<C-w>prod<esc>jA<C-w>warn<esc>jA<C-w>redis<esc>jA<C-w>sqs<esc>jA<C-w>smtp<esc>"
+naive = "A<backspace><backspace><backspace><backspace><backspace><backspace><backspace><backspace><backspace><backspace><backspace><backspace><backspace><backspace><backspace><backspace><backspace>prod<esc>jA<backspace><backspace><backspace><backspace><backspace><backspace><backspace><backspace><backspace><backspace><backspace><backspace><backspace><backspace><backspace>warn<esc>jA<backspace><backspace><backspace><backspace><backspace><backspace><backspace><backspace><backspace><backspace><backspace><backspace><backspace><backspace><backspace><backspace><backspace>redis<esc>jA<backspace><backspace><backspace><backspace><backspace><backspace><backspace><backspace><backspace><backspace><backspace><backspace><backspace><backspace><backspace><backspace><backspace><backspace>sqs<esc>jA<backspace><backspace><backspace><backspace><backspace><backspace><backspace><backspace><backspace><backspace><backspace><backspace><backspace>smtp<esc>"

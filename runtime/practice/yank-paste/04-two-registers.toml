@@ -1,0 +1,45 @@
+title = "Two registers"
+chapter = "yank-paste"
+kind = "learn"
+feature = "\"a picks register a for the next yank or paste"
+lesson = """
+`"` and a letter pick a register for the next command: `"ay` yanks into `a`,
+`"ap` pastes from it. The plain `y` and `p` still use the default register,
+so you can carry two texts at once and paste them in turns.
+"""
+language = "python"
+start = '''
+def iter_users():
+    conn = pool.acquire(timeout=5)
+    yield from conn.fetch("select * from users")
+    pool.release(conn, reset=True)
+
+def iter_orders():
+    yield from conn.fetch("select * from orders")
+
+def iter_plans():
+    yield from conn.fetch("select * from plans")
+'''
+goal = '''
+def iter_users():
+    conn = pool.acquire(timeout=5)
+    yield from conn.fetch("select * from users")
+    pool.release(conn, reset=True)
+
+def iter_orders():
+    conn = pool.acquire(timeout=5)
+    yield from conn.fetch("select * from orders")
+    pool.release(conn, reset=True)
+
+def iter_plans():
+    conn = pool.acquire(timeout=5)
+    yield from conn.fetch("select * from plans")
+    pool.release(conn, reset=True)
+'''
+hints = [
+  "The other two functions need the same line before the query and the same line after it as `iter_users`. That's two different lines, each pasted twice.",
+  "`\"ay` yanks into register `a` and `\"aP` pastes it above; plain `y` and `p` keep using the default register meanwhile.",
+  "`jx\"ay` yanks the acquire line into `a`, `jjxy` the release line into the default register. Then `3j\"aPjp` for `iter_orders` and the same `3j\"aPjp` for `iter_plans`.",
+]
+teach = "jx\"ayjjxy3j\"aPjp3j\"aPjp"
+naive = "6jOconn = pool.acquire(timeout=5)<esc>jo    pool.release(conn, reset=True)<esc>3jOconn = pool.acquire(timeout=5)<esc>jo    pool.release(conn, reset=True)<esc>"

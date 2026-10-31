@@ -1,0 +1,28 @@
+title = "Trim the log"
+chapter = "motions"
+kind = "challenge"
+feature = "Everything so far, in as few keys as possible"
+lesson = """
+A log to paste into a bug report: only the level and the message matter, and
+the debug lines go. A WORD motion covers a whole timestamp, and `xd` from
+the last chapter still deletes a line.
+"""
+start = '''
+2024-05-02T10:14:07Z INFO  [api] listening on 8080
+2024-05-02T10:14:09Z DEBUG [db] pool size is 10
+2024-05-02T10:15:31Z WARN  [api] slow request /pay
+2024-05-02T10:15:32Z DEBUG [api] cache miss: 42
+2024-05-02T10:16:02Z ERROR [db] connection reset
+'''
+goal = '''
+INFO  listening on 8080
+WARN  slow request /pay
+ERROR connection reset
+'''
+hints = [
+  "On each line that stays, two pieces go: the timestamp and the part in brackets. The two DEBUG lines go entirely.",
+  "`W` selects a whole WORD and the spaces after it, so one `W` covers a timestamp. `xd` deletes a line, and `gh` gets back to the start of a line.",
+  "`Wd` deletes the timestamp, `WW` then selects the level and the bracket part, so the second `W` alone is `[api] `: `d`. Then `jxd` drops the debug line, `gh` returns to the line start, and the same again.",
+]
+teach = "WdWWdjxdghWdWWdjxdghWdWWd"
+naive = "dddddddddddddddddddddllllllddddddjhhhhhhdddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddllllllddddddjhhhhhhdddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddllllllddddd"

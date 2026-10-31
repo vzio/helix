@@ -1,0 +1,30 @@
+title = "The end of the line"
+chapter = "basics"
+kind = "learn"
+feature = "A appends at the end of the line"
+lesson = """
+`A` starts insert mode at the end of the line, wherever the cursor is in it.
+`I` is its twin for the start of the line (after the indentation). Use them
+instead of walking to either end.
+"""
+start = '''
+import { readFile } from "node:fs/promises"
+const path = process.argv[2]
+const text = await readFile(path, "utf8")
+const lines = text.split("\n").length
+console.log(path, lines)
+'''
+goal = '''
+import { readFile } from "node:fs/promises";
+const path = process.argv[2];
+const text = await readFile(path, "utf8");
+const lines = text.split("\n").length;
+console.log(path, lines);
+'''
+hints = [
+  "Every line is missing the same thing at its very end.",
+  "`A` jumps to the end of the line and starts insert mode, from anywhere in the line.",
+  "`A`, `;`, `<esc>`, then `j` to the next line; repeat on every line (no `j` after the last).",
+]
+teach = "A;<esc>jA;<esc>jA;<esc>jA;<esc>jA;<esc>"
+naive = "lllllllllllllllllllllllllllllllllllllllllla;<esc>llllllllllllllllllllllllllllla;<esc>lllllllllllllllllllllllllllllllllllllllllla;<esc>lllllllllllllllllllllllllllllllllllllla;<esc>llllllllllllllllllllllllla;<esc>"

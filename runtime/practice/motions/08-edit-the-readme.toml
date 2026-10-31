@@ -1,0 +1,30 @@
+title = "Edit the README"
+chapter = "motions"
+kind = "apply"
+feature = "Word motions with d, c and v on prose"
+lesson = """
+Prose is where word motions pay off most: a count of `w` jumps over words,
+`d` and `c` act on what was jumped over, and `v` grows a selection word by
+word before you act on it.
+"""
+start = '''
+Helix is a really fast, modal text editor. It
+is written in Go and runs in the terminal on
+Linux, Windows and macOS. It has built-in
+language server support, so you get completion
+and diagnostics without installing a plugin.
+'''
+goal = '''
+Helix is a fast, modal text editor. It
+is written in Rust and runs in the terminal on
+Linux, Windows and macOS. It has built-in
+language server support, so you get completion
+and diagnostics without any plugin.
+'''
+hints = [
+  "Three edits: a word goes, a word is replaced, and two words become one.",
+  "`4w` selects the fourth word from the cursor (with its space), and `d` or `c` act on it. In select mode (`v`), each `e` adds one more word to the selection.",
+  "`4wd` deletes `really `. `j` then `ww` selects `Go `: `cRust <esc>`. `3j` to the last line, `fi;` puts the cursor on `installing`, `vee` grows the selection to `installing a`, `cany<esc>`.",
+]
+teach = "4wdjwwcRust <esc>3jfi;veecany<esc>"
+naive = "llllllllllldddddddjlllddiRust<esc>jjjllllllddddddddddddiany<esc>"

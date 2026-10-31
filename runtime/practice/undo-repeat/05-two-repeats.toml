@@ -1,0 +1,37 @@
+title = "Two kinds of variable"
+chapter = "undo-repeat"
+kind = "challenge"
+feature = "Order the edits so that . does the work"
+lesson = """
+`.` only remembers the last insert. Here two different inserts go on
+alternating lines: optional settings fall back to a default, required ones
+fail with an error. Choose the order of your edits so `.` can repeat each.
+"""
+language = "rust"
+start = '''
+let name = var("APP_NAME");
+let port = var("APP_PORT");
+let host = var("APP_HOST");
+let user = var("APP_USER");
+let root = var("APP_ROOT");
+let mode = var("APP_MODE");
+let lang = var("APP_LANG");
+let home = var("APP_HOME");
+'''
+goal = '''
+let name = var("APP_NAME").unwrap_or_default();
+let port = var("APP_PORT").context("missing")?;
+let host = var("APP_HOST").unwrap_or_default();
+let user = var("APP_USER").context("missing")?;
+let root = var("APP_ROOT").unwrap_or_default();
+let mode = var("APP_MODE").context("missing")?;
+let lang = var("APP_LANG").unwrap_or_default();
+let home = var("APP_HOME").context("missing")?;
+'''
+hints = [
+  "Every other line gets the same text before its `;`. If you do the lines in order, `.` never repeats the right thing.",
+  "`.` repeats only the last insert. Do all lines of one kind first, then all of the other kind.",
+  "`gli.unwrap_or_default()<esc>`, then `jjgl.` three times. `5k` up to the `port` line, `gli.context(\"missing\")?<esc>`, and `jjgl.` three times.",
+]
+teach = "gli.unwrap_or_default()<esc>jjgl.jjgl.jjgl.5kgli.context(\"missing\")?<esc>jjgl.jjgl.jjgl."
+naive = "gli.unwrap_or_default()<esc>jgli.context(\"missing\")?<esc>jgli.unwrap_or_default()<esc>jgli.context(\"missing\")?<esc>jgli.unwrap_or_default()<esc>jgli.context(\"missing\")?<esc>jgli.unwrap_or_default()<esc>jgli.context(\"missing\")?<esc>"

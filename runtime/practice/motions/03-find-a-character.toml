@@ -1,0 +1,26 @@
+title = "Find a character"
+chapter = "motions"
+kind = "learn"
+feature = "f, t, F, T and Alt-.: jump to a character in the line"
+lesson = """
+`f,` selects up to the next `,` in the line and `t,` up to just before it; `F`
+and `T` do the same backwards. `<A-.>` repeats the last of them, so the next
+comma is one key away. Remember: `a` types after the selection, `i` before it.
+"""
+start = '''
+SELECT id,email,plan,seats,created_at
+FROM accounts
+WHERE plan='pro' AND seats>10
+'''
+goal = '''
+SELECT id, email, plan, seats, created_at
+FROM accounts
+WHERE plan = 'pro' AND seats > 10
+'''
+hints = [
+  "Commas and operators need spaces around them, and each is one character you can jump straight to.",
+  "`f,` selects up to the next comma and `<A-.>` repeats that jump; `F` and `T` look backwards, to the character itself or to just after it.",
+  "`f,a <esc>`, then `<A-.>a <esc>` three times. `jj` to the last line: `T>i <esc>` puts a space after `>`, `F>i <esc>` one before it; the same again with `=`.",
+]
+teach = "f,a <esc><A-.>a <esc><A-.>a <esc><A-.>a <esc>jjT<gt>i <esc>F<gt>i <esc>T=i <esc>F=i <esc>"
+naive = "llllllllla <esc>lllllla <esc>llllla <esc>lllllla <esc>jjhhhhhhhhhhhhhhhhhhhi <esc>a <esc>lllllllllllllllli <esc>a <esc>"
