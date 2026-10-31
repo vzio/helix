@@ -1,0 +1,34 @@
+title = "Allowed hosts"
+chapter = "surround"
+kind = "challenge"
+feature = "Surround with many selections"
+lesson = """
+Surround works on every selection at once. The hosts are not quoted, the
+tuple should be a list, and the ports are strings that should be numbers.
+"""
+language = "python"
+start = '''
+ALLOWED_HOSTS = (
+    #[|l]#ocalhost,
+    fetchd.dev,
+    api.fetchd.dev,
+    "*.preview.fetchd.dev",
+)
+PORTS = ["8080", "8443"]
+'''
+goal = '''
+ALLOWED_HOSTS = [
+    "localhost",
+    "fetchd.dev",
+    "api.fetchd.dev",
+    "*.preview.fetchd.dev",
+]
+PORTS = [8080, 8443]
+'''
+hints = [
+  "Three hosts need quotes, the parentheses become brackets, and the two ports lose their quotes.",
+  "`C` adds cursors below; `t,` selects up to the comma; `ms\"` quotes every selection. `mr([` swaps the brackets around the cursor; `md\"` drops quotes, also with many cursors.",
+  "`CCt,ms\"` quotes the hosts, `,mr([` changes the brackets, `%s\\\\d+<ret>md\"` unquotes the ports.",
+]
+teach = "CCt,ms\",mr([%s\\d+<ret>md\""
+naive = "kllllllllllllr[jhhhhhhhhhhi\"<esc>lllllllla\"<esc>jhhhhhhhhhhi\"<esc>llllllllla\"<esc>jhhhhhhhhhhhi\"<esc>llllllllllllla\"<esc>jjhr]jllllllllldlllldlldlllld"

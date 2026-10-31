@@ -1,0 +1,37 @@
+title = "Drop the parentheses"
+chapter = "surround"
+kind = "learn"
+feature = "md deletes the pair around the cursor"
+lesson = """
+`md` and a character delete the nearest pair of it around the cursor and keep
+what is inside. Python doesn't need parentheses around a condition, and
+linters say so.
+"""
+language = "python"
+start = '''
+def can_publish(post, user):
+    if (post.draft):
+        return False
+    if (user.role == "admin"):
+        return True
+    while (post.locked_by is not None):
+        post.refresh()
+    return (post.author_id == user.id)
+'''
+goal = '''
+def can_publish(post, user):
+    if post.draft:
+        return False
+    if user.role == "admin":
+        return True
+    while post.locked_by is not None:
+        post.refresh()
+    return post.author_id == user.id
+'''
+hints = [
+  "Four pairs of parentheses go and their contents stay.",
+  "`f(` puts the cursor on the opening parenthesis; `md(` deletes that pair and keeps what's inside.",
+  "`jf(md(`, then `jjf(md(`, `jjf(md(` and `jjf(md(`.",
+]
+teach = "jf(md(jjf(md(jjf(md(jjf(md("
+naive = "jllllllldlllllllllldjjhhhhhhhhhhdlllllllllllllllllllldjjhhhhhhhhhhhhhhhhhdlllllllllllllllllllllllllldjjhhhhhhhhhhhhhhhhhhhhhhhhhdllllllllllllllllllllllllld"
