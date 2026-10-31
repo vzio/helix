@@ -14,7 +14,7 @@ ada,Ada Lovelace,1815
 alan,Alan Turing,1912
 grace,Grace Hopper,1906
 margaret,Margaret Hamilton,1936
-linus,Linus Torvalds,1969
+ursula,Ursula K. Le Guin,1929
 '''
 goal = '''
 INSERT INTO users (login, name, born) VALUES
@@ -22,7 +22,7 @@ INSERT INTO users (login, name, born) VALUES
 ('alan', 'Alan Turing', 1912),
 ('grace', 'Grace Hopper', 1906),
 ('margaret', 'Margaret Hamilton', 1936),
-('linus', 'Linus Torvalds', 1969),
+('ursula', 'Ursula K. Le Guin', 1929),
 '''
 hints = [
   "Every row gets the same punctuation around its fields: parentheses, quotes on the two text fields, a space after each comma.",
