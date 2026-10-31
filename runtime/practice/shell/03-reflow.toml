@@ -1,0 +1,39 @@
+title = "Rewrap the paragraph"
+chapter = "shell"
+kind = "learn"
+feature = ":reflow rewraps the selection to a width"
+lesson = """
+After editing a paragraph its lines are ragged. `:reflow` rewraps the
+selected text to the text width, or to the width you give it: `:reflow 40`.
+Select the paragraph with `mip` first.
+"""
+language = "markdown"
+start = '''
+## Retries
+
+fetchd retries a feed that fails to
+download, waiting longer each time:
+first one second, then two, then
+four, and so on,
+up to the limit set by `max_backoff`. After
+`retries` attempts it gives up until the
+next scheduled run.
+'''
+goal = '''
+## Retries
+
+fetchd retries a feed that fails to
+download, waiting longer each time:
+first one second, then two, then four,
+and so on, up to the limit set by
+`max_backoff`. After `retries` attempts
+it gives up until the next scheduled
+run.
+'''
+hints = [
+  "Only the line breaks of the paragraph change: no line may be longer than 40 characters, and each is as long as it can be.",
+  "`mip` selects the paragraph; `:reflow 40` rewraps the selection to 40 columns.",
+  "`jjmip:reflow 40<ret>`.",
+]
+teach = "jjmip:reflow 40<ret>"
+naive = "jjjjdddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddifirst one second, then two, then four,<ret>and so on, up to the limit set by<ret>`max_backoff`. After `retries` attempts<ret>it gives up until the next scheduled<ret>run.<ret><esc>"

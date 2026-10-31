@@ -1,0 +1,44 @@
+title = "Sort each group"
+chapter = "shell"
+kind = "challenge"
+feature = "A pipe runs once per selection"
+lesson = """
+Imports come in groups: the standard library, third-party packages, the
+project itself. Each group is sorted on its own, and a duplicate slipped in.
+`|` runs the command once per selection, so make one selection per group.
+"""
+language = "python"
+start = '''
+import sys
+import os
+import json
+import os
+
+import httpx
+import click
+import attrs
+
+from fetchd.store import Store
+from fetchd.feed import Feed
+from fetchd.cli import main
+'''
+goal = '''
+import json
+import os
+import sys
+
+import attrs
+import click
+import httpx
+
+from fetchd.cli import main
+from fetchd.feed import Feed
+from fetchd.store import Store
+'''
+hints = [
+  "Three groups, each sorted by itself, and the second `import os` goes.",
+  "`S` splits the selection where a regex matches; a blank line is `\\\\n\\\\n`. `|` then pipes each selection through the command separately, and `sort -u` sorts and drops duplicates.",
+  "`%S\\\\n\\\\n<ret>` gives one selection per group, `|sort -u<ret>` sorts each.",
+]
+teach = "%S\\n\\n<ret>|sort -u<ret>"
+naive = "ddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddiimport json<ret>import os<ret>import sys<ret><ret>import attrs<ret>import click<ret>import httpx<ret><ret>from fetchd.cli import main<ret>from fetchd.feed import Feed<ret>from fetchd.store import Store<ret><esc>"
