@@ -574,7 +574,7 @@ one. Solve it again (`:practice reset`) to beat your best.
 
 ### Chapters
 
-73 exercises in 13 chapters, from the first keystroke to this fork's features, described in
+75 exercises in 13 chapters, from the first keystroke to this fork's features, described in
 [runtime/practice/CURRICULUM.md](runtime/practice/CURRICULUM.md):
 
 | # | Chapter | Exercises |
@@ -589,9 +589,9 @@ one. Solve it again (`:practice reset`) to beat your best.
 | 8 | Text objects | 5 |
 | 9 | The syntax tree | 5 |
 | 10 | Surround | 4 |
-| 11 | Macros | 3 |
+| 11 | Macros | 4 |
 | 12 | Shell and commands | 4 |
-| 13 | This fork | 3 |
+| 13 | This fork | 4 |
 
 Each chapter introduces some keys, and an exercise only uses the keys of its chapter and of the
 chapters before it. A chapter goes from learning the keys alone, to applying them to realistic

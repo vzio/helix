@@ -1,0 +1,45 @@
+title = "Fix the Dockerfile"
+chapter = "fork"
+kind = "apply"
+feature = "Move mode with a count, twice in one file"
+lesson = """
+Order matters in a Dockerfile: every line is a cached layer, and a user must
+exist before `USER` switches to it. `M` with a count moves a line straight to
+its place, and `<esc>` leaves move mode to go to the next one.
+"""
+language = "dockerfile"
+start = '''
+FROM rust:1.82 AS build
+WORKDIR /app
+#[|C]#OPY src ./src
+COPY Cargo.toml Cargo.lock ./
+RUN cargo fetch
+RUN cargo build --release
+
+FROM debian:bookworm-slim
+USER app
+RUN useradd --system app
+COPY --from=build /app/target/release/app /bin/
+CMD ["app"]
+'''
+goal = '''
+FROM rust:1.82 AS build
+WORKDIR /app
+COPY Cargo.toml Cargo.lock ./
+RUN cargo fetch
+COPY src ./src
+RUN cargo build --release
+
+FROM debian:bookworm-slim
+RUN useradd --system app
+COPY --from=build /app/target/release/app /bin/
+USER app
+CMD ["app"]
+'''
+hints = [
+  "The source is copied after the dependencies are fetched, so editing code doesn't fetch them again. And `USER app` comes after the user is created.",
+  "`M` then `2j` moves the line under the cursor down two lines in one go. `<esc>` leaves move mode, and `j` moves the cursor again.",
+  "`M2j` moves `COPY src` below `RUN cargo fetch`. `<esc>`, `4j` down to `USER app`, and `M2j` again.",
+]
+teach = "M2j<esc>4jM2j"
+naive = "llllldddddddddiCargo.toml Cargo.lock ./<esc>jhhhhhhhhhhhhhhhhhhhhhhhhhhhhhdddddddddddddddddddddddddddddiRUN cargo fetch<esc>jhhhhhhhhhhhhhhhdddddddddddddddiCOPY src ./src<esc>jjjjhhhhhhhhddddddddiRUN useradd --system app<esc>jhhhhhhhhhhhhhhhhhhhhhhhhddddddddddddddddddddddddiCOPY --from=build /app/target/release/app /bin/<esc>jhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhdddddddddddddddddddddddddddddddddddddddddddddddiUSER app<esc>"
