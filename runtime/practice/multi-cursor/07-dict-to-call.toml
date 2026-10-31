@@ -1,0 +1,35 @@
+title = "From dict to keywords"
+chapter = "multi-cursor"
+kind = "apply"
+feature = "Several rounds of select-all, then edit"
+lesson = """
+Bigger refactors are a few rounds of the same move: select every place that
+needs one kind of change, change it, select the next kind. Here a dict
+literal becomes a call with keyword arguments.
+"""
+language = "python"
+start = '''
+config = {
+    "host": "0.0.0.0",
+    "port": 8080,
+    "debug": False,
+    "workers": 4,
+    "log_file": "/var/log/fetchd.log",
+}
+'''
+goal = '''
+config = dict(
+    host="0.0.0.0",
+    port=8080,
+    debug=False,
+    workers=4,
+    log_file="/var/log/fetchd.log",
+)
+'''
+hints = [
+  "Each key loses its two quotes and its `: ` becomes `=`; the braces become the parentheses of `dict(...)`.",
+  "`%s` with a regex selects every match; `c` changes them all. A key's opening quote is the only quote with a space before it.",
+  "`%s\": <ret>c=<esc>` makes the colons `=`, `%s \"<ret>c <esc>` drops the opening quotes. Then `,` for a single cursor again, `ggf{;r(idict<esc>` and `ger)` for the braces (`;` shrinks the selection of `f{` to the brace alone).",
+]
+teach = "%s\": <ret>c=<esc>%s \"<ret>c <esc>,ggf{;r(idict<esc>ger)"
+naive = "lllllllllidict<esc>r(ljhhhhhhhhhhdlllldddi=<esc>jhhhhhdlllldddi=<esc>jhhhhhdllllldddi=<esc>jhhhhhhdllllllldddi=<esc>jhhhhhhhhdlllllllldddi=<esc>jhdi)<esc>"

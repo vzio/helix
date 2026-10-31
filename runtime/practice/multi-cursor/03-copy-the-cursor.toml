@@ -1,0 +1,35 @@
+title = "A cursor in each row"
+chapter = "multi-cursor"
+kind = "learn"
+feature = "C copies the cursor to the next line"
+lesson = """
+`C` adds a copy of the selection on the next line, in the same column. Press
+it a few times for a column of cursors, then type once: every row gets the
+same edit at the same place.
+"""
+language = "sql"
+start = '''
+INSERT INTO plans (name, price, seats)
+VALUES
+  (#[|']#free',           0,   1),
+  ('solo',         900,   1),
+  ('team',        4900,  10),
+  ('business',   19900,  50),
+  ('enterprise', 99900, 500);
+'''
+goal = '''
+INSERT INTO plans (active, name, price, seats)
+VALUES
+  (true, 'free',           0,   1),
+  (true, 'solo',         900,   1),
+  (true, 'team',        4900,  10),
+  (true, 'business',   19900,  50),
+  (true, 'enterprise', 99900, 500);
+'''
+hints = [
+  "Every row gets the same new first value, in the same column; the column list gets its name.",
+  "`C` puts a copy of the cursor on the line below, same column. With five cursors, `i` types in all five rows.",
+  "`CCCC` for a cursor in each row, `itrue, <esc>`. Then `,` back to one cursor, `gg`, `f(a` and `active, <esc>` for the header.",
+]
+teach = "CCCCitrue, <esc>,ggf(aactive, <esc>"
+naive = "kklllllllllllllllliactive, <esc>jjhhhhhhhhhhhhhhhhhhhhhhhhitrue, <esc>jhhhhhhitrue, <esc>jhhhhhhitrue, <esc>jhhhhhhitrue, <esc>jhhhhhhitrue, <esc>"

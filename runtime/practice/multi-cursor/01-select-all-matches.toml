@@ -1,0 +1,49 @@
+title = "Every match at once"
+chapter = "multi-cursor"
+kind = "learn"
+feature = "% selects everything, s selects the regex matches inside the selection"
+lesson = """
+`%` selects the whole buffer. `s` asks for a regex and replaces the selection
+with one selection per match inside it. Every command then works on all of
+them at once: `%sconn<ret>cdb<esc>` renames them all in one go.
+"""
+language = "python"
+start = '''
+class Store:
+    def __init__(self, conn):
+        self.conn = conn
+
+    def get(self, key):
+        row = self.conn.fetch_one(key)
+        return row and row.value
+
+    def put(self, key, value):
+        with self.conn.transaction():
+            self.conn.upsert(key, value)
+
+    def close(self):
+        self.conn.close()
+'''
+goal = '''
+class Store:
+    def __init__(self, pool):
+        self.pool = pool
+
+    def get(self, key):
+        row = self.pool.fetch_one(key)
+        return row and row.value
+
+    def put(self, key, value):
+        with self.pool.transaction():
+            self.pool.upsert(key, value)
+
+    def close(self):
+        self.pool.close()
+'''
+hints = [
+  "The same word changes in seven places, the same way each time.",
+  "`%` selects everything; `s` then keeps one selection per match of a regex inside it; `c` changes all of them together.",
+  "`%sconn<ret>`, then `cpool<esc>`.",
+]
+teach = "%sconn<ret>cpool<esc>"
+naive = "jlllllllllllllllllllllllddddipool<esc>jhhhhhhhhhhhddddipool<esc>lllddddipool<esc>jjjhhhhhddddipool<esc>jjjjhhhhhddddipool<esc>jhhhhhddddipool<esc>jjjhhhhhhhhddddipool<esc>"
