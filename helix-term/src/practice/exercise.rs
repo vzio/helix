@@ -437,7 +437,11 @@ fn code_spans(line: &str) -> Vec<&str> {
         };
         let span = &after[..close];
         let padded = span.len() > 2 && span.starts_with(' ') && span.ends_with(' ');
-        spans.push(if padded { &span[1..span.len() - 1] } else { span });
+        spans.push(if padded {
+            &span[1..span.len() - 1]
+        } else {
+            span
+        });
         rest = &after[close + open..];
     }
     spans
@@ -841,7 +845,10 @@ naive = "dwwwd"
     #[test]
     fn code_spans_are_read_like_markdown() {
         assert_eq!(code_spans("Keys: `d` `x`"), ["d", "x"]);
-        assert_eq!(code_spans("`~` `` ` `` `` <A-`> `` `J`"), ["~", "`", "<A-`>", "J"]);
+        assert_eq!(
+            code_spans("`~` `` ` `` `` <A-`> `` `J`"),
+            ["~", "`", "<A-`>", "J"]
+        );
         assert_eq!(code_spans("no keys, `unclosed"), Vec::<&str>::new());
     }
 
