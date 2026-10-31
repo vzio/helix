@@ -1,0 +1,32 @@
+title = "Delete lines"
+chapter = "edit"
+kind = "learn"
+feature = "x selects a line, d deletes the selection"
+lesson = """
+Helix selects first and acts second. `d` deletes what is selected, which so
+far was one character. `x` selects the whole line, and every further `x` adds
+the next line, so `xd` deletes a line and `xxd` deletes two.
+"""
+start = '''
+def checkout(cart, user):
+    print("cart:", cart)
+    print("user:", user)
+    subtotal = sum(i.price * i.qty for i in cart)
+    print("subtotal:", subtotal)
+    tax = round(subtotal * 0.2, 2)
+    print("tax:", tax)
+    return subtotal + tax
+'''
+goal = '''
+def checkout(cart, user):
+    subtotal = sum(i.price * i.qty for i in cart)
+    tax = round(subtotal * 0.2, 2)
+    return subtotal + tax
+'''
+hints = [
+  "The debugging `print` lines go, whole. Two of them are next to each other.",
+  "`x` selects the line under the cursor, a second `x` adds the line below, and `d` deletes the selection.",
+  "`j`, then `xxd` for the first two prints. After a delete the cursor is on the line that moved up: `j` and `xd`, twice.",
+]
+teach = "jxxdjxdjxd"
+naive = "jddddddddddddddddddddddddddddddddddddddddddddddddddjdddddddddddddddddddddddddddddddddjddddddddddddddddddddddd"

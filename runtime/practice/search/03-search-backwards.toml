@@ -1,0 +1,35 @@
+title = "From the bottom up"
+chapter = "search"
+kind = "learn"
+feature = "? searches backwards; a regex . matches any character"
+lesson = """
+`?` searches backwards from the cursor, and `n` keeps going in that direction.
+The pattern is a regex: `.` matches any one character, so `.unwrap..` finds
+`.unwrap()` without escaping anything.
+"""
+language = "rust"
+start = '''
+fn load(path: &Path) -> Result<Config> {
+    let text = fs::read_to_string(path).unwrap();
+    let raw: Raw = toml::from_str(&text).unwrap();
+    let cfg = Config::try_from(raw).unwrap();
+    cfg.validate().unwrap();
+    #[|O]#k(cfg)
+}
+'''
+goal = '''
+fn load(path: &Path) -> Result<Config> {
+    let text = fs::read_to_string(path)?;
+    let raw: Raw = toml::from_str(&text)?;
+    let cfg = Config::try_from(raw)?;
+    cfg.validate()?;
+    Ok(cfg)
+}
+'''
+hints = [
+  "The function returns a `Result`, so every `.unwrap()` above the cursor can become `?`.",
+  "`?` searches upwards and selects the match; `c` replaces it, `n` finds the next one upwards and `.` repeats the change.",
+  "`?.unwrap..<ret>` selects the last `.unwrap()`, `c?<esc>` replaces it, then `n.` three times.",
+]
+teach = "?.unwrap..<ret>c?<esc>n.n.n."
+naive = "kkkkllllllllllllllllllllllllllllllllllldddddddddi?<esc>jdddddddddi?<esc>jhhhhhhdddddddddi?<esc>jhhhhhhhhhhdddddddddi?<esc>"

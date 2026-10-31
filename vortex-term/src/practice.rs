@@ -13,10 +13,10 @@ pub mod panel;
 pub mod progress;
 pub mod session;
 
-pub use exercise::{load_exercises, load_exercises_from, validate, Exercise};
+pub use exercise::{load_exercise_file, load_exercises, load_exercises_from, validate, Exercise};
 pub use panel::render;
 pub use progress::{set_progress_file, Progress, Status};
 pub use session::{
-    after_event, attempt, before_event, exercises, reset_session, set_exercises, start_exercise,
-    start_index, Attempt,
+    after_event, attempt, before_event, exercises, key_name, reset_session, set_exercises,
+    start_exercise, start_index, Attempt,
 };

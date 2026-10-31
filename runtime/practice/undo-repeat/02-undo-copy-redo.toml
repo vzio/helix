@@ -1,0 +1,51 @@
+title = "Back in time for one line"
+chapter = "undo-repeat"
+kind = "learn"
+feature = "u to go back, U to come forward again"
+lesson = """
+`U` redoes what `u` undid. Together they let you visit an older version: undo
+until the text you lost is back, yank it, redo to where you were, and paste.
+Your later edits are not lost on the way.
+"""
+language = "python"
+before = [
+'''
+def charge(order, card):
+    # Never log card data (PCI DSS).
+    log.info("charging order %s", order.id)
+    amount = order.total_cents
+    return gateway.charge(card, amount)
+''',
+'''
+def charge(order, card):
+    log.info("charging order %s", order.id)
+    amount = order.total_cents
+    return gateway.charge(card, amount)
+''',
+'''
+def charge(order, card):
+    log.info("charging order %s", order.id)
+    amount = order.total_cents + order.tip_cents
+    return gateway.charge(card, amount)
+''',
+]
+start = '''
+def charge(order, card):
+    log.info("charging order %s", order.number)
+    amount = order.total_cents + order.tip_cents
+    return gateway.charge(card, amount)
+'''
+goal = '''
+def charge(order, card):
+    # Never log card data (PCI DSS).
+    log.info("charging order %s", order.number)
+    amount = order.total_cents + order.tip_cents
+    return gateway.charge(card, amount)
+'''
+hints = [
+  "A comment was deleted three edits ago. The two edits since then must stay.",
+  "`u` goes back one change at a time and `U` forward again. Yank the comment while it is there.",
+  "`uuu` brings the comment back. `jxy` yanks it, `UUU` returns to the newest version with the cursor back on the first line, and `jP` pastes the comment above the `log.info` line.",
+]
+teach = "uuujxyUUUjP"
+naive = "jO# Never log card data (PCI DSS).<esc>"

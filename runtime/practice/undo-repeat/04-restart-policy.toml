@@ -1,0 +1,43 @@
+title = "A restart policy for all"
+chapter = "undo-repeat"
+kind = "apply"
+feature = ". repeats o and what was typed"
+lesson = """
+`.` repeats whole inserts, also the ones started with `o`: after one
+`o...<esc>`, every other new line of the same text is a move and a `.`.
+"""
+start = '''
+services:
+  api:
+    image: shop/api:1.4
+    ports: ["8080:8080"]
+  worker:
+    image: shop/worker:1.4
+  cron:
+    image: shop/cron:1.4
+  mailer:
+    image: shop/mailer:1.4
+'''
+goal = '''
+services:
+  api:
+    image: shop/api:1.4
+    restart: unless-stopped
+    ports: ["8080:8080"]
+  worker:
+    image: shop/worker:1.4
+    restart: unless-stopped
+  cron:
+    image: shop/cron:1.4
+    restart: unless-stopped
+  mailer:
+    image: shop/mailer:1.4
+    restart: unless-stopped
+'''
+hints = [
+  "Every service gets the same line right below its image.",
+  "`o` opens a line below with the same indentation; `.` repeats the whole `o` and its text from anywhere.",
+  "`jjorestart: unless-stopped<esc>`. Then `3j.`, `2j.` and `2j.`: each time to the next `image:` line, then `.`.",
+]
+teach = "jjorestart: unless-stopped<esc>3j.2j.2j."
+naive = "jjorestart: unless-stopped<esc>3jorestart: unless-stopped<esc>2jorestart: unless-stopped<esc>2jorestart: unless-stopped<esc>"

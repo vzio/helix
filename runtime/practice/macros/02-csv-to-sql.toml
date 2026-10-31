@@ -1,0 +1,33 @@
+title = "From CSV to SQL"
+chapter = "macros"
+kind = "apply"
+feature = "A macro with motions that adapt to each line"
+lesson = """
+A macro replays keys, not positions: `t,` finds this line's comma wherever it
+is. Record the edit on one row with motions like that, and it works on rows
+of any length. Typing quotes inserts pairs, so let `ms` add them.
+"""
+language = "sql"
+start = '''
+INSERT INTO users (login, name, born) VALUES
+ada,Ada Lovelace,1815
+alan,Alan Turing,1912
+grace,Grace Hopper,1906
+margaret,Margaret Hamilton,1936
+linus,Linus Torvalds,1969
+'''
+goal = '''
+INSERT INTO users (login, name, born) VALUES
+('ada', 'Ada Lovelace', 1815),
+('alan', 'Alan Turing', 1912),
+('grace', 'Grace Hopper', 1906),
+('margaret', 'Margaret Hamilton', 1936),
+('linus', 'Linus Torvalds', 1969),
+'''
+hints = [
+  "Every row gets the same punctuation around its fields: parentheses, quotes on the two text fields, a space after each comma.",
+  "Record one row with `Q`...`Q`, using `t,` and `f,` to reach the commas and `ms` for the quotes and parentheses, then replay it with a count.",
+  "`j`, then `Q`, `ght,ms'f,a <esc>` for the login, `lt,ms'f,a <esc>` for the name, `ghvglms(` for the parentheses, `A,<esc>j`, `Q`. Then `4q`.",
+]
+teach = "jQght,ms'f,a <esc>lt,ms'f,a <esc>ghvglms(A,<esc>jQ4q"
+naive = "jght,ms'f,a <esc>lt,ms'f,a <esc>ghvglms(A,<esc>jght,ms'f,a <esc>lt,ms'f,a <esc>ghvglms(A,<esc>jght,ms'f,a <esc>lt,ms'f,a <esc>ghvglms(A,<esc>jght,ms'f,a <esc>lt,ms'f,a <esc>ghvglms(A,<esc>jght,ms'f,a <esc>lt,ms'f,a <esc>ghvglms(A,<esc>"

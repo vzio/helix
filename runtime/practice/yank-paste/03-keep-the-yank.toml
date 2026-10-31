@@ -1,0 +1,41 @@
+title = "Keep the yank"
+chapter = "yank-paste"
+kind = "learn"
+feature = "Alt-d deletes without yanking"
+lesson = """
+Every `d` replaces what you yanked last. `<A-d>` deletes without yanking, so
+the text you are carrying survives: cut a line with `d`, clean up on the way
+with `<A-d>`, and paste the line where it belongs.
+"""
+language = "python"
+start = '''
+import json
+import os
+
+print("starting")
+DEFAULT_PATH = os.path.expanduser("~/.fetchd")
+print(DEFAULT_PATH)
+
+def load(path=DEFAULT_PATH):
+    with open(path) as f:
+        return json.load(f)
+from pathlib import Path
+'''
+goal = '''
+import json
+import os
+from pathlib import Path
+
+DEFAULT_PATH = os.path.expanduser("~/.fetchd")
+
+def load(path=DEFAULT_PATH):
+    with open(path) as f:
+        return json.load(f)
+'''
+hints = [
+  "An import sits at the very bottom, and two `print` lines are left from debugging. The import belongs under the other imports.",
+  "`d` yanks what it deletes, so deleting the prints with `d` would lose the import you carry. `<A-d>` deletes without touching the yank.",
+  "`10jxd` cuts the import. On the way up, `5kx<A-d>` and `kkx<A-d>` remove the prints. Then `kk` to `import os` and `p` pastes the import below it.",
+]
+teach = "10jxd5kx<A-d>kkx<A-d>kkp"
+naive = "10jxd5kxdkkxdkkofrom pathlib import Path<esc>"

@@ -1,0 +1,45 @@
+title = "Keep what matches"
+chapter = "multi-cursor"
+kind = "learn"
+feature = "K keeps the selections that match a regex, Alt-K removes them"
+lesson = """
+`K` keeps only the selections that match a regex; `<A-K>` drops those and
+keeps the rest. Split the buffer into lines (`%` then `<A-s>`), keep the
+lines you want, and act on all of them: `x` turns each into a whole line.
+"""
+language = "javascript"
+start = '''
+export async function sync(feed) {
+  console.log("sync", feed.id);
+  const res = await fetch(feed.url);
+  console.log("status", res.status);
+  if (!res.ok) {
+    console.error("fetch failed", res.status);
+    throw new Error(res.statusText);
+  }
+  const items = await res.json();
+  console.log("items", items.length);
+  await db.save(feed.id, items);
+  console.log("saved");
+  return items.length;
+}
+'''
+goal = '''
+export async function sync(feed) {
+  const res = await fetch(feed.url);
+  if (!res.ok) {
+    console.error("fetch failed", res.status);
+    throw new Error(res.statusText);
+  }
+  const items = await res.json();
+  await db.save(feed.id, items);
+  return items.length;
+}
+'''
+hints = [
+  "Four lines go: every `console` line except the error report.",
+  "`%<A-s>` gives one selection per line; `K` keeps the ones matching a regex and `<A-K>` then drops the ones matching another; `x` grows each to its whole line, newline included; `d` deletes them all.",
+  "`%<A-s>`, `Kconsole<ret>`, `<A-K>error<ret>`, `xd`.",
+]
+teach = "%<A-s>Kconsole<ret><A-K>error<ret>xd"
+naive = "jddddddddddddddddddddddddddddddddjdddddddddddddddddddddddddddddddddddddjjjjjddddddddddddddddddddddddddddddddddddddjdddddddddddddddddddddddd"

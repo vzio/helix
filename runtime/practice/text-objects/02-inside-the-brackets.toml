@@ -1,0 +1,33 @@
+title = "Inside the brackets"
+chapter = "text-objects"
+kind = "learn"
+feature = "mi( and mi[ select inside brackets"
+lesson = """
+Brackets work the same: `mi(`, `mi[`, `mi{` select what is inside, `ma(`
+and friends include the brackets. Anywhere between them will do, even on
+another line, and nested brackets are skipped over.
+"""
+language = "javascript"
+start = '''
+const defaults = {
+  tags: ["news", "tech", "rust", "helix"],
+  mute: ["sports", "celebrity", "crypto"],
+  sources: ["hn", "lobsters", "reddit"],
+};
+init(defaults, { verbose: true, dryRun: true });
+'''
+goal = '''
+const defaults = {
+  tags: [],
+  mute: [],
+  sources: ["hn", "lobsters", "reddit"],
+};
+init(defaults);
+'''
+hints = [
+  "Two lists are emptied, and the call keeps only its first argument.",
+  "`mi[` selects the inside of the brackets around the cursor, `mi(` the inside of the parentheses, skipping the braces nested in them.",
+  "`jf\"mi[d` empties the tags, `jmi[d` the mutes (the cursor is still between the brackets). `jjj` down to the call, `mi(cdefaults<esc>`.",
+]
+teach = "jf\"mi[djmi[djjjmi(cdefaults<esc>"
+naive = "jllllllllldddddddddddddddddddddddddddddddjdddddddddddddddddddddddddddddddjjjllllddddddddddddddddddddddddddddddddd"

@@ -1,0 +1,42 @@
+title = "Clean up a test"
+chapter = "edit"
+kind = "apply"
+feature = "x, d, J, < and Ctrl-c on a real file"
+lesson = """
+A test file right after a debugging session. Every fix here is one command
+from this chapter, applied to one line: work out which one, then move to the
+line and act. `J` even drops the `#` of a comment line it joins.
+"""
+language = "python"
+start = '''
+import json
+import pdb
+
+def test_parse_order():
+    # Issue 412: the total
+    # was off by one.
+    raw = '{"id": 7, "items": [1, 2]}'
+    pdb.set_trace()
+    order = parse_order(raw)
+    # assert order.id == 7
+    assert order.items == [1, 2]
+        assert order.total() == 3
+'''
+goal = '''
+import json
+
+def test_parse_order():
+    # Issue 412: the total was off by one.
+    raw = '{"id": 7, "items": [1, 2]}'
+    order = parse_order(raw)
+    assert order.id == 7
+    assert order.items == [1, 2]
+    assert order.total() == 3
+'''
+hints = [
+  "Five things are off: an import and a call left from debugging, a comment wrapped too early, an assert that was switched off, and one line indented too deep.",
+  "`xd` deletes a line, `J` joins one with the next (dropping the second `#`), `<C-c>` uncomments, `<` unindents.",
+  "`jxd` for `import pdb`, `jjJ` for the comment, `jjxd` for `pdb.set_trace()`, `j<C-c>` for the assert, `jj<` for the last line.",
+]
+teach = "jxdjjJjjxdj<C-c>jj<lt>"
+naive = "jdddddddddddjjA <del><del><del><del><del><del><del><esc>jjI<backspace><del><del><del><del><del><del><del><del><del><del><del><del><del><del><del><del><esc>jI<del><del><esc>jjI<backspace><esc>"

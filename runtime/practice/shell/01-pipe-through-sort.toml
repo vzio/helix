@@ -1,0 +1,39 @@
+title = "Sort the imports"
+chapter = "shell"
+kind = "learn"
+feature = "| pipes the selection through a shell command"
+lesson = """
+`|` runs a shell command with each selection as its input and replaces the
+selection with the output. `sort`, `uniq`, `tr`, `cut`: every small Unix tool
+becomes an editing command.
+"""
+language = "python"
+start = '''
+import sys
+import json
+import argparse
+import logging
+import os
+import re
+import shutil
+
+log = logging.getLogger(__name__)
+'''
+goal = '''
+import argparse
+import json
+import logging
+import os
+import re
+import shutil
+import sys
+
+log = logging.getLogger(__name__)
+'''
+hints = [
+  "The imports should be in alphabetical order; nothing else changes.",
+  "`mip` selects the paragraph, which is the import block; `|` then pipes it through a command and puts the output in its place.",
+  "`mip|sort<ret>`.",
+]
+teach = "mip|sort<ret>"
+naive = "ddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddiimport argparse<ret>import json<ret>import logging<ret>import os<ret>import re<ret>import shutil<ret>import sys<ret><esc>"

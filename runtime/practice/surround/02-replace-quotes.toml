@@ -1,0 +1,31 @@
+title = "Double quotes"
+chapter = "surround"
+kind = "learn"
+feature = "mr replaces the pair around the cursor"
+lesson = """
+`mr` replaces the nearest pair around the cursor with another: `mr'\"` turns
+single quotes into double quotes, `mr([` parentheses into brackets. Only the
+two delimiters change, whatever is between them.
+"""
+language = "javascript"
+start = '''
+import React from 'react';
+import { useState, useEffect } from 'react';
+import clsx from 'clsx';
+import { fetchFeeds } from './api/feeds';
+import styles from './FeedList.module.css';
+'''
+goal = '''
+import React from "react";
+import { useState, useEffect } from "react";
+import clsx from "clsx";
+import { fetchFeeds } from "./api/feeds";
+import styles from "./FeedList.module.css";
+'''
+hints = [
+  "Every module path switches from single to double quotes, as the formatter wants.",
+  "`mr` then the old character then the new one replaces the pair around the cursor. `gl` lands on the `;`, and `h` steps back onto the closing quote.",
+  "`glhmr'\"` on the first line, then `jglhmr'\"` on each of the other four.",
+]
+teach = "glhmr'\"jglhmr'\"jglhmr'\"jglhmr'\"jglhmr'\""
+naive = "llllllllllllllllllr\"llllllr\"jllllllllllllr\"llllllr\"jhhhhhhhr\"lllllr\"jlllllr\"llllllllllllr\"jhhhhhhhhhhhhhhhhhhhhr\"llllllllllllllllllllllr\""

@@ -1,0 +1,41 @@
+title = "Move the dependencies"
+chapter = "yank-paste"
+kind = "challenge"
+feature = "Carry a yank past an edit with Alt-c"
+lesson = """
+Three dependencies ended up in the wrong table, and the crate gets a new name.
+`c` yanks what it replaces, just like `d`; `<A-c>` changes without yanking,
+so the lines you are carrying survive the rename.
+"""
+language = "toml"
+start = '''
+[package]
+serde = "1.0.203"
+toml = "0.8"
+ureq = "2.9"
+name = "fetch"
+version = "0.3.0"
+edition = "2021"
+
+[dependencies]
+anyhow = "1"
+'''
+goal = '''
+[package]
+name = "feedr"
+version = "0.3.0"
+edition = "2021"
+
+[dependencies]
+anyhow = "1"
+serde = "1.0.203"
+toml = "0.8"
+ureq = "2.9"
+'''
+hints = [
+  "Cut the three lines under `[package]` and paste them at the end. The rename is on your way down.",
+  "A plain `c` on the name would yank `fetch` and lose the three lines. `<A-c>` changes the selection without yanking.",
+  "`jxxxd` cuts the lines, `glhb` selects `fetch`, `<A-c>feedr<esc>` renames it, `5j` goes down to `anyhow`, `p` pastes below it.",
+]
+teach = "jxxxdglhb<A-c>feedr<esc>5jp"
+naive = "jxxxdglhbcfeedr<esc>5joserde = \"1.0.203\"<ret>toml = \"0.8\"<ret>ureq = \"2.9\"<esc>"

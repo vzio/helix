@@ -1,0 +1,31 @@
+title = "Inside the quotes"
+chapter = "text-objects"
+kind = "learn"
+feature = "mi\" selects inside quotes, ma\" around them"
+lesson = """
+`mi` selects inside a pair and `ma` around it: `mi\"` is the text between two
+quotes, `ma\"` includes the quotes. The cursor only has to be in the string or
+on one of its quotes, so `gl` (the closing quote at the end) is enough.
+"""
+language = "python"
+start = '''
+APP_NAME = "fetchd"
+TAGLINE = "Never miss a post again, from anywhere"
+SUPPORT_EMAIL = "help@fetchd.example.com"
+DEFAULT_THEME = "solarized-light-high-contrast"
+SENTRY_DSN = "https://4f2c@o1.ingest.sentry.io/77"
+'''
+goal = '''
+APP_NAME = "fetchd"
+TAGLINE = "Your feeds, on time"
+SUPPORT_EMAIL = "help@fetchd.example.com"
+DEFAULT_THEME = "auto"
+SENTRY_DSN = None
+'''
+hints = [
+  "Two strings get new, shorter text; the last one stops being a string at all.",
+  "`mi\"` selects the text between the quotes and `ma\"` the quotes too; `gl` puts the cursor on the closing quote, which is all they need.",
+  "`jglmi\"cYour feeds, on time<esc>`, `jjglmi\"cauto<esc>`, `jglma\"cNone<esc>`.",
+]
+teach = "jglmi\"cYour feeds, on time<esc>jjglmi\"cauto<esc>jglma\"cNone<esc>"
+naive = "jlllllllllllddddddddddddddddddddddddddddddddddddddiYour feeds, on time<esc>jjhhhhhhhhhhhhhdddddddddddddddddddddddddddddiauto<esc>jhhhhhhhhdddddddddddddddddddddddddddddddddddddiNone<esc>"

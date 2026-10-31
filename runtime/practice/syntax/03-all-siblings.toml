@@ -1,0 +1,33 @@
+title = "Every parameter"
+chapter = "syntax"
+kind = "learn"
+feature = "Alt-a selects all siblings of the node"
+lesson = """
+`<A-a>` selects the node under the cursor and all its siblings, one selection
+each: every parameter of a function, every element of a list. Punctuation
+like commas is left out, so `a` appends to each item cleanly.
+"""
+language = "python"
+start = '''
+def scale(width, height, factor):
+    return width * factor, height * factor
+
+
+def clamp(value, low, high):
+    return max(low, min(value, high))
+'''
+goal = '''
+def scale(width: int, height: int, factor: int):
+    return width * factor, height * factor
+
+
+def clamp(value: float, low: float, high: float):
+    return max(low, min(value, high))
+'''
+hints = [
+  "Every parameter gets a type: `int` in the first function, `float` in the second.",
+  "With the cursor on a parameter, `<A-a>` selects all the parameters, one selection each. `a` then types after each of them.",
+  "`f(l<A-a>a: int<esc>`. Then `,` back to one cursor, `4jgh` to the next `def`, and `f(l<A-a>a: float<esc>`.",
+]
+teach = "f(l<A-a>a: int<esc>,4jghf(l<A-a>a: float<esc>"
+naive = "lllllllllllllla: int<esc>lllllllla: int<esc>lllllllla: int<esc>jjjjhhhhhhhhhhhhhha: float<esc>llllla: float<esc>lllllla: float<esc>"

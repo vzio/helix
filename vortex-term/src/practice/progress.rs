@@ -122,19 +122,7 @@ mod tests {
     use super::*;
 
     fn exercise(id: &str, teach: &str) -> Exercise {
-        Exercise {
-            id: id.into(),
-            title: String::new(),
-            topic: String::new(),
-            feature: String::new(),
-            lesson: String::new(),
-            start: String::new(),
-            goal: String::new(),
-            language: None,
-            hints: Vec::new(),
-            teach: teach.into(),
-            gold: None,
-        }
+        Exercise::for_test(id, teach)
     }
 
     #[test]

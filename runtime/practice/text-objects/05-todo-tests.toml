@@ -1,0 +1,33 @@
+title = "Park the tests"
+chapter = "text-objects"
+kind = "challenge"
+feature = "Text objects and many selections together"
+lesson = """
+Three tests are not ready, so they become `it.todo(name)`: the name stays,
+the function goes. With one selection per test, a bracket motion works on all
+of them at once.
+"""
+language = "javascript"
+start = '''
+it("parses an empty feed", () => {
+  expect(parse("")).toEqual([]);
+});
+it("parses one item", () => {
+  expect(parse(ONE)).toEqual([item("a")]);
+});
+it("skips broken items", () => {
+  expect(parse(BROKEN)).toEqual([item("b")]);
+});
+'''
+goal = '''
+it.todo("parses an empty feed");
+it.todo("parses one item");
+it.todo("skips broken items");
+'''
+hints = [
+  "In each test, everything from the comma after the name to the closing brace goes, and `it` becomes `it.todo`.",
+  "`%s` selects every `, () => {` at once; from a `{`, `mm` in select mode reaches its `}`. `^it` matches only the `it` at the start of a line.",
+  "`%s, \\(\\) => \\{<ret>vmmd` removes the functions. `%s^it<ret>a.todo<esc>` renames.",
+]
+teach = "%s, \\(\\) =<gt> \\{<ret>vmmd%s^it<ret>a.todo<esc>"
+naive = "lli.todo<esc>lllllllllllllllllllllllddddddddddddddddddddddddddddddddddddddddddddjhhhhhhhhhhhhhhhhhhhhhhhhhhhi.todo<esc>llllllllllllllllllddddddddddddddddddddddddddddddddddddddddddddddddddddddjhhhhhhhhhhhhhhhhhhhhhhhi.todo<esc>lllllllllllllllllllllddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"

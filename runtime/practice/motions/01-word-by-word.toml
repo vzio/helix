@@ -1,0 +1,26 @@
+title = "Word by word"
+chapter = "motions"
+kind = "learn"
+feature = "w and e: the next word, the end of a word"
+lesson = """
+`w` selects to the start of the next word and `e` to the end of a word: one
+key per word, however long it is. A motion leaves the text it passed selected;
+`i` types before the selection and `a` after it.
+"""
+start = '''
+Never commit secrets to the repository, not
+even to a private branch. Rotate any key
+that leaked, and keep the rest in the vault.
+'''
+goal = '''
+Never commit *secrets* to the *repository*, not
+even to a *private* branch. Rotate any key
+that leaked, and keep the rest in the vault.
+'''
+hints = [
+  "Three words get a `*` on each side. Count the words to the next one, not the letters.",
+  "Each `w` selects one more word with the space after it, and `i` types before the selection, `a` after it. `e` selects to the end of the word you are on.",
+  "`www` selects `secrets `: `i*<esc>`, `e`, `a*<esc>`. Then `www` selects `the `, so `a*<esc>`, `e`, `a*<esc>` for `repository`; `wwwww` selects `a `, and the same keys again for `private`.",
+]
+teach = "wwwi*<esc>ea*<esc>wwwa*<esc>ea*<esc>wwwwwa*<esc>ea*<esc>"
+naive = "llllllllllllli*<esc>lllllla*<esc>llllllllli*<esc>llllllllla*<esc>jhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhi*<esc>lllllla*<esc>"

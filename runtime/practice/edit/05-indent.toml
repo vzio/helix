@@ -1,0 +1,35 @@
+title = "Indentation"
+chapter = "edit"
+kind = "learn"
+feature = "> and < indent and unindent the selected lines"
+lesson = """
+`>` indents every selected line by one level and `<` unindents it, whatever
+the cursor's column. Select lines with `x` (more `x` for more lines), then
+press `>` or `<` once per level.
+"""
+language = "python"
+start = '''
+def deploy(env):
+    if env == "prod":
+    confirm_with_user()
+    backup_database()
+    run_migrations()
+            restart_workers()
+    notify("deployed to " + env)
+'''
+goal = '''
+def deploy(env):
+    if env == "prod":
+        confirm_with_user()
+        backup_database()
+        run_migrations()
+    restart_workers()
+    notify("deployed to " + env)
+'''
+hints = [
+  "Three lines belong inside the `if`, and one line was pasted two levels too deep.",
+  "`>` indents all selected lines by one level and `<` takes one level away; `x` selects lines.",
+  "`jj` to `confirm_with_user()`, `xxx` to select it and the next two lines, `>`. Then `j` to `restart_workers()` and `<<`.",
+]
+teach = "jjxxx<gt>j<lt><lt>"
+naive = "jjI    <esc>jI    <esc>jI    <esc>jI<backspace><backspace><esc>"

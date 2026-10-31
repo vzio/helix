@@ -1,0 +1,41 @@
+title = "Search for this word"
+chapter = "search"
+kind = "learn"
+feature = "* searches for the selection; N goes to the previous match"
+lesson = """
+`*` searches for what is selected, as a whole word: `buf` finds `buf` but not
+`bufio` or `buffer`. `n` and `N` then go to the next and the previous match.
+Select the word under the cursor with `e` from its first letter.
+"""
+language = "go"
+start = '''
+func render(items []Item) string {
+	var buf strings.Builder
+	w := bufio.NewWriter(os.Stdout)
+	for _, it := range items {
+		#[|b]#uf.WriteString(it.Name)
+		buf.WriteString("\n")
+	}
+	w.Flush()
+	return buf.String()
+}
+'''
+goal = '''
+func render(items []Item) string {
+	var out strings.Builder
+	w := bufio.NewWriter(os.Stdout)
+	for _, it := range items {
+		out.WriteString(it.Name)
+		out.WriteString("\n")
+	}
+	w.Flush()
+	return out.String()
+}
+'''
+hints = [
+  "The builder `buf` is renamed four times. `bufio` stays as it is.",
+  "`e` selects the word from its first letter and `*` searches for it as a whole word. `n` goes forward, `N` back to the earlier matches.",
+  "`e*`, then `cout<esc>`. `n.` handles the next one and `n.` the last; `N` twice goes back up to the declaration, then `.`.",
+]
+teach = "e*cout<esc>n.n.NN."
+naive = "hhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhdddiout<esc>lllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllldddiout<esc>lllllllllllllllllllllllldddiout<esc>llllllllllllllllllllllllllllllllllllllllldddiout<esc>"

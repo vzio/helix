@@ -1,0 +1,39 @@
+title = "Quote the values"
+chapter = "surround"
+kind = "learn"
+feature = "ms adds a pair around the selection"
+lesson = """
+`ms` followed by a character surrounds every selection with that pair: `ms\"`
+for quotes, `ms(` for parentheses. In YAML, port mappings and `yes` must be
+quoted, or they are read as a number and a boolean.
+"""
+language = "yaml"
+start = '''
+services:
+  web:
+    image: nginx:1.27
+    ports:
+      - 8080:80
+      - 8443:443
+    environment:
+      TZ: Europe/Berlin
+      DEBUG: yes
+'''
+goal = '''
+services:
+  web:
+    image: nginx:1.27
+    ports:
+      - "8080:80"
+      - "8443:443"
+    environment:
+      TZ: Europe/Berlin
+      DEBUG: "yes"
+'''
+hints = [
+  "Three values at the ends of their lines get double quotes.",
+  "`gl` goes to the end of the line and `B` selects the WORD before it, the whole value; `ms\"` puts quotes around the selection.",
+  "`4jglBms\"`, then `jglBms\"`, then `3jglBms\"`.",
+]
+teach = "4jglBms\"jglBms\"3jglBms\""
+naive = "jjjjlllllllli\"<esc>lllllla\"<esc>jhhhhhhhhi\"<esc>llllllla\"<esc>jjjhhhi\"<esc>lla\"<esc>"

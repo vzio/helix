@@ -1,0 +1,46 @@
+title = "Fill in the placeholders"
+chapter = "search"
+kind = "apply"
+feature = "Search to jump between places that need an edit"
+lesson = """
+A template full of `TODO`s. A search is the fastest way from one to the next,
+however far apart they are: `/TODO` once, then `n` for every other one.
+"""
+language = "toml"
+start = '''
+[server]
+host = "TODO"
+port = TODO
+workers = 4
+
+[database]
+url = "postgres://shop@db/shop"
+pool = TODO
+
+[mail]
+from = "noreply@shop.test"
+smtp_host = "TODO"
+smtp_port = TODO
+'''
+goal = '''
+[server]
+host = "::"
+port = 8080
+workers = 4
+
+[database]
+url = "postgres://shop@db/shop"
+pool = 16
+
+[mail]
+from = "noreply@shop.test"
+smtp_host = "mx"
+smtp_port = 587
+'''
+hints = [
+  "Five `TODO`s, each replaced by a short value.",
+  "`/TODO` and Enter selects the first one, `c` replaces it, `n` selects the next one.",
+  "`/TODO<ret>c::<esc>`, then `nc8080<esc>`, `nc16<esc>`, `ncmx<esc>`, `nc587<esc>`.",
+]
+teach = "/TODO<ret>c::<esc>nc8080<esc>nc16<esc>ncmx<esc>nc587<esc>"
+naive = "jllllllllddddi::<esc>jhhhddddi8080<esc>jjjjjhhhhddddi16<esc>jjjjllllddddimx<esc>jhhhddddi587<esc>"

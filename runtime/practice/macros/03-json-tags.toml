@@ -1,0 +1,37 @@
+title = "Tags for every field"
+chapter = "macros"
+kind = "combine"
+feature = "A macro that yanks a word and pastes it in insert mode"
+lesson = """
+A macro can carry text from one place in the line to another: yank a word,
+then paste it in insert mode with `<C-r>"`. Recorded once on a field, the same
+keys tag every field, whatever its name.
+"""
+language = "go"
+start = '''
+type Contact struct {
+	Name    string
+	Email   string
+	Phone   string
+	City    string
+	Country string
+	Company string
+}
+'''
+goal = '''
+type Contact struct {
+	Name    string `json:"name"`
+	Email   string `json:"email"`
+	Phone   string `json:"phone"`
+	City    string `json:"city"`
+	Country string `json:"country"`
+	Company string `json:"company"`
+}
+'''
+hints = [
+  "Every field gets a tag with its own name, starting with a lowercase letter.",
+  "Record one field with `Q`...`Q`: yank the name with `y`, type the tag with `A`, and paste the name with `<C-r>\"` in insert mode. Quotes and backticks close themselves. Then replay with a count.",
+  "`j`, then `Q`, `gsey` yanks the name, `A`, a space, `` `json:\"<C-r>\"<esc> `` types the tag, `b;~` lowercases its first letter, `j`, `Q`. Then `5q`.",
+]
+teach = "jQgseyA `json:\"<C-r>\"<esc>b;~jQ5q"
+naive = "jgseyA `json:\"<C-r>\"<esc>b;~jgseyA `json:\"<C-r>\"<esc>b;~jgseyA `json:\"<C-r>\"<esc>b;~jgseyA `json:\"<C-r>\"<esc>b;~jgseyA `json:\"<C-r>\"<esc>b;~jgseyA `json:\"<C-r>\"<esc>b;~"

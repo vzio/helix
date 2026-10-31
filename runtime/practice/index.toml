@@ -1,3 +1,63 @@
-# Topic order for :practice. Every directory under runtime/practice is listed here, and nothing else.
-topics = ["motions", "selections", "text-objects", "surround", "syntax", "registers", "macros",
-          "pipe", "search-replace", "goto", "fork"]
+# The chapters of :practice, in order: each is a directory here, explained in CURRICULUM.md.
+# `keys` are the commands the chapter introduces. The `teach` and `naive` solutions of an exercise
+# may only use the keys of its chapter and of the chapters before it (the replay test checks this).
+
+[[chapters]]
+dir = "basics"
+title = "Modes and moving"
+keys = ["h", "j", "k", "l", "i", "a", "I", "A", "o", "O", "<esc>"]
+
+[[chapters]]
+dir = "edit"
+title = "Lines and characters"
+keys = ["d", "x", "~", "J", "<gt>", "<lt>", "<C-c>", "insert:<C-w>"]
+
+[[chapters]]
+dir = "motions"
+title = "Words, lines and counts"
+keys = ["w", "b", "e", "W", "B", "E", "f", "t", "F", "T", "<A-.>", "c", "r", "gh", "gl", "gs", "v", ";", "count", "<C-a>", "<C-x>"]
+
+[[chapters]]
+dir = "yank-paste"
+title = "Yank, paste and move"
+keys = ["y", "p", "P", "R", "\"", "<A-d>", "<A-c>", "insert:<C-r>", "M"]
+
+[[chapters]]
+dir = "undo-repeat"
+title = "Undo, redo and repeat"
+keys = ["u", "U", "."]
+
+[[chapters]]
+dir = "search"
+title = "Search and jump"
+keys = ["/", "?", "n", "N", "*", "<C-o>", "gg", "ge"]
+
+[[chapters]]
+dir = "multi-cursor"
+title = "Many selections"
+keys = ["%", "s", "S", "C", ",", "<A-s>", "K", "<A-K>", "&"]
+
+[[chapters]]
+dir = "text-objects"
+title = "Text objects"
+keys = ["mi", "ma", "mm"]
+
+[[chapters]]
+dir = "syntax"
+title = "The syntax tree"
+keys = ["<A-o>", "<A-n>", "<A-p>", "<A-a>", "]f"]
+
+[[chapters]]
+dir = "surround"
+title = "Surround"
+keys = ["ms", "mr", "md"]
+
+[[chapters]]
+dir = "macros"
+title = "Macros"
+keys = ["Q", "q"]
+
+[[chapters]]
+dir = "shell"
+title = "Shell and commands"
+keys = ["|", ":sort", ":reflow"]

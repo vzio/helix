@@ -1,0 +1,42 @@
+title = "Do it again"
+chapter = "undo-repeat"
+kind = "learn"
+feature = ". repeats the last insert"
+lesson = """
+`.` repeats your last insert: the key that started it (`i`, `a`, `A`, `o`...)
+and everything you typed, in one key. Move to the next place, press `.`.
+"""
+language = "sql"
+start = '''
+CREATE TABLE invoices (
+  id bigint PRIMARY KEY,
+  account_id bigint,
+  number text,
+  currency char(3),
+  issued_on date,
+  due_on date,
+  subtotal_cents bigint,
+  total_cents bigint,
+  note text
+);
+'''
+goal = '''
+CREATE TABLE invoices (
+  id bigint PRIMARY KEY,
+  account_id bigint NOT NULL,
+  number text NOT NULL,
+  currency char(3) NOT NULL,
+  issued_on date NOT NULL,
+  due_on date NOT NULL,
+  subtotal_cents bigint NOT NULL,
+  total_cents bigint NOT NULL,
+  note text
+);
+'''
+hints = [
+  "Seven columns get the same words in the same place: just before their comma.",
+  "Type the insert once; `.` repeats it, including the `i` that started it. `gl` puts the cursor on the comma at the end of the line.",
+  "`jjgl`, then `i NOT NULL<esc>`. On each of the next six lines: `jgl.`.",
+]
+teach = "jjgli NOT NULL<esc>jgl.jgl.jgl.jgl.jgl.jgl."
+naive = "jjgli NOT NULL<esc>jgli NOT NULL<esc>jgli NOT NULL<esc>jgli NOT NULL<esc>jgli NOT NULL<esc>jgli NOT NULL<esc>jgli NOT NULL<esc>"

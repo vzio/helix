@@ -1,0 +1,36 @@
+title = "To the end of the line"
+chapter = "motions"
+kind = "learn"
+feature = "gh, gl, gs; v extends the selection, ; collapses it"
+lesson = """
+`gh`, `gl` and `gs` go to the start of the line, its end, and its first
+non-blank. `v` is select mode: motions extend the selection instead of
+starting a new one. `;` shrinks the selection back to the cursor, so
+`;vgld` deletes from the cursor to the end of the line.
+"""
+language = "javascript"
+start = '''
+function report(stats) {
+  console.log(stats.total); // eslint-disable-line
+  const avg = stats.sum / stats.count;
+  console.log(avg); // eslint-disable-line
+  console.log(stats.max); // eslint-disable-line
+  return avg;
+}
+'''
+goal = '''
+function report(stats) {
+  console.log(stats.total);
+  const avg = stats.sum / stats.count;
+  console.log(avg);
+  console.log(stats.max);
+  return avg;
+}
+'''
+hints = [
+  "Three lines end in the same comment, which goes together with the space in front of it.",
+  "`t/` selects up to the space before the comment; `;` keeps only the cursor there; `v` then `gl` extends the selection to the end of the line, and `d` deletes it. On a new line `gs` or `gh` gets you back to the front first.",
+  "`jt/;vgld` on the first one. `jj`, `gs`, `t/;vgld` on the second; `j`, `gh`, `t/;vgld` on the third.",
+]
+teach = "jt/;vgldjjgst/;vgldjght/;vgld"
+naive = "jllllllllllllllllllllllllllldddddddddddddddddddddddjjhhhhhhhhdddddddddddddddddddddddjllllllddddddddddddddddddddddd"

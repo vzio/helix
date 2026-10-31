@@ -1,0 +1,29 @@
+title = "Split the class list"
+chapter = "multi-cursor"
+kind = "learn"
+feature = "S splits the selection on a regex"
+lesson = """
+`S` is the opposite of `s`: it splits the selection wherever the regex
+matches and keeps the pieces in between. Select a space-separated list, split
+it on spaces, and you have one selection per item.
+"""
+language = "html"
+start = '''
+<nav class="#[|f]#lex gap-2 px-4 py-2">
+  <a href="/">Home</a>
+  <a href="/docs">Docs</a>
+</nav>
+'''
+goal = '''
+<nav class="md:flex md:gap-2 md:px-4 md:py-2">
+  <a href="/">Home</a>
+  <a href="/docs">Docs</a>
+</nav>
+'''
+hints = [
+  "Each of the four classes gets the same prefix.",
+  "`t\"` selects up to the closing quote; `S` with a space as the regex splits that into one selection per class; `i` then types before each.",
+  "`t\"` selects the classes, `S <ret>` (a space, then Enter) splits them, `imd:<esc>`.",
+]
+teach = "t\"S <ret>imd:<esc>"
+naive = "imd:<esc>lllllimd:<esc>llllllimd:<esc>lllllimd:<esc>"

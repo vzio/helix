@@ -1,0 +1,28 @@
+title = "Redact the tokens"
+chapter = "motions"
+kind = "learn"
+feature = "r replaces every selected character"
+lesson = """
+`r` followed by a character replaces each selected character with it, so the
+selection keeps its length. Select a word and `r*` hides it, `r-` or `r=`
+draws a line of the same width.
+"""
+start = '''
+10:14:07 login user=ada token=f3a9c2d1e8b7
+10:14:09 login user=bob token=9be41c07aa25
+10:15:31 refresh user=ada token=0d7e93b2c4f1
+10:16:02 logout user=cy token=6a18f0e2b9d3
+'''
+goal = '''
+10:14:07 login user=ada token=************
+10:14:09 login user=bob token=************
+10:15:31 refresh user=ada token=************
+10:16:02 logout user=cy token=************
+'''
+hints = [
+  "Each token is the last word of its line, right after an `=`, and keeps its length.",
+  "`r*` replaces every selected character with `*`. `f=` and `F=` jump to an `=`, `e` then selects the word after it.",
+  "First line: `f=` then `<A-.>` to reach `token=`, `e`, `r*`. Each other line: `j` lands at its end, `F=` jumps back to the token's `=`, then `er*`.",
+]
+teach = "f=<A-.>er*jF=er*jF=er*jF=er*"
+naive = "llllllllllllllllllllllllllllllddddddddddddi************<esc>jhhhhhhhhhhhhddddddddddddi************<esc>jhhhhhhhhhhddddddddddddi************<esc>jhhhhhhhhhhhhddddddddddddi************<esc>"

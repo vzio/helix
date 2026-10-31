@@ -1,0 +1,50 @@
+title = "Name the magic number"
+chapter = "search"
+kind = "challenge"
+feature = "Search, repeat, and the ends of the file"
+lesson = """
+The timeout `30` is spread over the file and some other numbers contain a 3
+or a 0. Give it a name: replace every `30` that is the timeout, define the
+constant at the top (`gg` goes there), and drop the debug line at the end
+(`ge`).
+"""
+language = "python"
+start = '''
+import httpx
+
+client = httpx.Client(timeout=#[|3]#0)
+
+
+def fetch(url):
+    return client.get(url, timeout=30)
+
+
+def fetch_all(urls, limit=300):
+    with httpx.Client(timeout=30) as c:
+        return [c.get(u) for u in urls[:limit]]
+
+print("loaded", __name__)
+'''
+goal = '''
+import httpx
+
+TIMEOUT_S = 30
+client = httpx.Client(timeout=TIMEOUT_S)
+
+
+def fetch(url):
+    return client.get(url, timeout=TIMEOUT_S)
+
+
+def fetch_all(urls, limit=300):
+    with httpx.Client(timeout=TIMEOUT_S) as c:
+        return [c.get(u) for u in urls[:limit]]
+
+'''
+hints = [
+  "Three timeouts are `30` as a whole number; `300` must stay. Then one new line at the top and one old line gone at the bottom.",
+  "`*` searches for the selection as a whole word, so it skips `300`. `.` repeats a change, `gg` and `ge` go to the first and last line.",
+  "`e*cTIMEOUT_S<esc>`, then `n.n.`. `ggjoTIMEOUT_S = 30<esc>` adds the constant; `gexd` deletes the print.",
+]
+teach = "e*cTIMEOUT_S<esc>n.n.ggjoTIMEOUT_S = 30<esc>gexd"
+naive = "hhhhhhhhhhhhhhhhhhhhhhhhhhhhhhiTIMEOUT_S = 30<ret><esc>llllllllllllllllllllllllllllllddiTIMEOUT_S<esc>jjjjhhhddiTIMEOUT_S<esc>jjjjhhhhhhhhhddiTIMEOUT_S<esc>jjjhhhhhhhhhhhhhhhhhhhhhhhhhdddddddddddddddddddddddddd"

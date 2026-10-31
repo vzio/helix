@@ -537,22 +537,32 @@ nothing else: no timers, no leaderboards, no extra modes.
 | Command | Action |
 | --- | --- |
 | `:practice` | Continue with the first exercise that is not solved yet |
-| `:practice <topic>` | The first unsolved exercise of a topic (`Tab` completes them) |
+| `:practice <chapter>` | The first unsolved exercise of a chapter (`Tab` completes them) |
 | `:practice list` | Pick any exercise; shows its status, par and your best |
 | `:practice hint` | Reveal the next hint (three per exercise, from vague to the keys) |
 | `:practice reset` | Start the exercise again |
 | `:practice next`, `:practice prev` | The next or previous exercise |
 | `:practice lesson` | Hide or show the lesson panel |
 
-The exercise opens in a scratch buffer in the current view. A panel shows its title, the lesson,
-the goal, the hints you revealed and the count of keys against the par. On a terminal 100 columns
-wide or more it is a column at the top right; on narrower ones (a phone) it is a band at the
-bottom, below the lines of the buffer. It gives way to the which-key popup.
+The exercise opens in a scratch buffer in the current view. A panel shows the exercise's number
+and chapter in its border (`3.2 / 10 · Words, lines and counts`), its title, then labelled
+sections: the lesson, the goal set apart as a block, the hints you revealed, and the count of keys
+against the par. On a terminal 100 columns wide or more it is a column at the top right; on
+narrower ones it is a band at the bottom, below the lines of the buffer. It gives way to the
+which-key popup.
+
+Its styles come from theme scopes that fall back to existing ones, so every theme works:
+`ui.practice` (the panel; falls back to `ui.popup.info`), `ui.practice.lesson`,
+`ui.practice.goal` (falls back to `markup.raw.block`, `markup.raw`), `ui.practice.hint`,
+`ui.practice.label`, `ui.practice.key` (keys in backticks, falls back to `markup.raw.inline`),
+`ui.practice.status`, `ui.practice.solved` and `ui.practice.dim`; `book/src/themes.md` lists all
+fallbacks.
 
 The buffer is checked after every key: once its text is the goal and you are in normal mode, the
 exercise is solved and the count stops. The statusline and the panel show the keys you used, the
-par and your best, then the `teach` solution, and, once your best is at or under par, the shortest
-known (`gold`) solution if there is one. Solve it again (`:practice reset`) to beat your best.
+par and your best, then the `teach` solution, how many keys the same edit takes without the
+feature, and, once your best is at or under par, the shortest known (`gold`) solution if there is
+one. Solve it again (`:practice reset`) to beat your best.
 
 ### Counting
 
@@ -562,12 +572,31 @@ known (`gold`) solution if there is one. Solve it again (`:practice reset`) to b
   the keys of the `:practice list` picker. Keys replayed by a macro don't count, the `q` does.
 - The par is the number of keys of the exercise's `teach` solution.
 
-### Topics
+### Chapters
 
-The first batch has 35 exercises: motions (4), selections and multiple cursors (4), text objects
-(4), surround (3), syntax tree selection (2), registers (3), macros (2), pipe (3), search and
-replace (4), goto and the jumplist (4), and this fork's features (2: `x` on an empty line, move
-lines).
+75 exercises in 12 chapters, from the first keystroke to shell commands, described in
+[runtime/practice/CURRICULUM.md](runtime/practice/CURRICULUM.md):
+
+| # | Chapter | Exercises |
+| --- | --- | --- |
+| 1 | Modes and moving | 6 |
+| 2 | Lines and characters | 9 |
+| 3 | Words, lines and counts | 10 |
+| 4 | Yank, paste and move | 9 |
+| 5 | Undo, redo and repeat | 5 |
+| 6 | Search and jump | 6 |
+| 7 | Many selections | 8 |
+| 8 | Text objects | 5 |
+| 9 | The syntax tree | 5 |
+| 10 | Surround | 4 |
+| 11 | Macros | 4 |
+| 12 | Shell and commands | 4 |
+
+Each chapter introduces some keys, and an exercise only uses the keys of its chapter and of the
+chapters before it. A chapter goes from learning the keys alone, to applying them to realistic
+code, config and prose, to combining them with earlier chapters, and ends with a challenge. Every
+exercise is made so that the taught feature wins: without it, the same edit takes at least twice
+as many keys.
 
 ### Progress
 
@@ -580,10 +609,12 @@ it and the statusline says why.
 
 ### Exercises
 
-The exercises are TOML files in `runtime/practice/<topic>/`, in the order of
-`runtime/practice/index.toml`. [CLAUDE.md](CLAUDE.md) describes the format. The replay test
-(`cargo integration-test -- practice`) checks every file and replays every solution through the
-editor, so an exercise that a keymap change breaks fails the tests.
+The exercises are TOML files in `runtime/practice/<chapter>/`, in the order of
+`runtime/practice/index.toml`. [CLAUDE.md](CLAUDE.md) describes the format and the rules. The
+replay test (`cargo integration-test -- practice`) checks every file and replays every solution
+(`teach`, `gold`, and the brute-force `naive`) through the editor, so an exercise that a keymap
+change breaks fails the tests. It also checks that the brute force takes at least twice the par,
+and that every solution only uses keys that its chapter or an earlier one teaches.
 
 ### Limitations
 
@@ -592,6 +623,9 @@ editor, so an exercise that a keymap change breaks fails the tests.
 - Registers, the last search and macros you recorded before stay available in an exercise, which
   can make a solution shorter than it would be from a fresh start (the replay test uses one).
 - The selection is not part of the goal, only the text is.
+- Some keys are only described in CURRICULUM.md, because no exercise needs them to win: `G`,
+  `<C-s>`, `<C-i>`, `g.` and `<A-i>`. So is the system clipboard (`<space>y`, `<space>p`): an
+  exercise never overwrites yours.
 - On a short terminal the panel cuts the lesson first (the last line shown ends with `…`), then the
   title, the hints and the goal; the count is always shown. `:practice lesson` hides it.
-- Renaming an exercise file loses its progress, which is keyed by `<topic>/<file name>`.
+- Renaming an exercise file loses its progress, which is keyed by `<chapter>/<file name>`.

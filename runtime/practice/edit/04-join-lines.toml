@@ -1,0 +1,30 @@
+title = "Join the lines"
+chapter = "edit"
+kind = "learn"
+feature = "J joins lines"
+lesson = """
+`J` joins the selected lines into one, and with only the cursor selected it
+joins the line with the next one. It removes the indentation of the line it
+pulls up and puts a single space in between.
+"""
+start = '''
+Fix the race in the job queue: two
+workers could
+claim the same
+job when the lease
+expired. Claiming
+is now one
+atomic update.
+'''
+goal = '''
+Fix the race in the job queue: two
+workers could claim the same job when the lease
+expired. Claiming is now one atomic update.
+'''
+hints = [
+  "The message was wrapped at odd places. Only some lines need their neighbour pulled up; the first line is fine.",
+  "`J` joins the line under the cursor with the line below, with one space in between.",
+  "`j` to the second line, then `JJ` pulls the next two lines up into it; `j` and `JJ` again for the last three.",
+]
+teach = "jJJjJJ"
+naive = "jA <del><esc>A <del><esc>jA <del><esc>A <del><esc>"

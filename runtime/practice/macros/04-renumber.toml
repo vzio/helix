@@ -1,0 +1,39 @@
+title = "Number the steps"
+chapter = "macros"
+kind = "challenge"
+feature = "A macro that uses the line before it"
+lesson = """
+Every step is numbered `1.`, which Markdown renders fine but the plain text
+doesn't. A macro can carry a value from one line to the next: copy the number
+above, put it here, add one, move on.
+"""
+language = "markdown"
+start = '''
+1. Fork the repository
+#[|1]#. Create a branch for your change
+1. Write a test that fails
+1. Make it pass
+1. Run the formatter
+1. Run the whole test suite
+1. Commit with a clear message
+1. Push and open a pull request
+1. Answer the review
+'''
+goal = '''
+1. Fork the repository
+2. Create a branch for your change
+3. Write a test that fails
+4. Make it pass
+5. Run the formatter
+6. Run the whole test suite
+7. Commit with a clear message
+8. Push and open a pull request
+9. Answer the review
+'''
+hints = [
+  "Each number is one more than the number above it; a single digit selected by the cursor counts as a number for `<C-a>`.",
+  "Record: go up, yank the digit, come down, replace this digit with the yank (`R`), add one (`<C-a>`), and step to the next line. Then replay it for the rest.",
+  "`Qkghyjgh`, `R`, `<C-a>`, `jQ`, then `7q`.",
+]
+teach = "QkghyjghR<C-a>jQ7q"
+naive = "ghr2jghr3jghr4jghr5jghr6jghr7jghr8jghr9"

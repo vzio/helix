@@ -1,0 +1,34 @@
+title = "One cursor per line"
+chapter = "multi-cursor"
+kind = "learn"
+feature = "Alt-s splits the selection into one selection per line"
+lesson = """
+`<A-s>` splits a selection into one selection per line. Select a block with
+`x`, split it, and `I` or `A` then types at the start or end of every line
+at the same time.
+"""
+start = '''
+SELECT 'id'
+SELECT 'email'
+SELECT 'plan'
+SELECT 'seats'
+SELECT 'created_at'
+SELECT 'last_login'
+SELECT 'referrer'
+'''
+goal = '''
+SELECT 'id' UNION ALL
+SELECT 'email' UNION ALL
+SELECT 'plan' UNION ALL
+SELECT 'seats' UNION ALL
+SELECT 'created_at' UNION ALL
+SELECT 'last_login' UNION ALL
+SELECT 'referrer'
+'''
+hints = [
+  "Every line but the last gets the same words at its end.",
+  "`x` repeated selects the lines, `<A-s>` turns that into one selection per line, `A` appends at the end of each.",
+  "`xxxxxx` selects the first six lines, `<A-s>` splits them, `A UNION ALL<esc>`.",
+]
+teach = "xxxxxx<A-s>A UNION ALL<esc>"
+naive = "lllllllllla UNION ALL<esc>jha UNION ALL<esc>jha UNION ALL<esc>jha UNION ALL<esc>jha UNION ALL<esc>jha UNION ALL<esc>"

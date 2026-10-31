@@ -1,0 +1,34 @@
+title = "Paste while typing"
+chapter = "yank-paste"
+kind = "learn"
+feature = "Ctrl-r in insert mode pastes a register"
+lesson = """
+In insert mode `<C-r>` followed by a register name pastes that register right
+where you type, without leaving insert mode: `<C-r>"` is the last yank. Yank
+the long part once, type the short parts around it.
+"""
+language = "markdown"
+start = '''
+- Fix the crash on an empty feed
+  (https://github.com/fetchd/fetchd/issues/412)
+- Retry on HTTP 503
+- Keep cookies across redirects
+- Stop leaking file handles
+'''
+goal = '''
+- Fix the crash on an empty feed
+  (https://github.com/fetchd/fetchd/issues/412)
+- Retry on HTTP 503
+  (https://github.com/fetchd/fetchd/issues/418)
+- Keep cookies across redirects
+  (https://github.com/fetchd/fetchd/issues/421)
+- Stop leaking file handles
+  (https://github.com/fetchd/fetchd/issues/430)
+'''
+hints = [
+  "Each entry gets a link line like the first one; only the issue number differs.",
+  "Yank the part of the link that repeats. In insert mode `<C-r>\"` pastes it where you are typing.",
+  "`jf(l` puts the cursor on `h`, `t4y` yanks up to the number. Then for each entry `jo`, two spaces, `(`, `<C-r>\"`, the number, `)`, `<esc>`.",
+]
+teach = "jf(lt4yjo  (<C-r>\"418)<esc>jo  (<C-r>\"421)<esc>jo  (<C-r>\"430)<esc>"
+naive = "jjo  (https://github.com/fetchd/fetchd/issues/418)<esc>jo  (https://github.com/fetchd/fetchd/issues/421)<esc>jo  (https://github.com/fetchd/fetchd/issues/430)<esc>"

@@ -1,0 +1,30 @@
+title = "Lines above and below"
+chapter = "basics"
+kind = "learn"
+feature = "o and O open a new line below or above"
+lesson = """
+`o` opens a new line below the cursor's line and starts insert mode there;
+`O` does the same above. You don't need to walk to the end of a line and press
+Enter: wherever the cursor is in the line, the new line is one key away.
+"""
+start = '''
+ALTER TABLE users ADD COLUMN bio text;
+ALTER TABLE users ADD COLUMN avatar_url text;
+UPDATE users SET bio = '' WHERE bio IS NULL;
+ALTER TABLE users ALTER COLUMN bio SET NOT NULL;
+'''
+goal = '''
+BEGIN;
+ALTER TABLE users ADD COLUMN bio text;
+ALTER TABLE users ADD COLUMN avatar_url text;
+UPDATE users SET bio = '' WHERE bio IS NULL;
+ALTER TABLE users ALTER COLUMN bio SET NOT NULL;
+COMMIT;
+'''
+hints = [
+  "The migration needs a line before the first statement and one after the last.",
+  "`O` opens a line above the cursor, `o` one below, both in insert mode.",
+  "`O`, `BEGIN;`, `<esc>`; then `jjjj` down to the last statement, `o`, `COMMIT;`, `<esc>`.",
+]
+teach = "OBEGIN;<esc>jjjjoCOMMIT;<esc>"
+naive = "iBEGIN;<ret><esc>jjjllllllllllllllllllllllllllllllllllllllllllllllla<ret>COMMIT;<esc>"

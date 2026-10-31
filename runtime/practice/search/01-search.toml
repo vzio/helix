@@ -1,0 +1,49 @@
+title = "Search, then next"
+chapter = "search"
+kind = "learn"
+feature = "/ searches forward and selects the match; n goes to the next one"
+lesson = """
+`/` asks for a regex and selects the next match; `n` selects the one after.
+The match is a selection like any other, so `c` changes it and `.` repeats
+that change: `n.` handles each further match in two keys, wherever it is.
+"""
+language = "python"
+start = '''
+class Store:
+    def __init__(self, conn):
+        self.conn = conn
+
+    def get(self, key):
+        row = self.conn.fetch_one(key)
+        return row and row.value
+
+    def put(self, key, value):
+        with self.conn.transaction():
+            self.conn.upsert(key, value)
+
+    def close(self):
+        self.conn.close()
+'''
+goal = '''
+class Store:
+    def __init__(self, db):
+        self.db = db
+
+    def get(self, key):
+        row = self.db.fetch_one(key)
+        return row and row.value
+
+    def put(self, key, value):
+        with self.db.transaction():
+            self.db.upsert(key, value)
+
+    def close(self):
+        self.db.close()
+'''
+hints = [
+  "`conn` becomes `db` seven times, in different places on different lines.",
+  "`/conn` then Enter selects the first `conn`; `c` changes it; `n` selects the next match and `.` repeats the change.",
+  "`/conn<ret>`, `cdb<esc>`, then `n.` six times.",
+]
+teach = "/conn<ret>cdb<esc>n.n.n.n.n.n."
+naive = "jlllllllllllllllllllllllddddidb<esc>jhhhhhhhhhhhddddidb<esc>lllddddidb<esc>jjjhddddidb<esc>jjjjhhhddddidb<esc>jhhhddddidb<esc>jjjhhhhhhddddidb<esc>"

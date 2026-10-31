@@ -1,0 +1,39 @@
+title = "Line them up"
+chapter = "multi-cursor"
+kind = "learn"
+feature = "& aligns the selections in a column"
+lesson = """
+`&` pads the selections with spaces so that they all start in the same
+column. Select the `=` of every line with `s`, press `&`, and the block looks
+like `gofmt` wrote it.
+"""
+language = "go"
+start = '''
+const (
+	StatusOK = 200
+	StatusCreated = 201
+	StatusNoContent = 204
+	StatusMovedPermanently = 301
+	StatusNotFound = 404
+	StatusConflict = 409
+	StatusTooManyRequests = 429
+)
+'''
+goal = '''
+const (
+	StatusOK               = 200
+	StatusCreated          = 201
+	StatusNoContent        = 204
+	StatusMovedPermanently = 301
+	StatusNotFound         = 404
+	StatusConflict         = 409
+	StatusTooManyRequests  = 429
+)
+'''
+hints = [
+  "The `=` signs should form a straight column.",
+  "`s` selects every match of a regex inside the selection, and `&` aligns all selections to the rightmost one. `%` selects the whole buffer.",
+  "`%s=<ret>`, then `&`.",
+]
+teach = "%s=<ret>&"
+naive = "jllllllllli              <esc>jhhhhhhi         <esc>jhhhhhhi       <esc>jjhhhhhhi        <esc>jhhhhhhi        <esc>jhi <esc>"

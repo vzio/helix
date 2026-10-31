@@ -1,0 +1,41 @@
+title = "Whole functions"
+chapter = "syntax"
+kind = "learn"
+feature = "]f goes to the next function; maf selects the function around the cursor"
+lesson = """
+`]f` selects the next function, all of it, and `maf` the function the cursor
+is in (`f` is the function text object). Add `x` to round the selection out
+to whole lines; each further `x` takes a blank line after it too.
+"""
+language = "python"
+start = '''
+def load(path):
+    #[|r]#eturn json.load(open(path))
+
+
+def save(path, data):
+    json.dump(data, open(path, "w"))
+
+
+def load_legacy(path):
+    return eval(open(path).read())
+
+
+def dump(data):
+    return json.dumps(data, indent=2)
+'''
+goal = '''
+def save(path, data):
+    json.dump(data, open(path, "w"))
+
+
+def dump(data):
+    return json.dumps(data, indent=2)
+'''
+hints = [
+  "Both loaders go, each with the two blank lines after it; `save` and `dump` stay.",
+  "`maf` selects the function the cursor is in, `]f` the next function; then `x` makes the selection whole lines and each further `x` adds a line.",
+  "`mafxxxd` deletes `load` and its blank lines, which leaves the cursor at `save`; `]fxxxd` then deletes `load_legacy`.",
+]
+teach = "mafxxxd]fxxxd"
+naive = "khhhhdddddddddddddddddddddddddddddddddddddddddddddddddddjjjjdddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"

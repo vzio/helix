@@ -1,0 +1,27 @@
+title = "Prototypes"
+chapter = "basics"
+kind = "apply"
+feature = "I and A on every line"
+lesson = """
+`I` inserts at the start of the line and `A` at its end, so changing both ends
+of a line costs no walking at all, wherever the cursor is.
+"""
+start = '''
+int parse_args(int argc, char **argv)
+void print_usage(const char *program)
+int run(const struct config *cfg)
+void cleanup(struct config *cfg)
+'''
+goal = '''
+static int parse_args(int argc, char **argv);
+static void print_usage(const char *program);
+static int run(const struct config *cfg);
+static void cleanup(struct config *cfg);
+'''
+hints = [
+  "Each line changes at both ends: a word in front, a semicolon behind.",
+  "`I` types at the start of the line, `A` at its end; neither cares where the cursor is.",
+  "On each line: `I`, `static `, `<esc>`, `A`, `;`, `<esc>`, then `j`.",
+]
+teach = "Istatic <esc>A;<esc>jIstatic <esc>A;<esc>jIstatic <esc>A;<esc>jIstatic <esc>A;<esc>"
+naive = "istatic <esc>lllllllllllllllllllllllllllllllllllla;<esc>llistatic <esc>lllllllllllllllllllllllllllllllllllla;<esc>llistatic <esc>lllllllllllllllllllllllllllllllla;<esc>llistatic <esc>llllllllllllllllllllllllllllllla;<esc>"

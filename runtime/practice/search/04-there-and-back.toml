@@ -1,0 +1,51 @@
+title = "There and back"
+chapter = "search"
+kind = "learn"
+feature = "Ctrl-o jumps back to where you were before a search"
+lesson = """
+A search is a jump, and Helix keeps a list of jumps: `<C-o>` goes back to
+where you were before it, selection and all. Go and fetch something far
+away, then `<C-o>` and use it right where you left off.
+"""
+language = "markdown"
+start = '''
+## Install
+
+Get the binary for your platform from the
+[release page]#[|(]#)
+and put it on your `PATH`.
+
+## Configure
+
+Copy `fetchd.example.toml` to
+`~/.config/fetchd/config.toml`.
+
+## Links
+
+- Releases: https://fetchd.dev/releases/latest
+- Issues: https://fetchd.dev/issues
+'''
+goal = '''
+## Install
+
+Get the binary for your platform from the
+[release page](https://fetchd.dev/releases/latest)
+and put it on your `PATH`.
+
+## Configure
+
+Copy `fetchd.example.toml` to
+`~/.config/fetchd/config.toml`.
+
+## Links
+
+- Releases: https://fetchd.dev/releases/latest
+- Issues: https://fetchd.dev/issues
+'''
+hints = [
+  "The link goes inside the parentheses where the cursor is; the address is in the Links list at the bottom.",
+  "A regex like `https\\S+` selects a whole address; `y` yanks it; `<C-o>` jumps back to where the search started; `p` pastes after the cursor.",
+  "`/https\\S+<ret>`, `y`, `<C-o>`, `p`.",
+]
+teach = "/https\\S+<ret>y<C-o>p"
+naive = "ahttps://fetchd.dev/releases/latest<esc>"

@@ -1,0 +1,36 @@
+title = "Replace with the yank"
+chapter = "yank-paste"
+kind = "learn"
+feature = "y yanks the selection, R replaces a selection with it"
+lesson = """
+`y` yanks (copies) the selection. `R` replaces the selection with what was
+yanked, and keeps it yanked, so you can do it again and again: one yank,
+any number of replacements.
+"""
+start = '''
+# api/.env
+DATABASE_URL=postgres://shop@db:5432/shop
+# worker/.env
+DATABASE_URL=TODO
+# migrate/.env
+DATABASE_URL=TODO
+# reports/.env
+DATABASE_URL=TODO
+'''
+goal = '''
+# api/.env
+DATABASE_URL=postgres://shop@db:5432/shop
+# worker/.env
+DATABASE_URL=postgres://shop@db:5432/shop
+# migrate/.env
+DATABASE_URL=postgres://shop@db:5432/shop
+# reports/.env
+DATABASE_URL=postgres://shop@db:5432/shop
+'''
+hints = [
+  "Three `TODO` lines become exact copies of the line that is already complete.",
+  "`xy` yanks a whole line; `xR` replaces another whole line with it, and the yank stays for the next one.",
+  "`jxy` yanks the api line. Then `jjxR` three times.",
+]
+teach = "jxyjjxRjjxRjjxR"
+naive = "jjjA<C-w>postgres://shop@db:5432/shop<esc>jjA<C-w>postgres://shop@db:5432/shop<esc>jjA<C-w>postgres://shop@db:5432/shop<esc>"

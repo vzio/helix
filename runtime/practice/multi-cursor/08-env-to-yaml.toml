@@ -1,0 +1,34 @@
+title = "From .env to YAML"
+chapter = "multi-cursor"
+kind = "challenge"
+feature = "Everything from this chapter"
+lesson = """
+Turn an `.env` file into the `env:` block of a YAML config: keys in lower
+case, `: ` instead of `=`, indented under `env:`, and the variable that has
+no value dropped. Every step is one selection of many places, then one edit.
+"""
+start = '''
+APP_ENV=production
+APP_PORT=8080
+DATABASE_URL=postgres://db/shop
+REDIS_URL=redis://cache:6379
+SENTRY_DSN=
+LOG_LEVEL=info
+MAIL_FROM=noreply@shop.test
+'''
+goal = '''
+env:
+  app_env: production
+  app_port: 8080
+  database_url: postgres://db/shop
+  redis_url: redis://cache:6379
+  log_level: info
+  mail_from: noreply@shop.test
+'''
+hints = [
+  "Four changes, each the same on every line: drop the empty one, lower-case the keys, `=` to `: `, indent; plus the `env:` line on top.",
+  "`K` keeps only the selections that match a regex (`=$` is a line ending in `=`); `~` switches the case of every selection; `%s` selects every match.",
+  "`%<A-s>K=$<ret>xd`, `%s^\\w+<ret>~`, `%s=<ret>c: <esc>`, `%<A-s>I  <esc>`, `ggOenv:<esc>`.",
+]
+teach = "%<A-s>K=$<ret>xd%s^\\w+<ret>~%s=<ret>c: <esc>%<A-s>I  <esc>ggOenv:<esc>"
+naive = "ienv:<ret><esc>ddddddddi  app_env: <esc>jhhhhhhhhhhhdddddddddi  app_port: <esc>jhhhhhhhhhhhhdddddddddddddi  database_url: <esc>jhhhhhhhhhhhhhhhhddddddddddi  redis_url: <esc>jhhhhhhhhhhhddddddddddddddddddddddi  log_level: <esc>jhhhhhhhhhhhhhddddddddddi  mail_from: <esc>"

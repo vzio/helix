@@ -1,0 +1,44 @@
+title = "Fix the workflow"
+chapter = "edit"
+kind = "challenge"
+feature = "Everything from this chapter, in as few keys as possible"
+lesson = """
+A CI workflow pasted at the wrong depth, with two steps switched off and one
+left over. Every command of this chapter works on all selected lines at once:
+the fewer selections you make, the fewer keys you need.
+"""
+language = "yaml"
+start = '''
+name: ci
+on: push
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+    #[|-]# uses: actions/checkout@v4
+    - uses: dtolnay/rust-toolchain@stable
+    # - run: cargo fmt --check
+    # - run: cargo clippy -- -D warnings
+    - run: cargo test
+    - run: echo done
+'''
+goal = '''
+name: ci
+on: push
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - run: cargo fmt --check
+      - run: cargo clippy -- -D warnings
+      - run: cargo test
+'''
+hints = [
+  "Five steps need one more level of indentation, two of them are switched off, and the last line goes.",
+  "`x` pressed several times selects several lines, and `>`, `<C-c>` and `d` act on all of them at once; `<C-c>` keeps the indentation it finds.",
+  "`xxxxx>` indents the five steps. `jxd` deletes `echo done`. `kkk` goes back up to the fmt step, and `xx<C-c>` uncomments it and the clippy step.",
+]
+teach = "xxxxx<gt>jxdkkkxx<C-c>"
+naive = "I  <esc>jI  <esc>jI  <del><del><esc>jI  <del><del><esc>jI  <esc>A<del><del><del><del><del><del><del><del><del><del><del><del><del><del><del><del><del><del><del><del><del><esc>"

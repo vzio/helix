@@ -1,0 +1,32 @@
+title = "Make it public"
+chapter = "basics"
+kind = "challenge"
+feature = "Everything from this chapter"
+lesson = """
+Everything in this chapter at once. Count before you type: where is the
+cursor after `<esc>`, and which of `I` and `A` gets you to the next spot in
+the fewest keys?
+"""
+start = '''
+struct Config {
+    name: String
+    port: u16
+    verbose: bool
+    retries: u8
+#[|}]#
+'''
+goal = '''
+pub struct Config {
+    pub name: String,
+    pub port: u16,
+    pub verbose: bool,
+    pub retries: u8,
+}
+'''
+hints = [
+  "You start at the bottom. Every field needs a word in front and a comma behind; the struct line only needs the word.",
+  "`k` goes up a line, and `I` and `A` reach either end of it from anywhere in it.",
+  "`k`, then on each field `Ipub <esc>A,<esc>k`, and on the struct line just `Ipub <esc>`.",
+]
+teach = "kIpub <esc>A,<esc>kIpub <esc>A,<esc>kIpub <esc>A,<esc>kIpub <esc>A,<esc>kIpub <esc>"
+naive = "kkkkkipub <esc>llllllllllllllllllllipub <esc>llllllllllla,<esc>llllllipub <esc>lllllllla,<esc>llllllipub <esc>lllllllllllla,<esc>llllllipub <esc>lllllllllla,<esc>"

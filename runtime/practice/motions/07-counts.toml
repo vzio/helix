@@ -1,0 +1,49 @@
+title = "Count, then act"
+chapter = "motions"
+kind = "learn"
+feature = "Counts repeat a motion; Ctrl-a and Ctrl-x add to a number"
+lesson = """
+A number typed before a motion repeats it: `7j` is seven lines down, `3e` the
+third word end. `<C-a>` adds to the selected number and `<C-x>` subtracts,
+by one or by the count: `300<C-x>` subtracts 300. Select the whole number
+first; `e` from its first digit does that.
+"""
+start = '''
+$TTL 3600
+@   IN  SOA ns1.example.com. admin.example.com. (
+            2024050101 ; serial
+            7200       ; refresh
+            900        ; retry
+            1209600    ; expire
+            300 )      ; minimum
+
+@     IN  NS  ns1.example.com.
+@     IN  A   203.0.113.10
+www   IN  A   203.0.113.10
+api   IN  A   203.0.113.20
+mail  IN  A   203.0.113.25
+@     IN  MX  10 mail.example.com.
+'''
+goal = '''
+$TTL 3600
+@   IN  SOA ns1.example.com. admin.example.com. (
+            2024050102 ; serial
+            7200       ; refresh
+            600        ; retry
+            1209600    ; expire
+            300 )      ; minimum
+
+@     IN  NS  ns1.example.com.
+@     IN  A   203.0.113.10
+www   IN  A   203.0.113.10
+api   IN  A   203.0.113.21
+mail  IN  A   203.0.113.25
+@     IN  MX  20 mail.example.com.
+'''
+hints = [
+  "Four numbers change: the serial goes up by one, the retry down by 300, the api address up by one and the mail priority up by 10. The lines are far apart.",
+  "`2j` or `7j` moves several lines in two keys. `gs` puts the cursor on the first digit of an indented number, `e` selects the number, `<C-a>`/`<C-x>` add or subtract (a count says how much). `gl` then `b` selects the number at the end of a line.",
+  "`2jgse<C-a>` for the serial, `2jgse300<C-x>` for the retry, `7jglb<C-a>` for the api address, `2jgh3eb10<C-a>` for the MX priority (from the start of the line `3e` ends on `10`, `b` selects just the number).",
+]
+teach = "2jgse<C-a>2jgse300<C-x>7jglb<C-a>2jgh3eb10<C-a>"
+naive = "jjllllllllllllllllllllldi2<esc>jjhhhhhhhhhhdi6<esc>jjjjjjjlllllllllllldi1<esc>jjhhhhhhhhhhhhdi2<esc>"

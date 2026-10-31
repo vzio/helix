@@ -1,0 +1,29 @@
+title = "A shorter name"
+chapter = "motions"
+kind = "learn"
+feature = "c changes the selection; w, e and b select words"
+lesson = """
+`c` deletes the selection and starts insert mode in its place: select a word
+with `e` (or `w`, `b`), press `c`, type the new word. However long the old
+word was, deleting it was one key.
+"""
+language = "python"
+start = '''
+def notify_overdue(customers, today):
+    for current_customer_record in customers:
+        if current_customer_record.due < today:
+            send_reminder(current_customer_record)
+'''
+goal = '''
+def notify_overdue(customers, today):
+    for customer in customers:
+        if customer.due < today:
+            send_reminder(customer)
+'''
+hints = [
+  "The same long name appears three times, and each time the whole word is replaced.",
+  "`c` deletes the selection and starts typing. `e` selects to the end of a word and `b` back to its start, so `eb` selects exactly the word the cursor is in.",
+  "`jee` reaches the end of the name on the `for` line, `b` selects all of it, `ccustomer<esc>`. Then `jebccustomer<esc>` on the `if` line and `jeeeccustomer<esc>` on the last one (the third `e` passes the parenthesis).",
+]
+teach = "jeebccustomer<esc>jebccustomer<esc>jeeeccustomer<esc>"
+naive = "jlllllllldddddddddddddddddddddddicustomer<esc>jhhhhhdddddddddddddddddddddddicustomer<esc>jllllllldddddddddddddddddddddddicustomer<esc>"

@@ -1,0 +1,28 @@
+title = "Four typos"
+chapter = "basics"
+kind = "apply"
+feature = "h j k l to get close, i and a to type"
+lesson = """
+`i` types before the cursor and `a` after it: to add a letter after the
+cursor's letter, `a` is one key where `l` then `i` would be two. Go between
+lines with `j` and `k`, then fine-tune with `h` and `l`.
+"""
+start = '''
+Helix is a modal ed#[|t]#or. In normal mode, keys
+are commands; in nsert mode, they type text.
+Press i to insert befre the cursor and a to
+append after it. Esc gos back to normal mode.
+'''
+goal = '''
+Helix is a modal editor. In normal mode, keys
+are commands; in insert mode, they type text.
+Press i to insert before the cursor and a to
+append after it. Esc goes back to normal mode.
+'''
+hints = [
+  "One letter is missing in four words, and the words sit almost above each other.",
+  "`j` goes down and keeps the column, `h` and `l` move by one letter; `i` types before the cursor, `a` after it.",
+  "`ii<esc>` fixes `edtor`. Then `j`, `hhh`, `ii<esc>` for `nsert`; `j`, `ll`, `ao<esc>` for `befre`; `j`, `l`, `ae<esc>` for `gos`.",
+]
+teach = "ii<esc>jhhhii<esc>jllao<esc>jlae<esc>"
+naive = "ii<esc>lllllllllllllllllllllllllllllllllllllllllllii<esc>lllllllllllllllllllllllllllllllllllllllllllllllllio<esc>llllllllllllllllllllllllllllllllllllllllllllllie<esc>"
