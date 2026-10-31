@@ -48,6 +48,7 @@ bug-fixed version of it in omentic's [helix-ext](https://github.com/omentic/heli
 - [`x` on an empty line](#x-on-an-empty-line)
 - [Move lines](#move-lines)
 - [Practice](#practice)
+- [Tutor](#tutor)
 
 ## Code layout
 
@@ -574,18 +575,18 @@ one. Solve it again (`:practice reset`) to beat your best.
 
 ### Chapters
 
-75 exercises in 12 chapters, from the first keystroke to shell commands, described in
+81 exercises in 12 chapters, from the first keystroke to shell commands, described in
 [runtime/practice/CURRICULUM.md](runtime/practice/CURRICULUM.md):
 
 | # | Chapter | Exercises |
 | --- | --- | --- |
 | 1 | Modes and moving | 6 |
-| 2 | Lines and characters | 9 |
+| 2 | Lines and characters | 10 |
 | 3 | Words, lines and counts | 10 |
 | 4 | Yank, paste and move | 9 |
-| 5 | Undo, redo and repeat | 5 |
-| 6 | Search and jump | 6 |
-| 7 | Many selections | 8 |
+| 5 | Undo, redo and repeat | 6 |
+| 6 | Search and jump | 7 |
+| 7 | Many selections | 11 |
 | 8 | Text objects | 5 |
 | 9 | The syntax tree | 5 |
 | 10 | Surround | 4 |
@@ -619,13 +620,27 @@ and that every solution only uses keys that its chapter or an earlier one teache
 ### Limitations
 
 - The fork's git features (diff view, commit log, staged files, file tree, inline blame) have no
-  exercise yet: they don't change text, and exercises are checked by the text of the buffer.
+  exercise: they don't change text, and exercises are checked by the text of the buffer. The
+  [tutor](#tutor) explains them.
 - Registers, the last search and macros you recorded before stay available in an exercise, which
   can make a solution shorter than it would be from a fresh start (the replay test uses one).
 - The selection is not part of the goal, only the text is.
-- Some keys are only described in CURRICULUM.md, because no exercise needs them to win: `G`,
-  `<C-s>`, `<C-i>`, `g.` and `<A-i>`. So is the system clipboard (`<space>y`, `<space>p`): an
+- Some keys are explained in the [tutor](#tutor) instead, because no exercise needs them to win:
+  `G`, `<C-s>`, `<C-i>`, `g.` and `<A-i>`. So is the system clipboard (`<space>y`, `<space>p`): an
   exercise never overwrites yours.
 - On a short terminal the panel cuts the lesson first (the last line shown ends with `…`), then the
   title, the hints and the goal; the count is always shown. `:practice lesson` hides it.
 - Renaming an exercise file loses its progress, which is keyed by `<chapter>/<file name>`.
+
+## Tutor
+
+`:tutor` is rewritten to go with [`:practice`](#practice): it keeps upstream's header and says to
+use `:practice` for editing, then covers only what doesn't fit an exercise checked by the text of
+a buffer: opening, saving and quitting, buffers, pickers, the file tree, the jumplist, going
+places (`gw`, `[`/`]`), the view, splits, the system clipboard, language servers, git (with this
+fork's diff view, commit log and blame), the shell commands other than `|`, `:earlier`, settings,
+and a last section listing the editing keys that have no exercise yet. Upstream's lessons on
+editing are exercises now (the case keys, `<A-C>`, `n` in select mode, rotating and removing
+selections were added for them).
+
+When a key gets an exercise, it leaves the last section of `runtime/tutor`.

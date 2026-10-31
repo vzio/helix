@@ -10,7 +10,10 @@ into.
 **Every feature, original or ported, ships with at least one `:practice` exercise.**
 
 A PR that adds or ports a feature adds its exercise(s) under `runtime/practice/` in the same PR
-(in the chapter where the feature fits, see below). The replay test must pass with them.
+(in the chapter where the feature fits, see below). The replay test must pass with them. A feature
+that doesn't change text (a picker, a view, git) goes in `runtime/tutor` instead, which covers only
+what the exercises can't; when an editing key gets an exercise, take it out of the tutor's last
+section.
 
 ## Writing a `:practice` exercise
 
