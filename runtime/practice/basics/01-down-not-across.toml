@@ -1,0 +1,35 @@
+title = "Down, not across"
+chapter = "basics"
+kind = "learn"
+feature = "j and k move between lines; i starts typing, Esc stops"
+lesson = """
+Helix is modal. In normal mode keys are commands; `i` switches to insert mode
+to type before the cursor, and `<esc>` switches back. `h` `j` `k` `l` move
+left, down, up and right: `j` keeps the column, so going down five lines is
+five keys, however long the lines are.
+"""
+start = '''
+class Counter:
+    def __init__(self):
+        #[|s]#elf.count = 0
+
+    def increment(self):
+        count += 1
+        return self.count
+'''
+goal = '''
+class Counter:
+    def __init__(self):
+        self.count = 0
+
+    def increment(self):
+        self.count += 1
+        return self.count
+'''
+hints = [
+  "Only one line changes, and the cursor is already in the right column.",
+  "`j` moves straight down and keeps the column; `i` then types before the cursor.",
+  "`jjj` to reach `count += 1`, `i` to start typing, `self.`, then `<esc>`.",
+]
+teach = "jjjiself.<esc>"
+naive = "llllllllllllllllllllllllllllllllllllllllllllllllliself.<esc>"

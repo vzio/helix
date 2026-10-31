@@ -1,0 +1,40 @@
+title = "Record once, replay"
+chapter = "macros"
+kind = "learn"
+feature = "Q records a macro, q replays it"
+lesson = """
+`Q` starts recording your keys and `Q` again stops; `q` replays them, and
+`4q` replays them four times. Macros shine where every record needs the same
+keys but multiple selections can't reach the places, like joining lines.
+"""
+start = '''
+Ada Lovelace
+ada@example.com
+London
+Alan Turing
+alan@example.com
+Wilmslow
+Grace Hopper
+grace@example.com
+Arlington
+Margaret Hamilton
+margaret@example.com
+Boston
+Linus Torvalds
+linus@example.com
+Portland
+'''
+goal = '''
+Ada Lovelace <ada@example.com>, London
+Alan Turing <alan@example.com>, Wilmslow
+Grace Hopper <grace@example.com>, Arlington
+Margaret Hamilton <margaret@example.com>, Boston
+Linus Torvalds <linus@example.com>, Portland
+'''
+hints = [
+  "Each contact is three lines that become one, with the same punctuation added every time.",
+  "Record one contact with `Q` (and `Q` to stop), then replay with a count. In insert mode `<del>` deletes the line break after the cursor.",
+  "`Q` to start recording. `A`, a space, `<`, `<del>`, `<esc>`; then `A`, `>`, `,`, a space, `<del>`, `<esc>`; then `j` and `Q` to stop. `4q` does the other four.",
+]
+teach = "QA <lt><del><esc>A<gt>, <del><esc>jQ4q"
+naive = "A <lt><del><esc>A<gt>, <del><esc>jA <lt><del><esc>A<gt>, <del><esc>jA <lt><del><esc>A<gt>, <del><esc>jA <lt><del><esc>A<gt>, <del><esc>jA <lt><del><esc>A<gt>, <del><esc>"

@@ -339,6 +339,15 @@ These scopes are used for theming the editor interface:
 | `ui.picker.header`                | Header row area in pickers with multiple columns                                               |
 | `ui.picker.header.column`         | Column names in pickers with multiple columns                                                  |
 | `ui.picker.header.column.active`  | The column name in pickers with multiple columns where the cursor is entering into.            |
+| `ui.practice`                     | The `:practice` panel (falls back to `ui.popup.info`, `ui.popup`)                              |
+| `ui.practice.lesson`              | Lesson text in the panel (`ui.text.info`, `ui.text`)                                           |
+| `ui.practice.goal`                | The block with the goal text (`markup.raw.block`, `markup.raw`, `ui.text`)                     |
+| `ui.practice.hint`                | Revealed hints (`hint`, `ui.text.info`)                                                        |
+| `ui.practice.label`               | Section labels (`markup.heading`, `ui.text.focus`)                                             |
+| `ui.practice.key`                 | Keys in the lesson and hints (`markup.raw.inline`, `markup.raw`)                               |
+| `ui.practice.status`              | The count of keys (`ui.text.info`)                                                             |
+| `ui.practice.solved`              | The result of a solved exercise (`diff.plus`, `info`)                                          |
+| `ui.practice.dim`                 | Secondary text and the bar before the goal (`ui.text.inactive`, `comment`)                     |
 | `ui.window`                       | Borderlines separating splits                                                                  |
 | `ui.help`                         | Description box for commands                                                                   |
 | `ui.text`                         | Default text style, command prompts, popup text, etc.                                          |

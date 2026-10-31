@@ -1,0 +1,26 @@
+title = "Long words"
+chapter = "motions"
+kind = "learn"
+feature = "W, E and B: words that include punctuation"
+lesson = """
+For `w`, `e` and `b`, punctuation ends a word, so a URL is a dozen words. `W`,
+`E` and `B` move by WORDs instead: anything between spaces, a whole URL or
+path in one key.
+"""
+start = '''
+Start with https://docs.rs/serde/latest/serde#[|/]#
+then read https://serde.rs/data-model.html and
+file bugs at https://github.com/serde-rs/serde
+'''
+goal = '''
+Start with <https://docs.rs/serde/latest/serde/>
+then read <https://serde.rs/data-model.html> and
+file bugs at <https://github.com/serde-rs/serde>
+'''
+hints = [
+  "Each link gets a `<` before it and a `>` after it, and each link is one long word between spaces.",
+  "`B` selects back to the start of a WORD, `E` to its end, `W` to the next one; a WORD is everything between two spaces, so a link is one.",
+  "`B`, then `i` `<` `<esc>`, then `E`, then `a` `>` `<esc>` for the first link. `WW` selects up to `read `: the same `a` `<` `<esc>`, `E`, `a` `>` `<esc>`. Then `WWWWW` up to `at ` for the last link, and the same keys again.",
+]
+teach = "Bi<lt><esc>Ea<gt><esc>WWa<lt><esc>Ea<gt><esc>WWWWWa<lt><esc>Ea<gt><esc>"
+naive = "hhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhi<lt><esc>lllllllllllllllllllllllllllllllllla<gt><esc>jhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhi<lt><esc>llllllllllllllllllllllllllllllla<gt><esc>jhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhi<lt><esc>lllllllllllllllllllllllllllllllla<gt><esc>"

@@ -1,0 +1,47 @@
+title = "Move a section"
+chapter = "yank-paste"
+kind = "learn"
+feature = "d yanks what it deletes; p and P paste it"
+lesson = """
+Whatever `d` deletes is also yanked, so delete and paste is how text moves.
+`p` pastes after the selection and `P` before it; whole lines (from `x`) are
+pasted as whole lines, below or above the cursor's line.
+"""
+language = "markdown"
+start = '''
+# fetchd
+
+## Usage
+
+    fetchd --watch ./feeds.toml
+
+## Installation
+
+    cargo install fetchd
+
+## License
+
+MIT
+'''
+goal = '''
+# fetchd
+
+## Installation
+
+    cargo install fetchd
+
+## Usage
+
+    fetchd --watch ./feeds.toml
+
+## License
+
+MIT
+'''
+hints = [
+  "The Installation section, with its blank lines, belongs above Usage. Nothing has to be typed.",
+  "`d` deletes and yanks the selection, `P` pastes it above the line the cursor is on. `x` pressed four times selects four lines.",
+  "`6j` to `## Installation`, `xxxx` for the section and the blank line after it, `d`. `kkkk` back up to `## Usage`, then `P`.",
+]
+teach = "6jxxxxdkkkkP"
+naive = "6jxxxxdkkkkO## Installation<ret><ret>    cargo install fetchd<ret><backspace><esc>"

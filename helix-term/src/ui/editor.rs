@@ -58,6 +58,12 @@ pub enum InsertEvent {
 }
 
 impl EditorView {
+    /// Whether the next key is the argument of a command that is waiting for a character (after
+    /// `f`, `r`, `"`, `mi`, insert mode `<C-r>`, ...) rather than a key of its own.
+    pub(crate) fn awaits_char(&self) -> bool {
+        self.on_next_key.is_some()
+    }
+
     pub fn new(keymaps: Keymaps) -> Self {
         Self {
             keymaps,

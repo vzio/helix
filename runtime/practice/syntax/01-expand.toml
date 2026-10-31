@@ -1,25 +1,29 @@
 title = "Grow the selection"
-topic = "syntax"
-feature = "Expand to syntax nodes: A-o"
-language = "rust"
+chapter = "syntax"
+kind = "learn"
+feature = "Alt-o expands the selection to the enclosing syntax node"
 lesson = """
-With a syntax tree, `A-o` expands the selection to the next bigger syntax
-node: a name, then the expression it is part of, then the call, the
-statement... `A-i` shrinks it back.
+Helix parses the code, and `<A-o>` grows the selection to the next bigger
+piece of it: a name, then the call around it, then the argument list, the
+statement... `<A-i>` shrinks it back. No counting characters.
 """
-start = """
-fn main() {
-    let n = add(#[w|]#idth * 2, 3);
-}
-"""
-goal = """
-fn main() {
-    let n = add(7, 3);
-}
-"""
+language = "python"
+start = '''
+def notify(user, event):
+    send(#[|r]#ender(user, event.kind), retries=3)
+    audit(entry(user.id, event, now()), sync=True)
+'''
+goal = '''
+def notify(user, event):
+    msg = render(user, event.kind)
+    send(msg, retries=3)
+    record = entry(user.id, event, now())
+    audit(record, sync=True)
+'''
 hints = [
-  "The first argument is an expression, not one word.",
-  "Grow the selection by syntax nodes until it covers the argument.",
-  "`A-o` selects `width`, `A-o` again selects `width * 2`; then `c`, `7`, `Esc`.",
+  "Each first argument, a whole call, moves to a variable of its own on the line above.",
+  "`<A-o>` grows the selection from the name to the whole call; `c` replaces it and yanks it; `<C-r>\"` pastes that yank while typing.",
+  "`<A-o><A-o>cmsg<esc>`, `Omsg = <C-r>\"<esc>`. Then `jj`, `gsf(l` onto `entry`, and the same with `record`.",
 ]
-teach = "<A-o><A-o>c7<esc>"
+teach = "<A-o><A-o>cmsg<esc>Omsg = <C-r>\"<esc>jjgsf(l<A-o><A-o>crecord<esc>Orecord = <C-r>\"<esc>"
+naive = "Omsg = render(user, event.kind)<esc>jhhhhhhhhhhhhhhhhhhhhhhhhhddddddddddddddddddddddddimsg<esc>jOrecord = entry(user.id, event, now())<esc>jhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhddddddddddddddddddddddddddddirecord<esc>"

@@ -10,7 +10,7 @@ into.
 **Every feature, original or ported, ships with at least one `:practice` exercise.**
 
 A PR that adds or ports a feature adds its exercise(s) under `runtime/practice/` in the same PR
-(the fork's own features go in the `fork` topic, see below). The replay test must pass with them.
+(in the chapter where the feature fits, see below). The replay test must pass with them.
 
 ## Writing a `:practice` exercise
 
@@ -18,76 +18,118 @@ A PR that adds or ports a feature adds its exercise(s) under `runtime/practice/`
 data in `runtime/practice/`:
 
 ```
-runtime/practice/index.toml                    # topic order: topics = ["motions", ...]
-runtime/practice/<topic>/<nn>-<name>.toml      # one exercise
+runtime/practice/index.toml                    # the chapters, in order: [[chapters]] dir, title, keys
+runtime/practice/CURRICULUM.md                 # the curriculum and the writing guide; agrees with index.toml
+runtime/practice/<chapter>/<nn>-<name>.toml    # one exercise
 ```
 
-- A new topic goes into `index.toml` (every directory is listed there, nothing else).
-- `<nn>` is two digits, from `01` in each topic, without gaps; `<name>` is kebab-case. The order of
-  the files is the order of the exercises. The id is `<topic>/<nn>-<name>`; the user's progress is
-  keyed by it, so don't rename or renumber existing exercises without need.
+Read **`runtime/practice/CURRICULUM.md` first**: it has the 12 chapters from modes to shell
+commands, what each teaches and assumes, its keys, and the guide for lessons and hints that every
+exercise follows.
+
+### The curriculum
+
+The chapters run from fundamentals to advanced: modes and moving, lines and characters (`d` `x` `J`
+`>`...), words and counts, yank, paste and move, undo and repeat, search and jump, many selections,
+text objects, the syntax tree, surround, macros, shell and commands. Each chapter lists in
+`index.toml` the keys it introduces, and **an exercise may only use the keys of its chapter and of
+the chapters before it** (the replay test records the keys of `teach` and `naive` as commands and
+checks them). A feature of this fork goes in the chapter where it fits, with its keys, like move
+mode `M` in yank, paste and move; its lesson says it is this fork's.
+
+Inside a chapter the exercises go `learn` (the new keys alone) → `apply` (realistic text) →
+`combine` (with earlier chapters) → `challenge` (one or two at the end, where the shortest solution
+takes thought). The `kind` field says which; the first is a learn, the last a challenge.
+
+### The format
 
 ```toml
-title = "Word by word"
-topic = "motions"                       # the directory name
-feature = "Word motions: w, b, e"       # the feature taught, one line
+title = "The end of the line"           # at most 40 characters
+chapter = "basics"                      # the directory name
+kind = "learn"                          # learn | apply | combine | challenge
+feature = "A appends at the end of the line"
 lesson = """
-`w` selects to the start of the next word, `b` to the start of the previous
-one, `e` to the end. A motion leaves what it passed over selected, so `d`
-right after deletes it.
+`A` starts insert mode at the end of the line, wherever the cursor is in it.
+`I` is its twin for the start of the line (after the indentation). Use them
+instead of walking to either end.
 """
-start = """
-The #[q|]#uick quick brown fox
-"""
-goal = """
-The quick brown fox
-"""
-# language = "rust"                     # optional language id, for tree-sitter features
+start = '''
+const path = process.argv[2]
+const text = await readFile(path, "utf8")
+'''
+goal = '''
+const path = process.argv[2];
+const text = await readFile(path, "utf8");
+'''
+# language = "rust"                     # optional language id, for tree-sitter features and indentation
+# before = ["older text"]               # optional: texts the buffer had before `start` (its undo history)
 hints = [
-  "One word is there twice.",                                # vague
-  "Select a whole word with a word motion, then delete it.", # names the feature
-  "`w` selects `quick ` from the cursor, then `d`.",         # names the keys
+  "Every line is missing the same thing at its very end.",
+  "`A` jumps to the end of the line and starts insert mode, from anywhere in the line.",
+  "`A`, `;`, `<esc>`, then `j` to the next line; `A;<esc>` again on the last.",
 ]
-teach = "wd"                            # solution that uses the taught feature
-# gold = "..."                          # optional: shortest known, strictly fewer keys than teach
+teach = "A;<esc>jA;<esc>"               # the solution with the feature: par is its number of keys
+naive = "llll...a;<esc>..."             # brute force without the feature, earlier chapters' keys only
+# gold = "..."                          # optional: shorter than teach, shown once the user is at par
 ```
 
-- **Lesson**: which keys and why, at most 5 lines of at most 80 characters. It's read on a phone:
-  the panel joins the lines and wraps them to its width, so a line break is a space; a blank line
-  (a new paragraph), an indented line or a list item (`-`, `*`, `1.`) starts a new line.
-- **title** and **feature**: one line each.
-- **start / goal**: realistic text (code, config, prose), lines of at most 40 characters, at most
-  12 lines. `start` may mark the selection with Helix's test markup (`#[|x]#` primary, `#(|y)#`
-  secondary); without it the cursor is on the first character. Neither may otherwise contain `#[`
-  or `#(`. The goal is compared exactly (text only, not selections), so both usually end with a
-  newline.
+- Use literal strings (`'''`) for code, so backslashes stay as they are.
+- **start / goal**: realistic text (code in several languages, config files, logs, prose), at most
+  16 lines of at most 50 characters. `start` may mark the selection with Helix's test markup
+  (`#[|x]#` primary, `#(|y)#` secondary); without it the cursor is on the first character. The goal
+  is compared exactly (text only, not selections), so both usually end with a newline.
 - **Solved** means the text equals `goal` in normal mode, checked after every key: a solution that
   types text ends with `<esc>`, and it must not reach the goal before its last key.
-- **Keys** use Helix's macro notation (`<esc>`, `<ret>`, `<space>`, `<C-w>`, `<A-o>`, ...). Every
-  key event counts as one keystroke.
-- **Par** is the number of keys of `teach`. It is computed, never written in the file (unknown
-  fields are an error).
-- **Hints**: exactly three, from vague to naming the keys.
-- **gold**: only when strictly shorter than `teach` and worth seeing; it's shown once the user is
-  at or under par.
-- Shell commands (`|`, `!`, ...) only in the `pipe` topic, with `sort`, `tr`, `rev` or `uniq`
-  (the replay test skips that topic on Windows).
-- Typing quotes or brackets in a solution adds the closing one too (auto-pairs), so avoid them.
+- **Keys** use Helix's macro notation (`<esc>`, `<ret>`, `<space>`, `<C-w>`, `<A-o>`); a literal
+  `<` or `>` is `<lt>` or `<gt>`. Every key event is one keystroke. Par is computed, never written.
+- Shell commands (`|`) only in the `shell` chapter, with POSIX tools (`sort`, `uniq`, `tr`, `cut`,
+  `nl`, `rev`); the replay test skips that chapter on Windows.
 - An exercise doesn't rely on state it doesn't set up itself (registers, the jumplist, the last
-  search).
-- Use the keys of this fork's keymap (`helix-term/src/keymap/default.rs`), which differs from
-  upstream in places (for example `M`).
+  search); `before` is how it gets an undo history.
+- Use this fork's keymap (`helix-term/src/keymap/default.rs`), which differs from upstream in places.
+
+### Quality rules (checked by the replay test)
+
+- **The feature must win.** `naive` (brute force with earlier chapters' keys: moving with
+  `hjkl`, deleting with `d`, typing; or the same keys repeated where a feature would repeat them)
+  takes at least **2 x par** keys. So does retyping the goal (`%c`, the goal, `<esc>`). Make it so
+  with repetition, several edit sites, and text where the feature pays off; not with toy one-liners.
+- Every key a chapter lists is used by the `teach` or `gold` of one of its exercises.
+- CURRICULUM.md's `Keys:` line of each chapter equals the chapter's keys in `index.toml`.
+
+### Lessons and hints
+
+- **Lesson**: 2-4 short sentences, at most 6 lines of 80 characters. The *why* before the *how*;
+  name the keys; don't restate the goal (the panel shows it).
+- **Hints**, exactly three, specific to *this* exercise, plain and friendly, proofread:
+  1. the idea, as what to look at ("Every line is missing the same thing at its very end.");
+  2. the feature by name and what it does here;
+  3. the exact keys, step by step, matching `teach` (or another solution at par).
+  No generic advice like "try using selections".
 
 ### Solutions are verified
 
 The replay test (`helix-term/tests/test/practice.rs`) loads every exercise, checks the rules above,
-and replays `teach` and `gold` through the integration test harness: each must reach the goal in
-normal mode exactly at its last key, in a fresh editor. It also prints the par of each exercise. So exercises can't
-rot when the keymap or a command changes: the test fails and names them.
+and replays `teach`, `gold` and `naive` through the integration test harness, each in a fresh
+editor: each must reach the goal in normal mode exactly at its last key. It prints a table of par,
+naive and retype per exercise. So exercises can't rot when the keymap or a command changes.
 
 ```sh
-cargo integration-test -- practice --nocapture
+cargo integration-test -- the_solutions_of_all --nocapture       # all of them (about 2 minutes)
+PRACTICE_FILTER=search/ cargo integration-test -- the_solutions_of_all --nocapture
+PRACTICE_DIR=path/to/drafts cargo integration-test -- the_solutions_of_all --nocapture
 ```
+
+While writing an exercise, `practice_try` replays keys one at a time and prints the buffer with
+its selections and the recorded commands after each key (prompts like `/` need the replay test):
+
+```sh
+PRACTICE_TRY=runtime/practice/basics/03-end-of-the-line.toml PRACTICE_KEYS='A;<esc>j' \
+  cargo integration-test -- practice_try --ignored --nocapture
+```
+
+Auto-pairs and auto-indent apply while replaying: typing `(` or a quote may insert the closing
+one, and a new line is indented like the last. Replay rather than reason.
 
 ## Fork conventions
 

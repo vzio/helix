@@ -1,0 +1,31 @@
+title = "Sort inside a line"
+chapter = "shell"
+kind = "learn"
+feature = ":sort sorts the selections"
+lesson = """
+`:sort` sorts the contents of the selections among themselves, without a
+shell. Split a list into one selection per item (`S` from chapter 7), sort,
+and every item lands in its new place while the commas stay put.
+"""
+language = "python"
+start = '''
+__all__ = ["save", "load", "dump", "Feed", "read"]
+
+
+class Feed:
+    pass
+'''
+goal = '''
+__all__ = ["Feed", "dump", "load", "read", "save"]
+
+
+class Feed:
+    pass
+'''
+hints = [
+  "The names in the list should be sorted; the punctuation between them stays where it is.",
+  "`mi[` selects the inside of the brackets, `S, ` splits it into one selection per name, and `:sort` sorts the selections.",
+  "`f\"mi[S, <ret>:sort<ret>`.",
+]
+teach = "f\"mi[S, <ret>:sort<ret>"
+naive = "lllllllllllddddddddddddddddddddddddddddddddddddddi\"Feed\", \"dump\", \"load\", \"read\", \"save\"<esc>"

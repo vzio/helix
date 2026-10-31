@@ -1,0 +1,36 @@
+title = "Shout the keywords"
+chapter = "motions"
+kind = "combine"
+feature = "Word motions with ~ from chapter 2"
+lesson = """
+`~` from the last chapter works on any selection, not just whole lines. With
+word motions you can pick out exactly the words to change: the start of a
+line with `gh` or `gs`, its last word with `gl` then `b`, a word in between
+with a count.
+"""
+language = "sql"
+start = '''
+select o.id, o.total, c.email
+from orders o
+join customers c on c.id = o.customer_id
+where o.status = 'paid'
+  and o.created_at > now() - interval '7 days'
+order by o.total desc
+limit 20;
+'''
+goal = '''
+SELECT o.id, o.total, c.email
+FROM orders o
+JOIN customers c ON c.id = o.customer_id
+WHERE o.status = 'paid'
+  AND o.created_at > now() - interval '7 days'
+ORDER BY o.total DESC
+LIMIT 20;
+'''
+hints = [
+  "Ten keywords: most start a line, `ON` sits in the middle of one, and `DESC` ends one.",
+  "`~` switches the case of whatever is selected. `e` selects a word from its first letter; `gh` and `gs` go to the start of the line, `gl` to its end, `b` back over a word, and `4w` four words ahead.",
+  "`e~` for `select`. Then `jghe~` on each line that starts with a keyword (`jgse~` on the indented `and`). On the `join` line `4w~` reaches `on`; on the `order by` line `e~` a second time does `by`, and `glb~` does `desc`.",
+]
+teach = "e~jghe~jghe~4w~jghe~jgse~jghe~e~glb~jghe~"
+naive = "ddddddiSELECT<esc>jhhhhhhddddiFROM<esc>jhhhhddddiJOIN<esc>lllllllllllllddiON<esc>jhhhhhhhhhhhhhhhhhhhdddddiWHERE<esc>jhhhdddiAND<esc>jhhhhhdddddiORDER<esc>lddiBY<esc>lllllllllddddiDESC<esc>jhhhhhhhhhdddddiLIMIT<esc>"

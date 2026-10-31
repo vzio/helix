@@ -1,0 +1,38 @@
+title = "Move it up"
+chapter = "yank-paste"
+kind = "learn"
+feature = "M enters move mode: j and k move the selected lines"
+lesson = """
+Moving a line with `d` and `P` means a trip to the new place, and it overwrites
+your yank. `M` starts move mode instead: `j` and `k` carry the selected lines
+down and up, a count carries them further, and `<esc>` leaves the mode. The
+registers stay untouched. (Move mode is a feature of this fork.)
+"""
+language = "yaml"
+start = '''
+steps:
+  - uses: actions/checkout@v4
+  - uses: dtolnay/rust-toolchain@stable
+  - run: cargo build --locked
+  - run: cargo test --locked
+  - run: cargo clippy -- -D warnings
+  - #[|r]#un: cargo fmt --check
+  - uses: actions/upload-artifact@v4
+'''
+goal = '''
+steps:
+  - uses: actions/checkout@v4
+  - uses: dtolnay/rust-toolchain@stable
+  - run: cargo fmt --check
+  - run: cargo clippy -- -D warnings
+  - run: cargo build --locked
+  - run: cargo test --locked
+  - uses: actions/upload-artifact@v4
+'''
+hints = [
+  "The cheap checks should run first: formatting, then clippy, both before the build.",
+  "`M` then `k` moves the selected lines up one line; `M` then `3k` three lines. `x` selects a line, `xx` two.",
+  "`M3k` moves the fmt step up three lines. `<esc>`, `3j` down to clippy, `M2k` moves it up two.",
+]
+teach = "M3k<esc>3jM2k"
+naive = "kkkdddddddddddddddddddddddddirun: cargo fmt --check<esc>jhhhhhhhhhhhhhhhhhhhhhhddddddddddddddddddddddddirun: cargo clippy -- -D warnings<esc>jhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhddddddddddddddddddddddddddddddddirun: cargo build --locked<esc>jhhhhhhhhhhhhhhhhhhhhhhddddddddddddddddddddddirun: cargo test --locked<esc>"

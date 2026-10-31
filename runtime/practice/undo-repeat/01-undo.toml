@@ -1,0 +1,55 @@
+title = "Take it back"
+chapter = "undo-repeat"
+kind = "learn"
+feature = "u undoes the last change"
+lesson = """
+`u` undoes the last change, and pressing it again goes further back. This
+buffer comes with a history: two edits were made before you arrived, and both
+were mistakes.
+"""
+language = "python"
+before = [
+'''
+def retry(fn, attempts=3, delay=0.5):
+    for attempt in range(attempts):
+        try:
+            return fn()
+        except TimeoutError:
+            if attempt == attempts - 1:
+                raise
+            time.sleep(delay * 2 ** attempt)
+''',
+'''
+def retry(fn, attempts=3, delay=0.5):
+    for attempt in range(attempts):
+        try:
+            return fn()
+        except TimeoutError:
+            time.sleep(delay * 2 ** attempt)
+''',
+]
+start = '''
+def retry(fn, attempts=3, delay=0.5):
+    for attempt in range(attempts):
+        try:
+            return fn()
+        except Exception:
+            time.sleep(delay * 2 ** attempt)
+'''
+goal = '''
+def retry(fn, attempts=3, delay=0.5):
+    for attempt in range(attempts):
+        try:
+            return fn()
+        except TimeoutError:
+            if attempt == attempts - 1:
+                raise
+            time.sleep(delay * 2 ** attempt)
+'''
+hints = [
+  "Nothing needs typing: the goal is how the function looked two edits ago.",
+  "`u` undoes the last change in the buffer's history; each press goes one change further back.",
+  "`uu`: the first undo brings back `TimeoutError`, the second the two deleted lines.",
+]
+teach = "uu"
+naive = "4jwwwcTimeoutError<esc>oif attempt == attempts - 1:<ret>    raise<esc>"

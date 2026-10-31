@@ -15,7 +15,7 @@ use crate::ui::{overlay::overlaid, Picker, PickerColumn};
 pub const DOC: &str = "\
 Practice with exercises that count your keystrokes: each teaches a feature, then you can come \
 back and solve it with fewer keys. Without an argument it continues with the first exercise that \
-is not solved yet. Arguments: a topic name (its first unsolved exercise), list (pick an \
+is not solved yet. Arguments: a chapter name (its first unsolved exercise), list (pick an \
 exercise), hint (reveal the next hint), reset (start the exercise again), next, prev, lesson \
 (show or hide the lesson panel).";
 
@@ -25,36 +25,33 @@ const SUBCOMMANDS: [&str; 6] = ["list", "hint", "reset", "next", "prev", "lesson
 pub struct Row {
     pub index: usize,
     pub status: Status,
-    pub topic: String,
+    /// `3.2`: the number of the chapter, then of the exercise in it.
+    pub number: String,
     pub title: String,
+    pub chapter_title: String,
     pub best: Option<usize>,
     pub par: usize,
 }
 
-/// The topics in the order of the exercises.
-pub fn topics(exercises: &[Exercise]) -> Vec<&str> {
-    let mut topics: Vec<&str> = Vec::new();
+/// The chapters (their directory names) in the order of the exercises.
+pub fn chapters(exercises: &[Exercise]) -> Vec<&str> {
+    let mut chapters: Vec<&str> = Vec::new();
     for exercise in exercises {
-        let topic = topic_of(exercise);
-        if topics.last() != Some(&topic) {
-            topics.push(topic);
+        let chapter = exercise.chapter.as_str();
+        if chapters.last() != Some(&chapter) {
+            chapters.push(chapter);
         }
     }
-    topics
+    chapters
 }
 
-/// The topic of an exercise: the directory in its id, which the order of the exercises is by.
-pub fn topic_of(exercise: &Exercise) -> &str {
-    exercise.id.split('/').next().unwrap_or_default()
-}
-
-/// What to start for `:practice` (all exercises) or `:practice <topic>`: the first exercise that
-/// is not solved; then, for all exercises, the first one over par, for a topic its first one.
+/// What to start for `:practice` (all exercises) or `:practice <chapter>`: the first exercise that
+/// is not solved; then, for all exercises, the first one over par, for a chapter its first one.
 /// The notice is for the status line.
 pub fn choose(
     exercises: &[Exercise],
     progress: &Progress,
-    topic: Option<&str>,
+    chapter: Option<&str>,
 ) -> anyhow::Result<(usize, Option<&'static str>)> {
     if exercises.is_empty() {
         anyhow::bail!("there are no exercises");
@@ -63,13 +60,13 @@ pub fn choose(
         exercises
             .iter()
             .enumerate()
-            .filter(|(_, exercise)| topic.is_none_or(|topic| topic_of(exercise) == topic))
+            .filter(|(_, exercise)| chapter.is_none_or(|chapter| exercise.chapter == chapter))
     };
     if candidates().next().is_none() {
         anyhow::bail!(
-            "unknown topic `{}`, the topics are: {}",
-            topic.unwrap_or_default(),
-            topics(exercises).join(", ")
+            "unknown chapter `{}`, the chapters are: {}",
+            chapter.unwrap_or_default(),
+            chapters(exercises).join(", ")
         );
     }
     let first_with = |status: Status| {
@@ -80,7 +77,7 @@ pub fn choose(
     if let Some(index) = first_with(Status::Unsolved) {
         return Ok((index, None));
     }
-    if topic.is_some() {
+    if chapter.is_some() {
         return Ok((candidates().next().unwrap().0, None));
     }
     if let Some(index) = first_with(Status::Solved) {
@@ -134,7 +131,7 @@ pub fn practice(
             session::toggle_panel();
             Ok(())
         }
-        Some(topic) => resume(cx.editor, Some(topic)),
+        Some(chapter) => resume(cx.editor, Some(chapter)),
     }
 }
 
@@ -143,11 +140,11 @@ fn running(editor: &Editor) -> anyhow::Result<session::Attempt> {
         .ok_or_else(|| anyhow::anyhow!("no exercise is open, start one with :practice"))
 }
 
-fn resume(editor: &mut Editor, topic: Option<&str>) -> anyhow::Result<()> {
+fn resume(editor: &mut Editor, chapter: Option<&str>) -> anyhow::Result<()> {
     let exercises = exercises()?;
     // (a progress file that can't be read is reported when the exercise starts)
     let (progress, _) = session::load_progress();
-    let (index, notice) = choose(&exercises, &progress, topic)?;
+    let (index, notice) = choose(&exercises, &progress, chapter)?;
     open(editor, index)?;
     if let Some(notice) = notice {
         editor.set_status(notice);
@@ -174,8 +171,9 @@ fn rows(exercises: &[Exercise], progress: &Progress) -> Vec<Row> {
         .map(|(index, exercise)| Row {
             index,
             status: progress.status(exercise),
-            topic: topic_of(exercise).to_owned(),
+            number: format!("{}.{}", exercise.chapter_number, exercise.number),
             title: exercise.title.clone(),
+            chapter_title: exercise.chapter_title.clone(),
             best: progress.best(&exercise.id),
             par: exercise.par(),
         })
@@ -213,10 +211,13 @@ fn picker(rows: Vec<Row>, initial: usize) -> Picker<Row, ()> {
                 .unwrap_or_default()
                 .into()
         }),
+        PickerColumn::new("#", |row: &Row, _: &()| row.number.as_str().into()),
         PickerColumn::new("exercise", |row: &Row, _: &()| row.title.as_str().into()),
-        PickerColumn::new("topic", |row: &Row, _: &()| row.topic.as_str().into()),
+        PickerColumn::new("chapter", |row: &Row, _: &()| {
+            row.chapter_title.as_str().into()
+        }),
     ];
-    Picker::new(columns, 3, rows, (), |cx, row, _action| {
+    Picker::new(columns, 4, rows, (), |cx, row, _action| {
         if let Err(err) = start_index(cx.editor, row.index) {
             cx.editor.set_error(err.to_string());
         }
@@ -224,11 +225,11 @@ fn picker(rows: Vec<Row>, initial: usize) -> Picker<Row, ()> {
     .with_initial_cursor(initial as u32)
 }
 
-/// The subcommands and topics that match what is typed.
+/// The subcommands and chapters that match what is typed.
 pub fn complete(_editor: &Editor, input: &str) -> Vec<Completion> {
     let mut words: Vec<String> = SUBCOMMANDS.iter().map(|word| word.to_string()).collect();
     if let Ok(exercises) = exercises() {
-        words.extend(topics(&exercises).into_iter().map(str::to_owned));
+        words.extend(chapters(&exercises).into_iter().map(str::to_owned));
     }
     fuzzy_match(input, words, false)
         .into_iter()
@@ -240,33 +241,17 @@ pub fn complete(_editor: &Editor, input: &str) -> Vec<Completion> {
 mod tests {
     use super::*;
 
-    fn exercise(id: &str, teach: &str) -> Exercise {
-        Exercise {
-            id: id.into(),
-            title: id.into(),
-            topic: String::new(),
-            feature: String::new(),
-            lesson: String::new(),
-            start: String::new(),
-            goal: String::new(),
-            language: None,
-            hints: Vec::new(),
-            teach: teach.into(),
-            gold: None,
-        }
-    }
-
     fn set() -> Vec<Exercise> {
         // par 2 each
         ["a/01-x", "a/02-y", "b/01-z", "b/02-w"]
             .iter()
-            .map(|id| exercise(id, "wd"))
+            .map(|id| Exercise::for_test(id, "wd"))
             .collect()
     }
 
     #[test]
-    fn topics_in_order() {
-        assert_eq!(topics(&set()), ["a", "b"]);
+    fn chapters_in_order() {
+        assert_eq!(chapters(&set()), ["a", "b"]);
     }
 
     #[test]
@@ -299,7 +284,7 @@ mod tests {
     }
 
     #[test]
-    fn a_topic_resumes_in_the_topic() {
+    fn a_chapter_resumes_in_the_chapter() {
         let exercises = set();
         let mut progress = Progress::default();
         assert_eq!(choose(&exercises, &progress, Some("b")).unwrap(), (2, None));
@@ -313,11 +298,11 @@ mod tests {
     }
 
     #[test]
-    fn an_unknown_topic_lists_the_topics() {
+    fn an_unknown_chapter_lists_the_chapters() {
         let err = choose(&set(), &Progress::default(), Some("nope")).unwrap_err();
         assert_eq!(
             err.to_string(),
-            "unknown topic `nope`, the topics are: a, b"
+            "unknown chapter `nope`, the chapters are: a, b"
         );
         assert!(choose(&[], &Progress::default(), None).is_err());
     }

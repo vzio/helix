@@ -1,0 +1,45 @@
+title = "Type the module"
+chapter = "syntax"
+kind = "challenge"
+feature = "Syntax selections with repeat and many selections"
+lesson = """
+Give every parameter of the module a `str` type and drop the deprecated
+function. Many selections and syntax selections combine: one cursor on each
+function's first parameter, and `<A-a>` takes all the parameters of each.
+"""
+language = "python"
+start = '''
+def slugify(title, sep):
+    return sep.join(title.lower().split())
+
+
+def quote(text, mark):
+    return mark + text + mark
+
+
+def legacy_quote(text):
+    return "'" + text + "'"
+
+
+def wrap(text, width, indent):
+    return textwrap.fill(text, width, indent)
+'''
+goal = '''
+def slugify(title: str, sep: str):
+    return sep.join(title.lower().split())
+
+
+def quote(text: str, mark: str):
+    return mark + text + mark
+
+
+def wrap(text: str, width: str, indent: str):
+    return textwrap.fill(text, width, indent)
+'''
+hints = [
+  "Three functions get `: str` after every parameter; the one in between goes, so it doesn't matter what happens to it first.",
+  "`%s` with `^def \\w+\\(` selects every `def name(`; `l` moves each cursor onto the first parameter; `<A-a>` then selects all parameters of each function. `maf` selects a whole function.",
+  "`%s^def \\w+\\(<ret>l<A-a>a: str<esc>` types all hints at once. `,` keeps one cursor, and `/legacy<ret>mafxxxd` deletes the old function and its blank lines.",
+]
+teach = "%s^def \\w+\\(<ret>l<A-a>a: str<esc>,/legacy<ret>mafxxxd"
+naive = "lllllllllllllllla: str<esc>llllla: str<esc>jjjjhhhhhhhhha: str<esc>lllllla: str<esc>jjjjhhhhhhhhhhhhhhhhhhhhhhhddddddddddddddddddddddddddddddddddddddddddddddddddddddlllllllllllla: str<esc>llllllla: str<esc>lllllllla: str<esc>"

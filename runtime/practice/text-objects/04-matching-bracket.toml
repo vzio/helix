@@ -1,0 +1,35 @@
+title = "To the matching brace"
+chapter = "text-objects"
+kind = "learn"
+feature = "mm jumps to the matching bracket"
+lesson = """
+`mm` jumps between a bracket and its match. In select mode (`v`) it extends
+the selection instead, so from the `{` that opens a block, `vmm` selects the
+whole block.
+"""
+language = "javascript"
+start = '''
+export function render(state) {
+  const root = document.getElementById("app");
+  if (state.debug) {
+    console.table(state.items);
+    console.log("filters", state.filters);
+    window.__state = state;
+    root.dataset.debug = "on";
+  }
+  root.replaceChildren(...state.items.map(view));
+}
+'''
+goal = '''
+export function render(state) {
+  const root = document.getElementById("app");
+  root.replaceChildren(...state.items.map(view));
+}
+'''
+hints = [
+  "The whole debug block goes, from its `if` to its closing brace.",
+  "`f{` selects up to the brace that opens the block; in select mode `mm` extends the selection to the matching brace; `x` grows it to whole lines.",
+  "`jj`, `f{`, `v`, `mm`, `x`, `d`.",
+]
+teach = "jjf{vmmxd"
+naive = "jjddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
