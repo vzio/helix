@@ -198,7 +198,7 @@ async fn replay(exercise: &Exercise, keys: &str, progress: PathBuf) -> Result<Ve
                 Some(at) if at != expected => Err(format!(
                     "solved after {at} keys, but the solution has {expected}, the text is {text:?}"
                 )),
-                Some(_) if text != exercise.goal => {
+                Some(_) if !exercise.is_goal(&text) => {
                     Err(format!("solved, but the text is {text:?}"))
                 }
                 Some(_) => Ok(attempt.commands),

@@ -152,11 +152,32 @@ struct Index {
 }
 
 /// The number of keys of a solution in the notation of macros, `None` if it doesn't parse.
+/// The lines of `text` without the spaces at their ends, and without blank lines at the start and
+/// the end.
+fn trimmed_lines(text: &str) -> Vec<&str> {
+    let lines: Vec<&str> = text.lines().map(str::trim_end).collect();
+    let start = lines
+        .iter()
+        .position(|line| !line.is_empty())
+        .unwrap_or(lines.len());
+    let end = lines
+        .iter()
+        .rposition(|line| !line.is_empty())
+        .map_or(start, |last| last + 1);
+    lines[start..end].to_vec()
+}
+
 pub fn key_count(keys: &str) -> Option<usize> {
     parse_macro(keys).ok().map(|keys| keys.len())
 }
 
 impl Exercise {
+    /// Whether `text` is the goal. Spaces at the ends of lines and blank lines at the start and the
+    /// end don't count, so a missing or extra newline at the end doesn't fail a solution.
+    pub fn is_goal(&self, text: &str) -> bool {
+        trimmed_lines(text) == trimmed_lines(&self.goal)
+    }
+
     /// The number of keys of the solution that uses the feature.
     pub fn par(&self) -> usize {
         key_count(&self.teach).unwrap_or(0)
@@ -652,8 +673,8 @@ pub fn validate(exercises: &[Exercise], dir: &Path, loader: &syntax::Loader) -> 
                 if text.contains("#[") || text.contains("#(") {
                     problems.push(format!("{id}: start has markup left after the selection"));
                 }
-                if text == exercise.goal {
-                    problems.push(format!("{id}: start and goal are the same"));
+                if exercise.is_goal(&text) {
+                    problems.push(format!("{id}: start is already the goal"));
                 }
             }
         }
@@ -776,6 +797,17 @@ naive = "dwwwd"
         assert_eq!(text, "The quick quick brown fox\n");
         assert_eq!(selection.primary().from(), 4);
         assert_eq!(selection.len(), 1);
+    }
+
+    #[test]
+    fn the_goal_ignores_spaces_at_line_ends_and_blank_lines_around_it() {
+        let exercise = exercise(GOOD).unwrap();
+        assert!(exercise.is_goal("The quick brown fox\n"));
+        assert!(exercise.is_goal("The quick brown fox"));
+        assert!(exercise.is_goal("\nThe quick brown fox  \n\n"));
+        assert!(!exercise.is_goal("The quick  brown fox\n"));
+        assert!(!exercise.is_goal(" The quick brown fox\n"));
+        assert!(!exercise.is_goal("The quick\nbrown fox\n"));
     }
 
     #[test]

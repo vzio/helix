@@ -545,7 +545,7 @@ nothing else: no timers, no leaderboards, no extra modes.
 | `:practice lesson` | Hide or show the lesson panel |
 
 The exercise opens in a scratch buffer in the current view. A panel shows the exercise's number
-and chapter in its border (`3.2 / 10 · Words, lines and counts`), its title, then labelled
+and chapter in its border (`3. 2/10 · Words, lines and counts`), its title, then labelled
 sections: the lesson, the goal set apart as a block, the hints you revealed, and the count of keys
 against the par. On a terminal 100 columns wide or more it is a column at the top right; on
 narrower ones it is a band at the bottom, below the lines of the buffer. It gives way to the
