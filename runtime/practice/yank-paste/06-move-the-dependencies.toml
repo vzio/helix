@@ -1,0 +1,42 @@
+title = "Move the dependencies"
+chapter = "yank-paste"
+kind = "learn"
+feature = "M enters move mode: j and k move the selected lines"
+lesson = """
+Moving lines with `d` and `P` means a trip to the new place, and it overwrites
+your yank. `M` starts move mode instead: `j` and `k` carry the selected lines
+down and up, a count carries them further, and `<esc>` leaves the mode. The
+registers stay untouched. (Move mode is a feature of this fork.)
+"""
+language = "toml"
+start = '''
+[package]
+serde = "1.0.203"
+toml = "0.8"
+ureq = "2.9"
+name = "feedr"
+version = "0.3.0"
+edition = "2021"
+
+[dependencies]
+anyhow = "1"
+'''
+goal = '''
+[package]
+name = "feedr"
+version = "0.3.0"
+edition = "2021"
+
+[dependencies]
+anyhow = "1"
+serde = "1.0.203"
+toml = "0.8"
+ureq = "2.9"
+'''
+hints = [
+  "Three dependencies ended up in the wrong table: they belong at the end, under `anyhow`.",
+  "`x` selects a line and every `x` adds one; `M` then `j` moves the selected lines down one line, and with a count, that many lines.",
+  "`j` to `serde`, `xxx` selects the three lines, `M6j` moves them down past the six lines below.",
+]
+teach = "jxxxM6j"
+naive = "jddddddddddddddddddddddddddddddddddddddddddddjjjjjlllllllllllli<ret>serde = \"1.0.203\"<ret>toml = \"0.8\"<ret>ureq = \"2.9\"<esc>"

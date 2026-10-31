@@ -1,0 +1,43 @@
+title = "One row off"
+chapter = "multi-cursor"
+kind = "learn"
+feature = "Alt-( and Alt-) rotate the contents of the selections"
+lesson = """
+`<A-)>` moves the text of every selection into the next one, the last into
+the first; `<A-(>` moves it the other way. When values ended up one row off,
+select them and rotate once. With two selections it is a swap.
+"""
+language = "toml"
+start = '''
+[ports]
+http = 6379
+https = 80
+postgres = 443
+redis = 5432
+
+[status]
+ok = 201
+created = 404
+not_found = 500
+server_error = 200
+'''
+goal = '''
+[ports]
+http = 80
+https = 443
+postgres = 5432
+redis = 6379
+
+[status]
+ok = 200
+created = 201
+not_found = 404
+server_error = 500
+'''
+hints = [
+  "Both tables were generated one row off: the ports each moved one row down, the status codes one row up.",
+  "`s` selects the matches of a regex inside the selection, so select the lines of one table first. `<A-(>` moves every selection's text into the previous selection, `<A-)>` into the next one.",
+  "`xxxxx` selects the ports table, `s\\d+<ret>` the numbers, `<A-(>` rotates them back. `6j`, `xxxx`, `s\\d+<ret>`, `<A-)>` for the status codes.",
+]
+teach = "xxxxxs\\d+<ret><A-(>6jxxxxs\\d+<ret><A-)>"
+naive = "jlllllllddddi80<esc>jhddi443<esc>jdddi5432<esc>jhhhhddddi6379<esc>jjjhhhdddi200<esc>jlldddi201<esc>jhdddi404<esc>jdddi500<esc>"

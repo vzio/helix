@@ -1,0 +1,34 @@
+title = "Not that one"
+chapter = "multi-cursor"
+kind = "learn"
+feature = "( and ) cycle the primary selection, Alt-, removes it"
+lesson = """
+A search often selects a match or two too many. One selection is the
+primary: `)` and `(` make the next or previous one primary, going round at
+the ends, and `<A-,>` removes it, which makes the next one primary. Prune
+the extra matches, then edit the rest at once.
+"""
+language = "python"
+start = '''
+def load_user(id):
+    row = db.get("users", id=id)
+    if row is None:
+        raise KeyError(f"no user {id}")
+    log.debug("loaded %s", id)
+    return {"id": row.id, "name": row.name}
+'''
+goal = '''
+def load_user(user_id):
+    row = db.get("users", id=user_id)
+    if row is None:
+        raise KeyError(f"no user {user_id}")
+    log.debug("loaded %s", user_id)
+    return {"id": row.id, "name": row.name}
+'''
+hints = [
+  "The parameter `id` shadows a builtin, so it becomes `user_id`. Three other `id`s stay: the keyword `id=`, the `\"id\"` key and the attribute `row.id`.",
+  "`%s\\bid\\b` selects every whole word `id`, and the first is primary. `)` moves the primary to the next one, `(` to the previous one (from the first, that is the last), and `<A-,>` removes the primary.",
+  "`%s\\bid\\b<ret>`, `)<A-,>` drops `id=`, `((` reaches `row.id`, `<A-,><A-,>` drops it and the key before it, `cuser_id<esc>`.",
+]
+teach = "%s\\bid\\b<ret>)<A-,>((<A-,><A-,>cuser_id<esc>"
+naive = "llllllllllllllddiuser_id<esc>jllllllllddiuser_id<esc>jjhhddiuser_id<esc>jhhhddiuser_id<esc>"

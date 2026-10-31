@@ -403,7 +403,7 @@ pub fn check_curriculum(chapters: &[Chapter], text: &str) -> Vec<String> {
             continue;
         };
         // the text between backticks, so the odd pieces
-        let listed: Vec<&str> = keys.split('`').skip(1).step_by(2).collect();
+        let listed = code_spans(keys);
         if listed != chapter.keys {
             problems.push(format!(
                 "{CURRICULUM_FILE}: `{heading}` lists the keys {listed:?}, {INDEX_FILE} has {:?}",
@@ -415,6 +415,34 @@ pub fn check_curriculum(chapters: &[Chapter], text: &str) -> Vec<String> {
 }
 
 /// Splits `01-word-motions` into its number and name.
+/// The code spans of a line of Markdown: the text between two runs of as many backticks, without
+/// the spaces that pad a span with a backtick of its own (`` ` ``).
+fn code_spans(line: &str) -> Vec<&str> {
+    let fence = |text: &str| text.len() - text.trim_start_matches('`').len();
+    let mut spans = Vec::new();
+    let mut rest = line;
+    while let Some(start) = rest.find('`') {
+        let open = fence(&rest[start..]);
+        let after = &rest[start + open..];
+        let mut from = 0;
+        let close = loop {
+            let Some(at) = after[from..].find('`').map(|at| from + at) else {
+                return spans;
+            };
+            let run = fence(&after[at..]);
+            if run == open {
+                break at;
+            }
+            from = at + run;
+        };
+        let span = &after[..close];
+        let padded = span.len() > 2 && span.starts_with(' ') && span.ends_with(' ');
+        spans.push(if padded { &span[1..span.len() - 1] } else { span });
+        rest = &after[close + open..];
+    }
+    spans
+}
+
 fn split_stem(stem: &str) -> Option<(usize, &str)> {
     let (number, name) = stem.split_once('-')?;
     (number.len() == 2 && number.bytes().all(|b| b.is_ascii_digit()) && is_kebab(name))
@@ -808,6 +836,13 @@ naive = "dwwwd"
         assert!(!exercise.is_goal("The quick  brown fox\n"));
         assert!(!exercise.is_goal(" The quick brown fox\n"));
         assert!(!exercise.is_goal("The quick\nbrown fox\n"));
+    }
+
+    #[test]
+    fn code_spans_are_read_like_markdown() {
+        assert_eq!(code_spans("Keys: `d` `x`"), ["d", "x"]);
+        assert_eq!(code_spans("`~` `` ` `` `` <A-`> `` `J`"), ["~", "`", "<A-`>", "J"]);
+        assert_eq!(code_spans("no keys, `unclosed"), Vec::<&str>::new());
     }
 
     #[test]

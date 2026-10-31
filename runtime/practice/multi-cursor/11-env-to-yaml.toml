@@ -7,6 +7,7 @@ Turn an `.env` file into the `env:` block of a YAML config: keys in lower
 case, `: ` instead of `=`, indented under `env:`, and the variable that has
 no value dropped. Every step is one selection of many places, then one edit.
 """
+language = "yaml"
 start = '''
 APP_ENV=production
 APP_PORT=8080
@@ -28,7 +29,7 @@ env:
 hints = [
   "Four changes, each the same on every line: drop the empty one, lower-case the keys, `=` to `: `, indent; plus the `env:` line on top.",
   "`K` keeps only the selections that match a regex (`=$` is a line ending in `=`); `~` switches the case of every selection; `%s` selects every match.",
-  "`%<A-s>K=$<ret>xd`, `%s^\\w+<ret>~`, `%s=<ret>c: <esc>`, `%<A-s>I  <esc>`, `ggOenv:<esc>`.",
+  "`%<A-s>K=$<ret>xd`, `%s^\\w+<ret>~`, `%s=<ret>c: <esc>`, `ggOenv:<esc>`, then `%<A-s><A-,>` selects every line but `env:`, and `I<tab><esc>` indents them (YAML indents with two spaces).",
 ]
-teach = "%<A-s>K=$<ret>xd%s^\\w+<ret>~%s=<ret>c: <esc>%<A-s>I  <esc>ggOenv:<esc>"
+teach = "%<A-s>K=$<ret>xd%s^\\w+<ret>~%s=<ret>c: <esc>ggOenv:<esc>%<A-s><A-,>I<tab><esc>"
 naive = "ienv:<ret><esc>ddddddddi  app_env: <esc>jhhhhhhhhhhhdddddddddi  app_port: <esc>jhhhhhhhhhhhhdddddddddddddi  database_url: <esc>jhhhhhhhhhhhhhhhhddddddddddi  redis_url: <esc>jhhhhhhhhhhhddddddddddddddddddddddi  log_level: <esc>jhhhhhhhhhhhhhddddddddddi  mail_from: <esc>"
