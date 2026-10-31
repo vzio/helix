@@ -29,8 +29,8 @@ def fetch(api, page):
 '''
 hints = [
   "By Python convention, module-level constants are written in capitals. Only the first four lines change.",
-  "`~` switches the case of the selection, and `x` selects a whole line; the digits and `=` don't have a case.",
-  "`x~` on the first line, then `jx~` on each of the next three.",
+  "`~` switches the case of everything selected, and every `x` adds a line to the selection; the digits and `=` don't have a case.",
+  "`xxxx` selects the first four lines, `~` switches them all: `xxxx~`.",
 ]
-teach = "x~jx~jx~jx~"
+teach = "xxxx~"
 naive = "IMAX_RETRIES<esc>dddddddddddjIRETRY_DELAY_MS<esc>ddddddddddddddjIPAGE_SIZE<esc>dddddddddjICACHE_TTL_SECONDS<esc>ddddddddddddddddd"

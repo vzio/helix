@@ -1,11 +1,12 @@
 title = "Keep what matches"
 chapter = "multi-cursor"
 kind = "learn"
-feature = "K keeps the selections that match a regex, Alt-K removes them"
+feature = "K keeps only the selections that match a regex"
 lesson = """
-`K` keeps only the selections that match a regex; `<A-K>` drops those and
-keeps the rest. Split the buffer into lines (`%` then `<A-s>`), keep the
-lines you want, and act on all of them: `x` turns each into a whole line.
+Selecting everything and then narrowing down is often easier than selecting
+the right places directly. Split the buffer into lines (`%` then `<A-s>`),
+and `K` keeps only the selections that match a regex. Then act on all of
+them at once: `x` grows each into a whole line.
 """
 language = "javascript"
 start = '''
@@ -37,9 +38,9 @@ export async function sync(feed) {
 }
 '''
 hints = [
-  "Four lines go: every `console` line except the error report.",
-  "`%<A-s>` gives one selection per line; `K` keeps the ones matching a regex and `<A-K>` then drops the ones matching another; `x` grows each to its whole line, newline included; `d` deletes them all.",
-  "`%<A-s>`, `Kconsole<ret>`, `<A-K>error<ret>`, `xd`.",
+  "Four lines go: every `console.log`, but not the `console.error`.",
+  "`%<A-s>` gives one selection per line; `K` keeps the ones matching a regex; `x` grows each to its whole line, newline included; `d` deletes them all.",
+  "`%<A-s>`, `Kconsole.log<ret>`, `xd`.",
 ]
-teach = "%<A-s>Kconsole<ret><A-K>error<ret>xd"
+teach = "%<A-s>Kconsole.log<ret>xd"
 naive = "jddddddddddddddddddddddddddddddddjdddddddddddddddddddddddddddddddddddddjjjjjddddddddddddddddddddddddddddddddddddddjdddddddddddddddddddddddd"

@@ -33,8 +33,8 @@ Linus Torvalds <linus@example.com>, Portland
 '''
 hints = [
   "Each contact is three lines that become one, with the same punctuation added every time.",
-  "Record one contact with `Q` (and `Q` to stop), then replay with a count. In insert mode `<del>` deletes the line break after the cursor.",
-  "`Q` to start recording. `A`, a space, `<`, `<del>`, `<esc>`; then `A`, `>`, `,`, a space, `<del>`, `<esc>`; then `j` and `Q` to stop. `4q` does the other four.",
+  "Record one contact with `Q` (and `Q` to stop), then replay with a count. Add the brackets on the email line first; `J` then joins lines with a space between them.",
+  "`Q` to start recording. `j`, `I<<esc>` and `A>,<esc>` on the email, `k` back up, `JJ` joins the three lines, `j` to the next contact, `Q` to stop. `4q` does the other four.",
 ]
-teach = "QA <lt><del><esc>A<gt>, <del><esc>jQ4q"
-naive = "A <lt><del><esc>A<gt>, <del><esc>jA <lt><del><esc>A<gt>, <del><esc>jA <lt><del><esc>A<gt>, <del><esc>jA <lt><del><esc>A<gt>, <del><esc>jA <lt><del><esc>A<gt>, <del><esc>"
+teach = "QjI<lt><esc>A<gt>,<esc>kJJjQ4q"
+naive = "jI<lt><esc>A<gt>,<esc>kJJjjI<lt><esc>A<gt>,<esc>kJJjjI<lt><esc>A<gt>,<esc>kJJjjI<lt><esc>A<gt>,<esc>kJJjjI<lt><esc>A<gt>,<esc>kJJ"
