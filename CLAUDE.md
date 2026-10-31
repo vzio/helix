@@ -10,7 +10,7 @@ into.
 **Every feature, original or ported, ships with at least one `:practice` exercise.**
 
 A PR that adds or ports a feature adds its exercise(s) under `runtime/practice/` in the same PR
-(the fork's own features go in a chapter of their own, see below). The replay test must pass with them.
+(in the chapter where the feature fits, see below). The replay test must pass with them.
 
 ## Writing a `:practice` exercise
 
@@ -23,18 +23,19 @@ runtime/practice/CURRICULUM.md                 # the curriculum and the writing 
 runtime/practice/<chapter>/<nn>-<name>.toml    # one exercise
 ```
 
-Read **`runtime/practice/CURRICULUM.md` first**: it has the 13 chapters from modes to this fork's
-features, what each teaches and assumes, its keys, and the guide for lessons and hints that every
+Read **`runtime/practice/CURRICULUM.md` first**: it has the 12 chapters from modes to shell
+commands, what each teaches and assumes, its keys, and the guide for lessons and hints that every
 exercise follows.
 
 ### The curriculum
 
-The chapters run from fundamentals to advanced: modes and moving, lines and characters (`d` `x`
-`J` `>`...), words and counts, yank and paste, undo and repeat, search and jump, many selections,
-text objects, the syntax tree, surround, macros, shell and commands, this fork. Each chapter
-lists in `index.toml` the keys it introduces, and **an exercise may only use the keys of its
-chapter and of the chapters before it** (the replay test records the keys of `teach` and `naive`
-as commands and checks them). A feature of this fork goes in the `fork` chapter, with its keys.
+The chapters run from fundamentals to advanced: modes and moving, lines and characters (`d` `x` `J`
+`>`...), words and counts, yank, paste and move, undo and repeat, search and jump, many selections,
+text objects, the syntax tree, surround, macros, shell and commands. Each chapter lists in
+`index.toml` the keys it introduces, and **an exercise may only use the keys of its chapter and of
+the chapters before it** (the replay test records the keys of `teach` and `naive` as commands and
+checks them). A feature of this fork goes in the chapter where it fits, with its keys, like move
+mode `M` in yank, paste and move; its lesson says it is this fork's.
 
 Inside a chapter the exercises go `learn` (the new keys alone) → `apply` (realistic text) →
 `combine` (with earlier chapters) → `challenge` (one or two at the end, where the shortest solution

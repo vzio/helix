@@ -37,8 +37,10 @@ Assumes: nothing.
 Keys: `d` `x` `~` `J` `<gt>` `<lt>` `<C-c>` `insert:<C-w>`
 
 Helix selects first and acts second. So far the selection was just the cursor, one character, and
-`d` deletes it. `x` selects the whole line (press it again to add the next one), and the commands
-of this chapter act on whatever is selected:
+`d` deletes it. `x` selects the whole line (press it again to add the next one). On an empty line
+`x` selects just that line, so a selection can start on the blank line above a block (upstream
+Helix also takes the next line there; this fork doesn't). The commands of this chapter act on
+whatever is selected:
 
 - `xd` deletes lines;
 - `~` switches the case;
@@ -69,9 +71,9 @@ Bigger selections, and what to do with them:
 
 Assumes: chapters 1-2.
 
-## 4. Yank and paste
+## 4. Yank, paste and move
 
-Keys: `y` `p` `P` `R` `"` `<A-d>` `<A-c>` `insert:<C-r>`
+Keys: `y` `p` `P` `R` `"` `<A-d>` `<A-c>` `insert:<C-r>` `M`
 
 `y` yanks (copies) the selection. `p` and `P` paste it after or before. `R` replaces the
 selection with what was yanked. `d` and `c` yank what they delete; `<A-d>` and `<A-c>` don't, so
@@ -79,6 +81,10 @@ your yank survives. `"a` before a command uses register `a` instead of the defau
 can keep several texts at once. `<C-r>` followed by a register name pastes in insert mode. The
 system clipboard works the same way with `<space>y` and `<space>p`. The lessons mention it, but
 no exercise touches your clipboard.
+
+To move whole lines a short way, this fork has a move mode: `M` starts it, `j` and `k` carry the
+selected lines down and up (with a count, further), and `<esc>` leaves it. Unlike `d` and `P`, it
+leaves the registers alone.
 
 Assumes: chapters 1-3.
 
@@ -185,17 +191,6 @@ Keys: `|` `:sort` `:reflow`
 rewraps text to a width.
 
 Assumes: chapters 1-11.
-
-## 13. This fork
-
-Keys: `M`
-
-The features of this fork (see FORK.md):
-
-- `x` on an empty line selects only that line;
-- `M` starts a sticky move mode, where `j` and `k` move the selected lines down and up.
-
-Assumes: chapters 1-12.
 
 ## Key names
 

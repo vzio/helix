@@ -1,5 +1,5 @@
 title = "Reorder the changelog"
-chapter = "fork"
+chapter = "yank-paste"
 kind = "challenge"
 feature = "Move mode with selections of several lines"
 lesson = """

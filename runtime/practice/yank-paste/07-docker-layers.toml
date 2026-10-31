@@ -1,5 +1,5 @@
 title = "Fix the Dockerfile"
-chapter = "fork"
+chapter = "yank-paste"
 kind = "apply"
 feature = "Move mode with a count, twice in one file"
 lesson = """

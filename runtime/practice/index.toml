@@ -19,8 +19,8 @@ keys = ["w", "b", "e", "W", "B", "E", "f", "t", "F", "T", "<A-.>", "c", "r", "gh
 
 [[chapters]]
 dir = "yank-paste"
-title = "Yank and paste"
-keys = ["y", "p", "P", "R", "\"", "<A-d>", "<A-c>", "insert:<C-r>"]
+title = "Yank, paste and move"
+keys = ["y", "p", "P", "R", "\"", "<A-d>", "<A-c>", "insert:<C-r>", "M"]
 
 [[chapters]]
 dir = "undo-repeat"
@@ -61,8 +61,3 @@ keys = ["Q", "q"]
 dir = "shell"
 title = "Shell and commands"
 keys = ["|", ":sort", ":reflow"]
-
-[[chapters]]
-dir = "fork"
-title = "This fork"
-keys = ["M"]

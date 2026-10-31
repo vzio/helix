@@ -1,11 +1,12 @@
 title = "Move it up"
-chapter = "fork"
+chapter = "yank-paste"
 kind = "learn"
 feature = "M enters move mode: j and k move the selected lines"
 lesson = """
-`M` starts this fork's move mode: `j` and `k` move the lines of the selection
-down and up, a count moves them further, and the mode stays until `<esc>`.
-No cutting and pasting, and the registers stay untouched.
+Moving a line with `d` and `P` means a trip to the new place, and it overwrites
+your yank. `M` starts move mode instead: `j` and `k` carry the selected lines
+down and up, a count carries them further, and `<esc>` leaves the mode. The
+registers stay untouched. (Move mode is a feature of this fork.)
 """
 language = "yaml"
 start = '''

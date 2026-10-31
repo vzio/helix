@@ -574,15 +574,15 @@ one. Solve it again (`:practice reset`) to beat your best.
 
 ### Chapters
 
-75 exercises in 13 chapters, from the first keystroke to this fork's features, described in
+75 exercises in 12 chapters, from the first keystroke to shell commands, described in
 [runtime/practice/CURRICULUM.md](runtime/practice/CURRICULUM.md):
 
 | # | Chapter | Exercises |
 | --- | --- | --- |
 | 1 | Modes and moving | 6 |
-| 2 | Lines and characters | 8 |
+| 2 | Lines and characters | 9 |
 | 3 | Words, lines and counts | 10 |
-| 4 | Yank and paste | 6 |
+| 4 | Yank, paste and move | 9 |
 | 5 | Undo, redo and repeat | 5 |
 | 6 | Search and jump | 6 |
 | 7 | Many selections | 8 |
@@ -591,7 +591,6 @@ one. Solve it again (`:practice reset`) to beat your best.
 | 10 | Surround | 4 |
 | 11 | Macros | 4 |
 | 12 | Shell and commands | 4 |
-| 13 | This fork | 4 |
 
 Each chapter introduces some keys, and an exercise only uses the keys of its chapter and of the
 chapters before it. A chapter goes from learning the keys alone, to applying them to realistic

@@ -1,11 +1,12 @@
 title = "From a blank line"
-chapter = "fork"
+chapter = "edit"
 kind = "learn"
-feature = "x on an empty line selects only that line, so 3x is three lines"
+feature = "x on an empty line selects just that line"
 lesson = """
-In this fork `x` on an empty line selects just that line (upstream also takes
-the next one), so counts work from a blank line too: `4x` selects exactly
-four lines starting there, and `4xd` deletes them.
+Blank lines usually go with the block they separate. `x` on an empty line
+selects just that line, and each further `x` adds the next one, so you can
+start a selection on the blank line above a block. (Upstream Helix also takes
+the next line there; this fork doesn't.)
 """
 language = "python"
 start = '''
@@ -30,8 +31,8 @@ def respond(status, payload):
 '''
 hints = [
   "The old commented-out handler goes, together with the blank line above it.",
-  "With a count, `x` selects that many whole lines, starting with the line under the cursor, even when it is empty.",
-  "`4xd`.",
+  "`x` on the blank line selects only the blank line; each `x` after it adds the line below.",
+  "`x` four times selects the blank line and the three commented lines, then `d` deletes them: `xxxxd`.",
 ]
-teach = "4xd"
+teach = "xxxxd"
 naive = "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
