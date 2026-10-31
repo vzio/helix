@@ -95,15 +95,19 @@ Assumes: chapters 1-4.
 
 ## 6. Search and jump
 
-Keys: `/` `?` `n` `N` `*` `gg` `ge` `G` `<C-o>` `<C-s>` `g.`
+Keys: `/` `?` `n` `N` `*` `<C-o>` `gg` `ge`
 
-How to get somewhere without counting lines:
+How to get somewhere without counting lines or columns:
 
-- searching: `/` forward, `?` backward, `n` and `N` for the next and previous match, `*` to
-  search for the selection;
-- going to a line: `gg` for the first line, `ge` for the last, `12G` for line 12;
-- coming back: `<C-s>` saves a position in the jumplist and `<C-o>` jumps back to it; `g.`
-  goes to the last change.
+- searching: `/` forward and `?` backward, with a regex; `n` and `N` for the next and previous
+  match; `*` to search for the selection as a whole word. A match is a selection, so `c`
+  changes it, and `n.` repeats that on the next one;
+- coming back: a search is a jump, and `<C-o>` returns to where you were before it;
+- the ends of the file: `gg` and `ge`.
+
+The lessons also mention the related keys that no exercise needs: `12G` for line 12, `<C-s>`
+to save a position in the jumplist yourself, `<C-i>` to go forward again, and `g.` for the
+last change.
 
 Assumes: chapters 1-5.
 
@@ -139,11 +143,11 @@ Assumes: chapters 1-7.
 
 ## 9. The syntax tree
 
-Keys: `<A-o>` `<A-i>` `<A-n>` `<A-p>` `<A-a>` `]f`
+Keys: `<A-o>` `<A-n>` `<A-p>` `<A-a>` `]f`
 
 Helix parses code with tree-sitter, and these keys select along the syntax tree:
 
-- `<A-o>` expands the selection to the enclosing node, and `<A-i>` shrinks it back;
+- `<A-o>` expands the selection to the enclosing node (and `<A-i>` shrinks it back);
 - `<A-n>` and `<A-p>` go to the next and previous sibling node;
 - `<A-a>` selects all the siblings;
 - `]f` goes to the next function.
@@ -214,10 +218,15 @@ this list:
 - **One clear point:** the feature in the `feature` line.
 - **Realistic text** in varied forms, such as Rust, Python, JavaScript, Go, SQL, shell, TOML,
   YAML, JSON, Markdown, logs, CSV or prose. Not lorem ipsum, and not a one-line toy.
-- **The feature has to win.** The `naive` solution is what a learner who knows only the earlier
-  chapters would type, and it takes at least twice as many keys as par. So does retyping the
-  goal. Get there with repetition, several places to edit, or more text where the feature
-  pays off.
+- **The feature has to win.** The `naive` solution is the brute force a learner falls back on
+  without the feature, using only keys of earlier chapters. Mostly that is moving with `h` `j`
+  `k` `l`, deleting with `d`, and typing; for a feature that replaces a sequence of keys, it is
+  that sequence repeated (a macro's keys typed out for every record). It takes at least twice
+  as many keys as par, and so does retyping the goal. Get there with repetition, several places
+  to edit, or more text where the feature pays off.
+- **Mind auto-pairs and auto-indent.** Typing `(`, `[`, `{` or a quote can insert the closing
+  one too, and a new line is indented like the one before. Replay every solution; don't
+  reason about it.
 - **`teach`** uses the feature honestly; it is not a golf trick. A shorter `gold` is shown once
   the learner is at or under par, so it should teach something too.
 - **Size:** `start` and `goal` have at most 16 lines of 50 characters. The lesson has at most 6
