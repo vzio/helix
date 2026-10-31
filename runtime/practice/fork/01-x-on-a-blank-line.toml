@@ -1,0 +1,37 @@
+title = "From a blank line"
+chapter = "fork"
+kind = "learn"
+feature = "x on an empty line selects only that line, so 3x is three lines"
+lesson = """
+In this fork `x` on an empty line selects just that line (upstream also takes
+the next one), so counts work from a blank line too: `4x` selects exactly
+four lines starting there, and `4xd` deletes them.
+"""
+language = "python"
+start = '''
+def handler(event):
+    body = json.loads(event["body"])
+    return respond(200, process(body))
+#[|
+]## def handler(event):
+#     print(event)
+#     return respond(200, {})
+
+def respond(status, payload):
+    return {"statusCode": status, "body": payload}
+'''
+goal = '''
+def handler(event):
+    body = json.loads(event["body"])
+    return respond(200, process(body))
+
+def respond(status, payload):
+    return {"statusCode": status, "body": payload}
+'''
+hints = [
+  "The old commented-out handler goes, together with the blank line above it.",
+  "With a count, `x` selects that many whole lines, starting with the line under the cursor, even when it is empty.",
+  "`4xd`.",
+]
+teach = "4xd"
+naive = "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"

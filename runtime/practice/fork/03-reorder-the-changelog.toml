@@ -1,0 +1,41 @@
+title = "Reorder the changelog"
+chapter = "fork"
+kind = "challenge"
+feature = "Move mode with selections of several lines"
+lesson = """
+Move mode moves whatever lines the selection touches, so a multi-line entry
+moves as one piece. Group the changelog: features first, then fixes, keeping
+each entry's lines together.
+"""
+language = "markdown"
+start = '''
+## 0.4.0
+
+- Fix: a feed with no items no longer
+  crashes the scheduler.
+- Feature: `--watch` refetches a feed
+  when its config changes.
+- Fix: timeouts are retried.
+- Feature: OPML import.
+- Fix: the cache directory is created
+  when it is missing.
+'''
+goal = '''
+## 0.4.0
+
+- Feature: `--watch` refetches a feed
+  when its config changes.
+- Feature: OPML import.
+- Fix: a feed with no items no longer
+  crashes the scheduler.
+- Fix: timeouts are retried.
+- Fix: the cache directory is created
+  when it is missing.
+'''
+hints = [
+  "Both features move above all the fixes; the order within features and within fixes stays.",
+  "`xx` selects a two-line entry; `M` then `k` moves the selected lines up, and a count moves them further.",
+  "`4jxxM2k<esc>` moves `--watch` above the first fix. `4j` to `OPML import`, `M3k`.",
+]
+teach = "4jxxM2k<esc>4jM3k"
+naive = "jjlllddddddddddddddddddddddddddddddddddieature: `--watch` refetches a feed<esc>jhhhhhhhhhhhhhhhhhhhhhhddddddddddddddddddddddiwhen its config changes.<esc>jhhhhhhhhhhhhhhhddddddddddddddddddddddddddiOPML import.<esc>jhhhhhhhhhhhhhhhhhhhhhhhddddddddddddddddddddddddddi- Fix: a feed with no items no longer<esc>jhhhhhhhhhhhhhhhhhhhhhhhhhhhhddddddddddddddddddddddddddddi  crashes the scheduler.<esc>jhhhhhhhhhhhhhhhhhhhhddddddddddddddddddddiix: timeouts are retried.<esc>"
