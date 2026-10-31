@@ -30,7 +30,7 @@ keys = ["u", "U", "."]
 [[chapters]]
 dir = "search"
 title = "Search and jump"
-keys = ["/", "?", "n", "N", "*", "gg", "ge", "G", "<C-o>", "<C-s>", "g."]
+keys = ["/", "?", "n", "N", "*", "<C-o>", "gg", "ge"]
 
 [[chapters]]
 dir = "multi-cursor"

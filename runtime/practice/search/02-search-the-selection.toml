@@ -38,4 +38,4 @@ hints = [
   "`e*`, then `cout<esc>`. `n.` handles the next one and `n.` the last; `N` twice goes back up to the declaration, then `.`.",
 ]
 teach = "e*cout<esc>n.n.NN."
-naive = "kkkllldddiout<esc>jjjhhhhhhdddiout<esc>jhhhdddiout<esc>jjjllldddiout<esc>"
+naive = "hhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhdddiout<esc>lllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllldddiout<esc>lllllllllllllllllllllllldddiout<esc>llllllllllllllllllllllllllllllllllllllllldddiout<esc>"
