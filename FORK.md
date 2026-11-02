@@ -575,7 +575,7 @@ one. Solve it again (`:practice reset`) to beat your best.
 
 ### Chapters
 
-81 exercises in 12 chapters, from the first keystroke to shell commands, described in
+85 exercises in 12 chapters, from the first keystroke to shell commands, described in
 [runtime/practice/CURRICULUM.md](runtime/practice/CURRICULUM.md):
 
 | # | Chapter | Exercises |
@@ -585,9 +585,9 @@ one. Solve it again (`:practice reset`) to beat your best.
 | 3 | Words, lines and counts | 10 |
 | 4 | Yank, paste and move | 9 |
 | 5 | Undo, redo and repeat | 6 |
-| 6 | Search and jump | 7 |
-| 7 | Many selections | 11 |
-| 8 | Text objects | 5 |
+| 6 | Search and jump | 8 |
+| 7 | Many selections | 13 |
+| 8 | Text objects | 6 |
 | 9 | The syntax tree | 5 |
 | 10 | Surround | 4 |
 | 11 | Macros | 4 |
@@ -625,8 +625,10 @@ and that every solution only uses keys that its chapter or an earlier one teache
 - Registers, the last search and macros you recorded before stay available in an exercise, which
   can make a solution shorter than it would be from a fresh start (the replay test uses one).
 - The selection is not part of the goal, only the text is.
-- Some keys are explained in the [tutor](#tutor) instead, because no exercise needs them to win:
-  `G`, `<C-s>`, `<C-i>`, `g.` and `<A-i>`. So is the system clipboard (`<space>y`, `<space>p`): an
+- Some keys are explained in the [tutor](#tutor) instead, because in a short text they save no keys
+  over what the exercises teach, so no exercise can make them win: `G`, `<C-s>`, `<C-i>`, `g.`,
+  `X`, `<A-x>`, `<A-;>`, `<A-minus>`, `<A-i>`, `<A-I>`, `<A-e>`, `<A-b>`, `]<space>`, and in
+  insert mode `<C-u>`, `<C-k>` and `<A-d>`. So is the system clipboard (`<space>y`, `<space>p`): an
   exercise never overwrites yours.
 - On a short terminal the panel cuts the lesson first (the last line shown ends with `…`), then the
   title, the hints and the goal; the count is always shown. `:practice lesson` hides it.
@@ -639,8 +641,15 @@ use `:practice` for editing, then covers only what doesn't fit an exercise check
 a buffer: opening, saving and quitting, buffers, pickers, the file tree, the jumplist, going
 places (`gw`, `[`/`]`), the view, splits, the system clipboard, language servers, git (with this
 fork's diff view, commit log and blame), the shell commands other than `|`, `:earlier`, settings,
-and a last section listing the editing keys that have no exercise yet. Upstream's lessons on
-editing are exercises now (the case keys, `<A-C>`, `n` in select mode, rotating and removing
+the debugger, and a last section with the editing keys that have no exercise. Upstream's lessons
+on editing are exercises now (the case keys, `<A-C>`, `n` in select mode, rotating and removing
 selections were added for them).
+
+Between them, `:practice` and `:tutor` teach every command of the default keymap. A unit test
+(`every_command_of_the_default_keymap_is_taught`, in `helix-term/src/practice/coverage.rs`) checks
+it: each command of normal and insert mode must have a key in the `keys` of a chapter, or in one of
+the tutor's key lists (a line that starts with two spaces and then the key, as the tutor writes it:
+`space f`, `C-w v`, `A-;`). A command counts as taught when any of its keys is. A new binding
+fails the test until it gets an exercise or a line in the tutor.
 
 When a key gets an exercise, it leaves the last section of `runtime/tutor`.

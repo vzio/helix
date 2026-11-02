@@ -32,6 +32,7 @@
  completes their names and arguments, and Up/Down go through
  the ones you ran before.
 
+  :              start a command
   :o PATH        open a file (also :e and :edit)
   :w             write the file; :w PATH writes it to PATH
   :q             quit; refused when there are unsaved changes
@@ -71,6 +72,7 @@
 
   space f        files of the project (the git repository)
   space F        files of the current directory
+  space .        files of the current file's directory
   space /        search the text of every file
   space '        open the last picker again, where you left it
   space ?        every command, with its keys
@@ -90,8 +92,10 @@
 =                    4 THE FILE TREE (FORK)                     =
 =================================================================
 
- space e opens a tree of the project, space E opens it on the
- current file. It starts in normal mode, where letters are keys:
+  space e        a tree of the project
+  space E        the same, opened on the current file
+
+ The tree starts in normal mode, where letters are keys:
 
   j  k           move
   l  h           open a directory or a file, close or go up
@@ -129,6 +133,7 @@
 =================================================================
 
   12G  or  :12   line 12
+  12g|           column 12 of this line
   g.             the last change
   gw             a two-letter label on every word: type a label
                  to jump there, Esc to cancel
@@ -143,7 +148,8 @@
   ]a  [a         parameter       ]c  [c   comment
   ]T  [T         test            ]e  [e   entry (key: value)
   ]x  [x         XML/HTML tag    ]g  [g   git change
-  ]d  [d         diagnostic
+  ]f  [f         function        ]d  [d   diagnostic
+  ]D  [D         the last, the first diagnostic
 
  Most of them need tree-sitter to know the language.
 
@@ -159,6 +165,8 @@
  z changes the view without moving the cursor:
 
   zz             this line to the middle of the screen
+  zm             the cursor to the middle, sideways, when long
+                 lines don't wrap
   zt  zb         this line to the top, to the bottom
   zj  zk         scroll a line down, up
 
@@ -180,8 +188,10 @@
   C-w t          turn vertical splits horizontal, and back
   C-w q          close this split
   C-w o          close all the others
-  C-w n v        a new split with an empty buffer
-  C-w f          open the file under the cursor in a split
+  C-w n v        a new split with an empty buffer (C-w n s:
+                 a horizontal one)
+  C-w f  C-w F   open the file under the cursor in a split, a
+                 vertical split
 
   :vs PATH       open a file in a vertical split (:hs for
                  horizontal)
@@ -197,8 +207,8 @@
  y and p use Helix's own register. Space puts the system
  clipboard in their place:
 
-  space y        yank to the clipboard (space Y: the primary
-                 selection only)
+  space y        yank to the clipboard
+  space Y        yank only the primary selection
   space p  P     paste the clipboard after, before
   space R        replace the selection with the clipboard
 
@@ -226,7 +236,11 @@
   space d  D     pick a diagnostic of the file, of the workspace
   ]d  [d         next and previous diagnostic
   =              format the selection (:format for the file)
-  C-x            completion, in insert mode
+
+ In insert mode:
+
+  C-x            complete the word, with the server's
+                 suggestions
 
  :lsp-restart restarts the servers, and :log-open shows what
  went wrong.
@@ -259,7 +273,8 @@
  :practice has | (pipe through a command). There are more:
 
   !              insert the output of a command before the
-                 selection; A-! appends it after
+                 selection
+  A-!            append it after the selection
   A-|            pipe the selection to a command, ignore output
   $              keep the selections for which the command
                  succeeds
@@ -279,8 +294,10 @@
   :earlier 10m   the file as it was ten minutes ago
   :later 5m      and forward again
 
- In insert mode, C-s makes a checkpoint, so u undoes only what
- you typed after it.
+ In insert mode:
+
+  C-s            a checkpoint: u undoes only what you typed after
+                 it
 
 
 
@@ -296,7 +313,6 @@
   :config-reload       apply it without restarting
   :set-language LANG   highlight as another language
   :tutor               this tutor; :practice, the exercises
-  space G              the debugger (experimental)
 
  In a prompt, C-r and a register name inserts the register, so
  C-r " pastes your yank into a search.
@@ -304,34 +320,64 @@
 
 
 =================================================================
-=                     15 MORE EDITING KEYS                      =
+=                        15 THE DEBUGGER                        =
 =================================================================
 
- These change text, but :practice has no exercise for them yet:
+ With a debug adapter for the language (see hx --health), space G
+ is a mode that stays until Esc, so one key steps at a time. It
+ is experimental.
 
-  _              trim spaces off the ends of the selections
+  space G l      launch the program (space G r: restart it)
+  space G b      add or remove a breakpoint on this line
+  space G C-c    a condition for the breakpoint
+  space G C-l    a log message for it instead of a stop
+  space G c      continue; space G h pauses
+  space G n      step to the next line
+  space G i  o   step into the call, out of the function
+  space G v      the variables
+  space G s t    switch thread; space G s f, stack frame
+  space G e  E   stop on exceptions, or don't
+  space G t      end the session
+
+
+
+=================================================================
+=                     16 MORE EDITING KEYS                      =
+=================================================================
+
+ These keys change text or selections too, but :practice has no
+ exercise for them: in its short texts they save no keys over
+ what it teaches. They are still worth knowing.
+
+  X              extend to whole lines; unlike x, it never adds
+                 the next line
+  A-x            shrink to the whole lines inside the selection
   A-;            flip the selection: the cursor goes to the
                  other end
   A-:            make every selection point forward
-  X  A-x         extend to whole lines, shrink to whole lines
-  A--  A-_       merge the selections into one, merge the ones
-                 that touch
-  A-J            join lines and select the spaces put between
-  A-*            search the selection as it is, not as a word
-  A-i  A-I       shrink the selection to a child node, select
-                 all the children
+  A--            merge the selections into one
+  A-_            merge the selections that touch
+  A-i            shrink the selection to a child node, back
+                 down after A-o
+  A-I            select every child of the selected node
   A-e  A-b       go to the end, the start of the parent node
-  space C        comment with block comments (space A-c: line
-                 comments only)
-  ]space [space  add an empty line below, above
+  space A-c      comment with line comments, even where C-c
+                 would pick a block comment
+  ]space [space  add an empty line below, above, and stay in
+                 normal mode
 
  In insert mode:
 
   C-u  C-k       delete to the start, the end of the line
-  A-d            delete the word after the cursor
-  C-j            a new line, like Enter
+  A-d            delete the word after the cursor (also A-Del)
+  Backspace  C-h  delete the character before the cursor
+  Del  C-d       delete the character under the cursor
+  Tab            indent; after text, jump past the end of the
+                 bracket or string the cursor is in (smart-tab)
   S-Tab          a real tab, whatever the indentation style
+  C-j            a new line, like Enter
   Home  End      the start, the end of the line
+  PageUp         scroll a page up; PageDown, a page down
 
 
 

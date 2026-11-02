@@ -8,6 +8,7 @@
 //! counts, and [`command`] has the typable command.
 
 pub mod command;
+pub mod coverage;
 pub mod exercise;
 pub mod panel;
 pub mod progress;
