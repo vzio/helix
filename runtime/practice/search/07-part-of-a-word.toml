@@ -1,0 +1,34 @@
+title = "Part of a word"
+chapter = "search"
+kind = "apply"
+feature = "Alt-* searches for the selection as it is, also inside longer words"
+lesson = """
+`*` searches for a whole word when you select one: `user` doesn't find
+`users`. `<A-*>` searches for the selection exactly as it is, so `user` also
+finds `users`, `list_users` and `upsert_user`. Add the matches with `n` in
+select mode, as before.
+"""
+language = "python"
+start = '''
+def sync(api, db):
+    #[|u]#ser = api.current_user()
+    users = api.list_users(user.team)
+    for member in users:
+        db.upsert_user(member)
+    return len(users)
+'''
+goal = '''
+def sync(api, db):
+    account = api.current_account()
+    accounts = api.list_accounts(account.team)
+    for member in accounts:
+        db.upsert_account(member)
+    return len(accounts)
+'''
+hints = [
+  "Every `user` becomes `account`, also inside longer names: eight in all.",
+  "`*` on the word `user` would only find `user` alone. `<A-*>` searches for the selected text exactly, inside other words too. `v` and `n` add the matches.",
+  "`e<A-*>` searches for `user`, `v` starts select mode, seven `n` add the other matches, `caccount<esc>`.",
+]
+teach = "e<A-*>vnnnnnnncaccount<esc>"
+naive = "ddddiaccount<esc>lllllllllllllllddddiaccount<esc>jhhhhhhhhhhhhhhhhhhhhhhhhhhhhhddddiaccount<esc>lllllllllllllddddiaccount<esc>llddddiaccount<esc>jhhhhhhddddiaccount<esc>jhhhhhhhddddiaccount<esc>jhhhhhhddddiaccount<esc>"

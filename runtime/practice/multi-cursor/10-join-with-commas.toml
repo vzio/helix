@@ -1,0 +1,28 @@
+title = "Join with commas"
+chapter = "multi-cursor"
+kind = "learn"
+feature = "Alt-J joins lines and selects the spaces it puts between them"
+lesson = """
+`J` joins the selected lines with a space. `<A-J>` does the same and then
+selects each space it put in, one selection per join. So one `c` can turn
+the spaces into any separator: commas, `|`, ` && `.
+"""
+start = '''
+#[|C]#OMPOSE_PROFILES=api
+web
+worker
+cron
+mail
+DEBUG=false
+'''
+goal = '''
+COMPOSE_PROFILES=api,web,worker,cron,mail
+DEBUG=false
+'''
+hints = [
+  "The five profiles must be on one line, separated by commas with no spaces.",
+  "`<A-J>` joins the selected lines and selects the spaces it put between them; `c` then replaces them all.",
+  "`5x` selects the five profile lines, `<A-J>` joins them, `c,<esc>` turns the spaces into commas.",
+]
+teach = "5x<A-J>c,<esc>"
+naive = "lllllllllllllllllllldi,<esc>llldi,<esc>lllllldi,<esc>lllldi,<esc>"

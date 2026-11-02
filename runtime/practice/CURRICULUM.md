@@ -103,12 +103,13 @@ Assumes: chapters 1-4.
 
 ## 6. Search and jump
 
-Keys: `/` `?` `n` `N` `*` `<C-o>` `gg` `ge`
+Keys: `/` `?` `n` `N` `*` `<A-*>` `<C-o>` `gg` `ge`
 
 How to get somewhere without counting lines or columns:
 
 - searching: `/` forward and `?` backward, with a regex; `n` and `N` for the next and previous
-  match; `*` to search for the selection as a whole word. A match is a selection, so `c`
+  match; `*` to search for the selection as a whole word, and `<A-*>` for it exactly as it is,
+  also inside longer words. A match is a selection, so `c`
   changes it, and `n.` repeats that on the next one. In select mode (`v`), `n` and `N` add the
   next match as one more selection instead, so one `c` changes them all;
 - coming back: a search is a jump, and `<C-o>` returns to where you were before it;
@@ -121,7 +122,7 @@ Assumes: chapters 1-5.
 
 ## 7. Many selections
 
-Keys: `%` `s` `S` `C` `<A-C>` `,` `<A-s>` `K` `<A-K>` `&` `(` `)` `<A-,>` `<A-(>` `<A-)>`
+Keys: `%` `s` `S` `C` `<A-C>` `,` `<A-s>` `K` `<A-K>` `&` `(` `)` `<A-,>` `<A-(>` `<A-)>` `<A-J>` `_`
 
 Helix's multiple selections. One edit applies to every selection at once:
 
@@ -134,7 +135,10 @@ Helix's multiple selections. One edit applies to every selection at once:
 - one selection is the primary: `)` and `(` make the next or previous one primary, `<A-,>`
   removes it, and `,` keeps only it;
 - `<A-)>` and `<A-(>` rotate the contents of the selections forward and back (with two, a swap);
-- `&` aligns the selections in columns.
+- `&` aligns the selections in columns;
+- `_` trims the spaces off both ends of each selection;
+- `<A-J>` joins lines like `J` and selects the spaces it put in, so `c` can turn them into any
+  separator.
 
 From here on, many earlier exercises have a much shorter answer.
 
@@ -142,12 +146,15 @@ Assumes: chapters 1-6 (regexes as in chapter 6).
 
 ## 8. Text objects
 
-Keys: `mi` `ma` `mm`
+Keys: `mi` `ma` `mm` `<space>C`
 
 `mi` selects inside a text object and `ma` selects around it: a word (`w`), a paragraph
 (`p`), quotes (`"` `'`), brackets (`(` `[` `{` `<`), or the nearest pair of any of these (`m`).
 Text objects work wherever the cursor is inside the object, so they don't need precise
 motions. `mm` jumps to the matching bracket.
+
+Once a text object is selected, `<space>C` comments out just that part with the language's block
+comment (`/* ... */`), where `<C-c>` would comment out whole lines.
 
 Assumes: chapters 1-7.
 

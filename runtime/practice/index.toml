@@ -30,17 +30,17 @@ keys = ["u", "U", ".", "insert:<right>"]
 [[chapters]]
 dir = "search"
 title = "Search and jump"
-keys = ["/", "?", "n", "N", "*", "<C-o>", "gg", "ge"]
+keys = ["/", "?", "n", "N", "*", "<A-*>", "<C-o>", "gg", "ge"]
 
 [[chapters]]
 dir = "multi-cursor"
 title = "Many selections"
-keys = ["%", "s", "S", "C", "<A-C>", ",", "<A-s>", "K", "<A-K>", "&", "(", ")", "<A-,>", "<A-(>", "<A-)>"]
+keys = ["%", "s", "S", "C", "<A-C>", ",", "<A-s>", "K", "<A-K>", "&", "(", ")", "<A-,>", "<A-(>", "<A-)>", "<A-J>", "_"]
 
 [[chapters]]
 dir = "text-objects"
 title = "Text objects"
-keys = ["mi", "ma", "mm"]
+keys = ["mi", "ma", "mm", "<space>C"]
 
 [[chapters]]
 dir = "syntax"
