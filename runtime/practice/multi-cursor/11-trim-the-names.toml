@@ -1,0 +1,29 @@
+title = "Quote the column names"
+chapter = "multi-cursor"
+kind = "learn"
+feature = "_ trims the spaces off both ends of each selection"
+lesson = """
+After a split the pieces often keep the spaces around them: `S,` on
+`a , b` gives `a ` and ` b`. `_` trims spaces, tabs and line breaks off both
+ends of every selection, so what follows touches only the text itself.
+"""
+language = "sql"
+start = '''
+#[|I]#NSERT INTO signups
+  (id ,full name,  email , signed up)
+VALUES
+  (1, 'Ada', 'ada@example.com', '2024-06-01');
+'''
+goal = '''
+INSERT INTO signups
+  ("id" ,"full name",  "email" , "signed up")
+VALUES
+  (1, 'Ada', 'ada@example.com', '2024-06-01');
+'''
+hints = [
+  "Names with spaces need double quotes, so every column name gets them. The spacing around the commas stays.",
+  "Select the list inside the parentheses and split it on commas with `S`. The pieces keep their spaces; `_` trims them, so the quotes go right around the names.",
+  "`jf(l` to the first name, `t)` to the end of the list, `S,<ret>` splits it, `_` trims, then `i\"<esc>a\"<esc>`.",
+]
+teach = "jf(lt)S,<ret>_i\"<esc>a\"<esc>"
+naive = "jllli\"<esc>lli\"<esc>lli\"<esc>llllllllli\"<esc>llli\"<esc>llllli\"<esc>llli\"<esc>llllllllli\"<esc>"

@@ -1,35 +1,48 @@
-title = "To the matching brace"
+title = "To the matching paren"
 chapter = "text-objects"
 kind = "learn"
 feature = "mm jumps to the matching bracket"
 lesson = """
-`mm` jumps between a bracket and its match. In select mode (`v`) it extends
-the selection instead, so from the `{` that opens a block, `vmm` selects the
-whole block.
+`mm` jumps between a bracket and its match, however far apart they are and
+however many brackets sit in between. Lisp piles up closing parens, so
+counting them is hopeless; from many cursors, each jumps to its own match.
+In select mode (`v`), `mm` extends the selection to the match instead.
 """
-language = "javascript"
+language = "elisp"
 start = '''
-export function render(state) {
-  const root = document.getElementById("app");
-  if (state.debug) {
-    console.table(state.items);
-    console.log("filters", state.filters);
-    window.__state = state;
-    root.dataset.debug = "on";
-  }
-  root.replaceChildren(...state.items.map(view));
-}
+(use-package magit
+  :bind ("C-x g" . magit-status))
+
+(use-package vertico
+  :init (vertico-mode)
+  :custom (vertico-cycle t))
+
+(use-package orderless
+  :custom (completion-styles
+           '(orderless basic)))
+
+(use-package eglot
+  :hook (rust-mode . eglot-ensure))
 '''
 goal = '''
-export function render(state) {
-  const root = document.getElementById("app");
-  root.replaceChildren(...state.items.map(view));
-}
+(use-package magit
+  :bind ("C-x g" . magit-status) :defer t)
+
+(use-package vertico
+  :init (vertico-mode)
+  :custom (vertico-cycle t) :defer t)
+
+(use-package orderless
+  :custom (completion-styles
+           '(orderless basic)) :defer t)
+
+(use-package eglot
+  :hook (rust-mode . eglot-ensure) :defer t)
 '''
 hints = [
-  "The whole debug block goes, from its `if` to its closing brace.",
-  "`f{` selects up to the brace that opens the block; in select mode `mm` extends the selection to the matching brace; `x` grows it to whole lines.",
-  "`jj`, `f{`, `v`, `mm`, `x`, `d`.",
+  "Every `use-package` form gets ` :defer t` just before the paren that closes it, the last of the pile at its end.",
+  "`%s^\\(` puts a cursor on the paren that opens each form; `mm` jumps each one to the paren that closes it; `i` inserts before it.",
+  "`%s^\\(<ret>`, `mm`, `i :defer t<esc>`.",
 ]
-teach = "jjf{vmmxd"
-naive = "jjddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+teach = "%s^\\(<ret>mmi :defer t<esc>"
+naive = "jlllllllllllllllllllllllllllllllli :defer t<esc>jjjjhi :defer t<esc>jjjjhi :defer t<esc>jjjhi :defer t<esc>"

@@ -10,7 +10,7 @@ keys = ["h", "j", "k", "l", "i", "a", "I", "A", "o", "O", "<esc>"]
 [[chapters]]
 dir = "edit"
 title = "Lines and characters"
-keys = ["d", "x", "~", "J", "<gt>", "<lt>", "<C-c>", "insert:<C-w>"]
+keys = ["d", "x", "~", "`", "<A-`>", "J", "<gt>", "<lt>", "<C-c>", "insert:<C-w>"]
 
 [[chapters]]
 dir = "motions"
@@ -25,22 +25,22 @@ keys = ["y", "p", "P", "R", "\"", "<A-d>", "<A-c>", "insert:<C-r>", "M"]
 [[chapters]]
 dir = "undo-repeat"
 title = "Undo, redo and repeat"
-keys = ["u", "U", "."]
+keys = ["u", "U", ".", "insert:<right>"]
 
 [[chapters]]
 dir = "search"
 title = "Search and jump"
-keys = ["/", "?", "n", "N", "*", "<C-o>", "gg", "ge"]
+keys = ["/", "?", "n", "N", "*", "<A-*>", "<C-o>", "gg", "ge"]
 
 [[chapters]]
 dir = "multi-cursor"
 title = "Many selections"
-keys = ["%", "s", "S", "C", ",", "<A-s>", "K", "<A-K>", "&"]
+keys = ["%", "s", "S", "C", "<A-C>", ",", "<A-s>", "K", "<A-K>", "&", "(", ")", "<A-,>", "<A-(>", "<A-)>", "<A-J>", "_"]
 
 [[chapters]]
 dir = "text-objects"
 title = "Text objects"
-keys = ["mi", "ma", "mm"]
+keys = ["mi", "ma", "mm", "<space>C"]
 
 [[chapters]]
 dir = "syntax"

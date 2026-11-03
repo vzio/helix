@@ -39,7 +39,6 @@ def fetch(url):
 def fetch_all(urls, limit=300):
     with httpx.Client(timeout=TIMEOUT_S) as c:
         return [c.get(u) for u in urls[:limit]]
-
 '''
 hints = [
   "Three timeouts are `30` as a whole number; `300` must stay. Then one new line at the top and one old line gone at the bottom.",
@@ -47,4 +46,4 @@ hints = [
   "`e*cTIMEOUT_S<esc>`, then `n.n.`. `ggjoTIMEOUT_S = 30<esc>` adds the constant; `gexd` deletes the print.",
 ]
 teach = "e*cTIMEOUT_S<esc>n.n.ggjoTIMEOUT_S = 30<esc>gexd"
-naive = "hhhhhhhhhhhhhhhhhhhhhhhhhhhhhhiTIMEOUT_S = 30<ret><esc>llllllllllllllllllllllllllllllddiTIMEOUT_S<esc>jjjjhhhddiTIMEOUT_S<esc>jjjjhhhhhhhhhddiTIMEOUT_S<esc>jjjhhhhhhhhhhhhhhhhhhhhhhhhhdddddddddddddddddddddddddd"
+naive = "hhhhhhhhhhhhhhhhhhhhhhhhhhhhhhiTIMEOUT_S = 30<ret><esc>llllllllllllllllllllllllllllllddiTIMEOUT_S<esc>jjjjhhhddiTIMEOUT_S<esc>jjjjhhhhhhhhhddiTIMEOUT_S<esc>jjjhhhhhhhhhhhhhhhhhhhhhhhhhddddddddddddddddddddddddd"

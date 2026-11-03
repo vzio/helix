@@ -459,7 +459,7 @@ fn check_solved(editor: &mut Editor) {
     let Some(doc) = editor.documents.get(&attempt.doc) else {
         return;
     };
-    if doc.text() != exercise.goal.as_str() {
+    if !exercise.is_goal(&doc.text().to_string()) {
         return;
     }
     solved(editor, exercise, attempt.keys);

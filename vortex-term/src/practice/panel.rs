@@ -367,7 +367,7 @@ fn wrapped(cells: &[Cell], width: usize, hanging: usize, base: Role) -> Vec<Line
 fn content(exercises: &[Exercise], attempt: &Attempt, width: usize, gap: usize) -> Content {
     let exercise = &exercises[attempt.exercise];
     let title = format!(
-        "{}.{} / {} · {}",
+        "{}. {}/{} · {}",
         exercise.chapter_number, exercise.number, exercise.chapter_len, exercise.chapter_title
     );
     let blank = |count: usize| (0..count).map(|_| Line::blank());
@@ -850,7 +850,7 @@ mod tests {
         attempt.hints = 2;
         attempt.best = Some(5);
         let content = content(&exercises(), &attempt, 40, 1);
-        assert_eq!(content.title, "3.2 / 7 · Words, lines and counts");
+        assert_eq!(content.title, "3. 2/7 · Words, lines and counts");
         assert_eq!(
             block_text(&content),
             [
@@ -914,7 +914,7 @@ mod tests {
         solved.solved_at = Some(2);
         solved.best = Some(2);
         let content = content(&exercises(), &solved, 40, 1);
-        assert_eq!(content.title, "3.7 / 7 · Words, lines and counts");
+        assert_eq!(content.title, "3. 7/7 · Words, lines and counts");
         // at par, a gold exists; it is the last exercise
         let lines = block_text(&content);
         assert_eq!(

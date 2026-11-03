@@ -26,8 +26,8 @@ it.todo("skips broken items");
 '''
 hints = [
   "In each test, everything from the comma after the name to the closing brace goes, and `it` becomes `it.todo`.",
-  "`%s` selects every `, () => {` at once; from a `{`, `mm` in select mode reaches its `}`. `^it` matches only the `it` at the start of a line.",
-  "`%s, \\(\\) => \\{<ret>vmmd` removes the functions. `%s^it<ret>a.todo<esc>` renames.",
+  "`%s` selects every `, () => {` at once (`, .*\\{` is enough); from a `{`, `mm` in select mode reaches its `}`. After `d` the cursors stay, one per test.",
+  "`%s, .*\\{<ret>vmmd` removes the functions. Then `gh` takes every cursor to the start of its line, and `la.todo<esc>` appends after `it`.",
 ]
-teach = "%s, \\(\\) =<gt> \\{<ret>vmmd%s^it<ret>a.todo<esc>"
+teach = "%s, .*\\{<ret>vmmdghla.todo<esc>"
 naive = "lli.todo<esc>lllllllllllllllllllllllddddddddddddddddddddddddddddddddddddddddddddjhhhhhhhhhhhhhhhhhhhhhhhhhhhi.todo<esc>llllllllllllllllllddddddddddddddddddddddddddddddddddddddddddddddddddddddjhhhhhhhhhhhhhhhhhhhhhhhi.todo<esc>lllllllllllllllllllllddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"

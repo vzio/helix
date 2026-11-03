@@ -1,0 +1,31 @@
+title = "Swap the client"
+chapter = "yank-paste"
+kind = "challenge"
+feature = "Alt-c changes without yanking, so a yank survives it"
+lesson = """
+`c` yanks what it replaces, just like `d`, so a change in between loses the
+text you were about to paste. `<A-c>` changes without yanking. Yank once,
+then rename and paste on every line, and the yank is still there.
+"""
+language = "python"
+start = '''
+a = s.get(f"{API}/feeds", timeout=(3.05, 27))
+b = s.fetch(f"{API}/items")
+c = s.fetch(f"{API}/users")
+d = s.fetch(f"{API}/tags")
+e = s.fetch(f"{API}/stats")
+'''
+goal = '''
+a = s.get(f"{API}/feeds", timeout=(3.05, 27))
+b = s.get(f"{API}/items", timeout=(3.05, 27))
+c = s.get(f"{API}/users", timeout=(3.05, 27))
+d = s.get(f"{API}/tags", timeout=(3.05, 27))
+e = s.get(f"{API}/stats", timeout=(3.05, 27))
+'''
+hints = [
+  "The old client's `fetch` is `get` now, and every call needs the timeout of the first one.",
+  "Yank `, timeout=(3.05, 27)` once. A plain `c` on `fetch` would yank `fetch` over it; `<A-c>` changes without yanking. `P` pastes before the selection, and `gl` selects the last character of the line.",
+  "`f,f)y` yanks the timeout. Then on each line: `j`, `ghf.le` selects `fetch`, `<A-c>get<esc>`, `glP` pastes before the closing parenthesis.",
+]
+teach = "f,f)yjghf.le<A-c>get<esc>glPjghf.le<A-c>get<esc>glPjghf.le<A-c>get<esc>glPjghf.le<A-c>get<esc>glP"
+naive = "jghf.lecget<esc>gli, timeout=(3.05, 27)<esc>jghf.lecget<esc>gli, timeout=(3.05, 27)<esc>jghf.lecget<esc>gli, timeout=(3.05, 27)<esc>jghf.lecget<esc>gli, timeout=(3.05, 27)<esc>"
