@@ -1,0 +1,40 @@
+title = "Lower and upper"
+chapter = "edit"
+kind = "learn"
+feature = "Backtick sets lower case, Alt-backtick upper case"
+lesson = """
+`~` switches the case, so text that is half upper and half lower case stays
+mixed. ```` makes everything selected lower case and `<A-``>` makes it upper
+case, whatever it was before.
+"""
+start = '''
+# HTTP/2 wants lower-case header names
+Content-Type
+X-Request-ID
+Cache-Control
+Accept-Encoding
+
+# env vars are upper case
+database_Url
+Redis_url
+log_level
+'''
+goal = '''
+# HTTP/2 wants lower-case header names
+content-type
+x-request-id
+cache-control
+accept-encoding
+
+# env vars are upper case
+DATABASE_URL
+REDIS_URL
+LOG_LEVEL
+'''
+hints = [
+  "The header names become all lower case, the variable names all upper case. Each name mixes both cases, so switching the case won't do.",
+  "```` sets the selection to lower case, `<A-``>` to upper case. Every `x` adds a line to the selection.",
+  "`jxxxx` selects the four headers and ```` lowers them. `jjj` down to the variables, `xxx` and `<A-``>`.",
+]
+teach = "jxxxx`jjjxxx<A-`>"
+naive = "j~llllllll~jhhhhhhhh~ll~llllllll~l~jhhhhhhhhhhh~llllll~jhhhhhh~lllllll~jjjhhhhhhh~l~l~l~l~l~l~l~lll~l~jhhhhhhhh~l~l~l~ll~l~l~jhhhhhhhh~l~l~ll~l~l~l~l~"

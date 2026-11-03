@@ -1,0 +1,40 @@
+title = "Comment out the options"
+chapter = "text-objects"
+kind = "learn"
+feature = "Space C comments out the selection with a block comment"
+lesson = """
+`<C-c>` comments out whole lines. `<space>C` wraps the selection itself in
+the language's block comment, like `/* ... */`, so it can comment out part of
+a line, or an argument that spans lines. A text object selects that part
+from wherever the cursor is.
+"""
+language = "javascript"
+start = '''
+import { connect } from "./db.js";
+
+const db = await connect(DATABASE_URL, {
+  pool: 20,
+  #[|s]#sl: { rejectUnauthorized: false },
+  statementTimeout: 5_000,
+});
+
+export default db;
+'''
+goal = '''
+import { connect } from "./db.js";
+
+const db = await connect(DATABASE_URL, /* {
+  pool: 20,
+  ssl: { rejectUnauthorized: false },
+  statementTimeout: 5_000,
+} */);
+
+export default db;
+'''
+hints = [
+  "The whole options object, braces included, goes into one `/* */` comment, so `connect` runs with its defaults.",
+  "`ma{` selects the braces around the cursor and what is inside. `<space>C` puts a block comment around the selection.",
+  "`ma{<space>C`.",
+]
+teach = "ma{<space>C"
+naive = "kkllllllllllllllllllllllllllllllllllllli/* <esc>jjjjhhha */<esc>"

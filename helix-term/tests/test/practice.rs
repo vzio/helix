@@ -198,7 +198,7 @@ async fn replay(exercise: &Exercise, keys: &str, progress: PathBuf) -> Result<Ve
                 Some(at) if at != expected => Err(format!(
                     "solved after {at} keys, but the solution has {expected}, the text is {text:?}"
                 )),
-                Some(_) if text != exercise.goal => {
+                Some(_) if !exercise.is_goal(&text) => {
                     Err(format!("solved, but the text is {text:?}"))
                 }
                 Some(_) => Ok(attempt.commands),
@@ -793,19 +793,19 @@ async fn the_list_shows_the_status_best_and_par() -> anyhow::Result<()> {
                     };
                     assert!(
                         row("Title of a/01-first")
-                            .contains("✓ 2 4 1.1 Title of a/01-first Chapter a"),
+                            .contains("Title of a/01-first ✓ 1.1 2 4 Chapter a"),
                         "{}",
                         row("Title of a/01-first")
                     );
                     assert!(
                         row("Title of a/02-second")
-                            .contains("★ 3 3 1.2 Title of a/02-second Chapter a"),
+                            .contains("Title of a/02-second ★ 1.2 3 3 Chapter a"),
                         "{}",
                         row("Title of a/02-second")
                     );
                     assert!(
                         row("Title of b/01-third")
-                            .contains("· 3 2.1 Title of b/01-third Chapter b"),
+                            .contains("Title of b/01-third · 2.1 3 Chapter b"),
                         "{}",
                         row("Title of b/01-third")
                     );

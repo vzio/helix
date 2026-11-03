@@ -1,0 +1,42 @@
+title = "Everything but the backups"
+chapter = "multi-cursor"
+kind = "learn"
+feature = "Alt-K drops the selections that match a regex"
+lesson = """
+"Everything except" is hard to say in a regex, and easy with `<A-K>`: it is
+`K` turned around, dropping the selections that match and keeping the rest.
+Split into lines, drop what must stay as it is, and edit all the others.
+"""
+start = '''
+# m h dom mon dow command
+*/5 * * * * /srv/app/bin/fetch --all
+0 * * * * /srv/app/bin/digest --hourly
+15 2 * * * /usr/local/bin/backup-db
+30 2 * * * find /tmp/uploads -mtime +1 -delete
+0 3 * * * /usr/local/bin/backup-files
+*/10 * * * * curl -fsS https://hc.test/ping
+0 6 * * 1 /srv/app/bin/digest --weekly
+45 23 * * * logrotate /etc/logrotate.conf
+0 4 * * 0 /usr/local/bin/backup-verify
+*/15 * * * * /srv/app/bin/retry-failed
+'''
+goal = '''
+# m h dom mon dow command
+# */5 * * * * /srv/app/bin/fetch --all
+# 0 * * * * /srv/app/bin/digest --hourly
+15 2 * * * /usr/local/bin/backup-db
+# 30 2 * * * find /tmp/uploads -mtime +1 -delete
+0 3 * * * /usr/local/bin/backup-files
+# */10 * * * * curl -fsS https://hc.test/ping
+# 0 6 * * 1 /srv/app/bin/digest --weekly
+# 45 23 * * * logrotate /etc/logrotate.conf
+0 4 * * 0 /usr/local/bin/backup-verify
+# */15 * * * * /srv/app/bin/retry-failed
+'''
+hints = [
+  "During the maintenance window every job is commented out, except the three backups. The header is a comment already.",
+  "`%<A-s>` gives a selection per line; `<A-K>` drops the ones that match a regex, and `|` in a regex means or; `I` inserts at the start of every line left.",
+  "`%<A-s>`, `<A-K>backup|#<ret>` drops the backups and the header, `I# <esc>` comments out the rest.",
+]
+teach = "%<A-s><A-K>backup|#<ret>I# <esc>"
+naive = "jI# <esc>jI# <esc>jjI# <esc>jjI# <esc>jI# <esc>jI# <esc>jjI# <esc>"

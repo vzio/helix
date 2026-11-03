@@ -34,7 +34,7 @@ Assumes: nothing.
 
 ## 2. Lines and characters
 
-Keys: `d` `x` `~` `J` `<gt>` `<lt>` `<C-c>` `insert:<C-w>`
+Keys: `d` `x` `~` `` ` `` `` <A-`> `` `J` `<gt>` `<lt>` `<C-c>` `insert:<C-w>`
 
 Helix selects first and acts second. So far the selection was just the cursor, one character, and
 `d` deletes it. `x` selects the whole line (press it again to add the next one). On an empty line
@@ -43,7 +43,7 @@ Helix also takes the next line there; this fork doesn't). The commands of this c
 whatever is selected:
 
 - `xd` deletes lines;
-- `~` switches the case;
+- `~` switches the case, `` ` `` sets lower case and `` <A-`> `` upper case;
 - `J` joins lines;
 - `>` and `<` indent and unindent;
 - `<C-c>` comments lines out or back in.
@@ -90,36 +90,39 @@ Assumes: chapters 1-3.
 
 ## 5. Undo, redo and repeat
 
-Keys: `u` `U` `.`
+Keys: `u` `U` `.` `insert:<right>`
 
 `u` undoes and `U` redoes. Some exercises start with an undo history (`before`), so undoing is
 the fastest way back. `.` repeats the last insert, including the command that started it
 (`A;<esc>` once, then `.` everywhere else). This is the first chapter where doing a change
-once and repeating it beats doing it by hand.
+once and repeating it beats doing it by hand. The repeat includes the arrow keys pressed while
+inserting, so moving with `<left>` and `<right>` inside one insert makes a change in two nearby
+places one repeatable change.
 
 Assumes: chapters 1-4.
 
 ## 6. Search and jump
 
-Keys: `/` `?` `n` `N` `*` `<C-o>` `gg` `ge`
+Keys: `/` `?` `n` `N` `*` `<A-*>` `<C-o>` `gg` `ge`
 
 How to get somewhere without counting lines or columns:
 
 - searching: `/` forward and `?` backward, with a regex; `n` and `N` for the next and previous
-  match; `*` to search for the selection as a whole word. A match is a selection, so `c`
-  changes it, and `n.` repeats that on the next one;
+  match; `*` to search for the selection as a whole word, and `<A-*>` for it exactly as it is,
+  also inside longer words. A match is a selection, so `c`
+  changes it, and `n.` repeats that on the next one. In select mode (`v`), `n` and `N` add the
+  next match as one more selection instead, so one `c` changes them all;
 - coming back: a search is a jump, and `<C-o>` returns to where you were before it;
 - the ends of the file: `gg` and `ge`.
 
-The lessons also mention the related keys that no exercise needs: `12G` for line 12, `<C-s>`
-to save a position in the jumplist yourself, `<C-i>` to go forward again, and `g.` for the
-last change.
+The jumplist itself (`<C-s>`, `<C-i>`, the `<space>j` picker), `12G` for line 12 and `g.` for
+the last change are explained in `:tutor`, with the rest of moving around files.
 
 Assumes: chapters 1-5.
 
 ## 7. Many selections
 
-Keys: `%` `s` `S` `C` `,` `<A-s>` `K` `<A-K>` `&`
+Keys: `%` `s` `S` `C` `<A-C>` `,` `<A-s>` `K` `<A-K>` `&` `(` `)` `<A-,>` `<A-(>` `<A-)>` `<A-J>` `_`
 
 Helix's multiple selections. One edit applies to every selection at once:
 
@@ -127,10 +130,15 @@ Helix's multiple selections. One edit applies to every selection at once:
 - `s` selects the matches of a regex inside the selection, and `S` splits the selection on a
   regex;
 - `<A-s>` splits it into lines;
-- `C` copies the cursor to the next line;
+- `C` and `<A-C>` copy the cursor to the next and the previous line;
 - `K` and `<A-K>` keep or drop the selections that match a regex;
-- `,` keeps only the primary selection;
-- `&` aligns the selections in columns.
+- one selection is the primary: `)` and `(` make the next or previous one primary, `<A-,>`
+  removes it, and `,` keeps only it;
+- `<A-)>` and `<A-(>` rotate the contents of the selections forward and back (with two, a swap);
+- `&` aligns the selections in columns;
+- `_` trims the spaces off both ends of each selection;
+- `<A-J>` joins lines like `J` and selects the spaces it put in, so `c` can turn them into any
+  separator.
 
 From here on, many earlier exercises have a much shorter answer.
 
@@ -138,12 +146,15 @@ Assumes: chapters 1-6 (regexes as in chapter 6).
 
 ## 8. Text objects
 
-Keys: `mi` `ma` `mm`
+Keys: `mi` `ma` `mm` `<space>C`
 
 `mi` selects inside a text object and `ma` selects around it: a word (`w`), a paragraph
 (`p`), quotes (`"` `'`), brackets (`(` `[` `{` `<`), or the nearest pair of any of these (`m`).
 Text objects work wherever the cursor is inside the object, so they don't need precise
 motions. `mm` jumps to the matching bracket.
+
+Once a text object is selected, `<space>C` comments out just that part with the language's block
+comment (`/* ... */`), where `<C-c>` would comment out whole lines.
 
 Assumes: chapters 1-7.
 

@@ -152,11 +152,32 @@ struct Index {
 }
 
 /// The number of keys of a solution in the notation of macros, `None` if it doesn't parse.
+/// The lines of `text` without the spaces at their ends, and without blank lines at the start and
+/// the end.
+fn trimmed_lines(text: &str) -> Vec<&str> {
+    let lines: Vec<&str> = text.lines().map(str::trim_end).collect();
+    let start = lines
+        .iter()
+        .position(|line| !line.is_empty())
+        .unwrap_or(lines.len());
+    let end = lines
+        .iter()
+        .rposition(|line| !line.is_empty())
+        .map_or(start, |last| last + 1);
+    lines[start..end].to_vec()
+}
+
 pub fn key_count(keys: &str) -> Option<usize> {
     parse_macro(keys).ok().map(|keys| keys.len())
 }
 
 impl Exercise {
+    /// Whether `text` is the goal. Spaces at the ends of lines and blank lines at the start and the
+    /// end don't count, so a missing or extra newline at the end doesn't fail a solution.
+    pub fn is_goal(&self, text: &str) -> bool {
+        trimmed_lines(text) == trimmed_lines(&self.goal)
+    }
+
     /// The number of keys of the solution that uses the feature.
     pub fn par(&self) -> usize {
         key_count(&self.teach).unwrap_or(0)
@@ -382,7 +403,7 @@ pub fn check_curriculum(chapters: &[Chapter], text: &str) -> Vec<String> {
             continue;
         };
         // the text between backticks, so the odd pieces
-        let listed: Vec<&str> = keys.split('`').skip(1).step_by(2).collect();
+        let listed = code_spans(keys);
         if listed != chapter.keys {
             problems.push(format!(
                 "{CURRICULUM_FILE}: `{heading}` lists the keys {listed:?}, {INDEX_FILE} has {:?}",
@@ -394,6 +415,38 @@ pub fn check_curriculum(chapters: &[Chapter], text: &str) -> Vec<String> {
 }
 
 /// Splits `01-word-motions` into its number and name.
+/// The code spans of a line of Markdown: the text between two runs of as many backticks, without
+/// the spaces that pad a span with a backtick of its own (`` ` ``).
+fn code_spans(line: &str) -> Vec<&str> {
+    let fence = |text: &str| text.len() - text.trim_start_matches('`').len();
+    let mut spans = Vec::new();
+    let mut rest = line;
+    while let Some(start) = rest.find('`') {
+        let open = fence(&rest[start..]);
+        let after = &rest[start + open..];
+        let mut from = 0;
+        let close = loop {
+            let Some(at) = after[from..].find('`').map(|at| from + at) else {
+                return spans;
+            };
+            let run = fence(&after[at..]);
+            if run == open {
+                break at;
+            }
+            from = at + run;
+        };
+        let span = &after[..close];
+        let padded = span.len() > 2 && span.starts_with(' ') && span.ends_with(' ');
+        spans.push(if padded {
+            &span[1..span.len() - 1]
+        } else {
+            span
+        });
+        rest = &after[close + open..];
+    }
+    spans
+}
+
 fn split_stem(stem: &str) -> Option<(usize, &str)> {
     let (number, name) = stem.split_once('-')?;
     (number.len() == 2 && number.bytes().all(|b| b.is_ascii_digit()) && is_kebab(name))
@@ -652,8 +705,8 @@ pub fn validate(exercises: &[Exercise], dir: &Path, loader: &syntax::Loader) -> 
                 if text.contains("#[") || text.contains("#(") {
                     problems.push(format!("{id}: start has markup left after the selection"));
                 }
-                if text == exercise.goal {
-                    problems.push(format!("{id}: start and goal are the same"));
+                if exercise.is_goal(&text) {
+                    problems.push(format!("{id}: start is already the goal"));
                 }
             }
         }
@@ -776,6 +829,27 @@ naive = "dwwwd"
         assert_eq!(text, "The quick quick brown fox\n");
         assert_eq!(selection.primary().from(), 4);
         assert_eq!(selection.len(), 1);
+    }
+
+    #[test]
+    fn the_goal_ignores_spaces_at_line_ends_and_blank_lines_around_it() {
+        let exercise = exercise(GOOD).unwrap();
+        assert!(exercise.is_goal("The quick brown fox\n"));
+        assert!(exercise.is_goal("The quick brown fox"));
+        assert!(exercise.is_goal("\nThe quick brown fox  \n\n"));
+        assert!(!exercise.is_goal("The quick  brown fox\n"));
+        assert!(!exercise.is_goal(" The quick brown fox\n"));
+        assert!(!exercise.is_goal("The quick\nbrown fox\n"));
+    }
+
+    #[test]
+    fn code_spans_are_read_like_markdown() {
+        assert_eq!(code_spans("Keys: `d` `x`"), ["d", "x"]);
+        assert_eq!(
+            code_spans("`~` `` ` `` `` <A-`> `` `J`"),
+            ["~", "`", "<A-`>", "J"]
+        );
+        assert_eq!(code_spans("no keys, `unclosed"), Vec::<&str>::new());
     }
 
     #[test]

@@ -11,19 +11,19 @@ language = "python"
 start = '''
 def notify(user, event):
     send(#[|r]#ender(user, event.kind), retries=3)
-    audit(entry(user.id, event, now()), sync=True)
+    audit(entry(user.login, event, now()), True)
 '''
 goal = '''
 def notify(user, event):
     msg = render(user, event.kind)
     send(msg, retries=3)
-    record = entry(user.id, event, now())
-    audit(record, sync=True)
+    record = entry(user.login, event, now())
+    audit(record, True)
 '''
 hints = [
   "Each first argument, a whole call, moves to a variable of its own on the line above.",
-  "`<A-o>` grows the selection from the name to the whole call; `c` replaces it and yanks it; `<C-r>\"` pastes that yank while typing.",
-  "`<A-o><A-o>cmsg<esc>`, `Omsg = <C-r>\"<esc>`. Then `jj`, `gsf(l` onto `entry`, and the same with `record`.",
+  "`<A-o>` grows the selection from wherever the cursor is inside a call, a step at a time, until it is the whole call; `c` replaces it and yanks it; `<C-r>\"` pastes that yank while typing.",
+  "`<A-o><A-o>cmsg<esc>`, `Omsg = <C-r>\"<esc>`. Then `jj` lands on a comma inside `entry(...)`: `<A-o>` grows to its arguments, `<A-o>` again to the call. `crecord<esc>`, `Orecord = <C-r>\"<esc>`.",
 ]
-teach = "<A-o><A-o>cmsg<esc>Omsg = <C-r>\"<esc>jjgsf(l<A-o><A-o>crecord<esc>Orecord = <C-r>\"<esc>"
-naive = "Omsg = render(user, event.kind)<esc>jhhhhhhhhhhhhhhhhhhhhhhhhhddddddddddddddddddddddddimsg<esc>jOrecord = entry(user.id, event, now())<esc>jhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhddddddddddddddddddddddddddddirecord<esc>"
+teach = "<A-o><A-o>cmsg<esc>Omsg = <C-r>\"<esc>jj<A-o><A-o>crecord<esc>Orecord = <C-r>\"<esc>"
+naive = "Omsg = render(user, event.kind)<esc>jhhhhhhhhhhhhhhhhhhhhhhhhhddddddddddddddddddddddddimsg<esc>jOrecord = entry(user.login, event, now())<esc>jhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhdddddddddddddddddddddddddddddddirecord<esc>"
