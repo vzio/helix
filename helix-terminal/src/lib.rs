@@ -125,7 +125,7 @@ pub struct Cell {
     pub italic: bool,
     pub underline: bool,
     pub strikeout: bool,
-    /// Already applied to `fg` and `bg`.
+    /// Foreground and background are swapped when drawn.
     pub inverse: bool,
     pub hidden: bool,
 }
