@@ -8,6 +8,8 @@
 
 pub mod osc133;
 mod shell;
+#[cfg(all(test, unix))]
+mod tests;
 
 pub use shell::Shell;
 
