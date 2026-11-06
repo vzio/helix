@@ -8,7 +8,10 @@ pub struct Shell {}
 
 impl Shell {
     /// Starts the shell. Its threads send [`ShellEvent`]s on `events`; they never block on it.
-    pub fn spawn(options: ShellOptions, events: UnboundedSender<ShellEvent>) -> anyhow::Result<Shell> {
+    pub fn spawn(
+        options: ShellOptions,
+        events: UnboundedSender<ShellEvent>,
+    ) -> anyhow::Result<Shell> {
         let _ = (options, events);
         todo!()
     }
