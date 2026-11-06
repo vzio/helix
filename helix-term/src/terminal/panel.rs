@@ -176,6 +176,10 @@ pub fn handle_event(event: &Event, editor: &mut Editor, compositor: &mut Composi
             let Some(shell) = &panel.shell else {
                 return true;
             };
+            // a click on the border only focuses
+            if mouse.row < area.y {
+                return true;
+            }
             let col = mouse.column - area.x;
             let row = mouse.row.saturating_sub(area.y);
             match encode_mouse(mouse, col, row, scroll_lines, &shell.input_modes()) {
