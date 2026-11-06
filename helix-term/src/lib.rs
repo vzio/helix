@@ -12,6 +12,7 @@ pub mod job;
 pub mod keymap;
 pub mod logging;
 pub mod practice;
+pub mod terminal;
 pub mod ui;
 
 #[cfg(not(windows))]
