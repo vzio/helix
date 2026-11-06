@@ -1,0 +1,5 @@
+# Runs the user's own .zprofile, see .zshenv.
+if [[ -n ${HELIX_USER_ZDOTDIR+x} ]]; then ZDOTDIR=$HELIX_USER_ZDOTDIR; else unset ZDOTDIR; fi
+if [[ -r ${ZDOTDIR:-$HOME}/.zprofile ]]; then source "${ZDOTDIR:-$HOME}/.zprofile"; fi
+if [[ -n ${ZDOTDIR+x} ]]; then HELIX_USER_ZDOTDIR=$ZDOTDIR; else unset HELIX_USER_ZDOTDIR; fi
+ZDOTDIR=$HELIX_ZDOTDIR
