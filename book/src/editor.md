@@ -3,6 +3,7 @@
 - [`[editor]` Section](#editor-section)
 - [`[editor.clipboard-provider]` Section](#editorclipboard-provider-section)
 - [`[editor.statusline]` Section](#editorstatusline-section)
+- [`[editor.terminal]` Section](#editorterminal-section)
 - [`[editor.lsp]` Section](#editorlsp-section)
 - [`[editor.inline-blame]` Section](#editorinline-blame-section)
 - [`[editor.cursor-shape]` Section](#editorcursor-shape-section)
@@ -125,7 +126,7 @@ The `[editor.statusline]` key takes the following sub-keys:
 | ---           | ---         | ---     |
 | `left`        | A list of elements aligned to the left of the statusline | `["mode", "spinner", "file-name", "read-only-indicator", "file-modification-indicator"]` |
 | `center`      | A list of elements aligned to the middle of the statusline | `[]` |
-| `right`       | A list of elements aligned to the right of the statusline | `["diagnostics", "selections", "register", "position", "file-encoding"]` |
+| `right`       | A list of elements aligned to the right of the statusline | `["diagnostics", "shell", "selections", "register", "position", "file-encoding"]` |
 | `separator`   | The character used to separate elements in the statusline | `"│"` |
 | `mode.normal` | The text shown in the `mode` element for normal mode | `"NOR"` |
 | `mode.insert` | The text shown in the `mode` element for insert mode | `"INS"` |
@@ -153,6 +154,7 @@ The following statusline elements can be configured:
 | `diagnostics` | The number of warnings and/or errors |
 | `workspace-diagnostics` | The number of warnings and/or errors on workspace |
 | `selections` | The primary selection index out of the number of active selections |
+| `shell` | `SH` while the terminal panel's shell runs, colored by what it does: at the prompt, running a command, or how the last command ended (see the `ui.statusline.shell` theme scopes) |
 | `primary-selection-length` | The number of characters currently in primary selection |
 | `position` | The cursor position |
 | `position-percentage` | The cursor position as a percentage of the total number of lines |
@@ -161,6 +163,26 @@ The following statusline elements can be configured:
 | `version-control` | The current branch name or detached commit hash of the opened workspace |
 | `register` | The current selected register |
 | `code-action-hint` | Indicator for when code actions are available |
+
+### `[editor.terminal]` Section
+
+The terminal panel: a shell below all the splits, shown and focused with `Ctrl-t` or `:sh`
+(see [FORK.md](https://github.com/vzio/helix/blob/master/FORK.md#terminal-panel)).
+
+```toml
+[editor.terminal]
+height = 40
+shell = ["fish"]
+```
+
+| Key | Description | Default |
+| --- | --- | --- |
+| `height` | Height of the panel, in percent of the editor's height (10 to 90) | `30` |
+| `shell` | The shell to run in the panel, with its arguments | `$SHELL`, or `/bin/sh` |
+| `shell-integration` | Tell bash and zsh to report when a command runs and how it ended (OSC 133), without touching their rc files, for the statusline's `shell` element. Other shells are watched through the terminal's foreground process: running or not, without an exit code | `true` |
+| `scrollback` | Lines of scrollback kept above the screen | `10000` |
+| `command` | The external terminal the debugger runs programs in | a tmux or WezTerm split when Helix runs in one; `wt` or `conhost` on Windows |
+| `args` | Its arguments | |
 
 ### `[editor.lsp]` Section
 

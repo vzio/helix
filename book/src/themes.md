@@ -331,6 +331,10 @@ These scopes are used for theming the editor interface:
 | `ui.statusline.insert`            | Statusline mode during insert mode ([only if `editor.color-modes` is enabled][editor-section]) |
 | `ui.statusline.select`            | Statusline mode during select mode ([only if `editor.color-modes` is enabled][editor-section]) |
 | `ui.statusline.separator`         | Separator character in statusline                                                              |
+| `ui.statusline.shell`             | The `shell` element while the shell is at its prompt                                           |
+| `ui.statusline.shell.running`     | The `shell` element while a command runs (default: yellow)                                     |
+| `ui.statusline.shell.success`     | The `shell` element after a command succeeded (default: green)                                 |
+| `ui.statusline.shell.failure`     | The `shell` element after a command failed (default: red)                                      |
 | `ui.bufferline`                   | Style for the buffer line                                                                      |
 | `ui.bufferline.active`            | Style for the active buffer in buffer line                                                     |
 | `ui.bufferline.background`        | Style for bufferline background                                                                |
@@ -349,6 +353,8 @@ These scopes are used for theming the editor interface:
 | `ui.practice.solved`              | The result of a solved exercise (`diff.plus`, `info`)                                          |
 | `ui.practice.dim`                 | Secondary text and the bar before the goal (`ui.text.inactive`, `comment`)                     |
 | `ui.window`                       | Borderlines separating splits                                                                  |
+| `ui.terminal`                     | The terminal panel (default: `ui.background`)                                                  |
+| `ui.terminal.border`              | The terminal panel's top border (default: `ui.window`)                                         |
 | `ui.help`                         | Description box for commands                                                                   |
 | `ui.text`                         | Default text style, command prompts, popup text, etc.                                          |
 | `ui.text.focus`                   | The currently selected line in the picker                                                      |
