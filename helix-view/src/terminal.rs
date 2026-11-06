@@ -86,15 +86,56 @@ impl Panel {
         self.visible && self.shell.is_some()
     }
 
-    /// Calls the waiters of `doc`, which was closed.
-    pub fn document_closed(&mut self, doc: DocumentId) {
-        let (done, waiting) = std::mem::take(&mut self.waiters)
+    /// Shows the panel and gives it the keys. The result of the last command has been seen.
+    pub fn focus(&mut self) {
+        let Some(shell) = &self.shell else {
+            return;
+        };
+        shell.acknowledge();
+        if !self.focused && shell.input_modes().focus_reporting {
+            shell.write(b"\x1b[I");
+        }
+        self.visible = true;
+        self.focused = true;
+    }
+
+    /// Gives the keys back to the editor. The panel stays shown.
+    pub fn unfocus(&mut self) {
+        if let Some(shell) = &self.shell {
+            if self.focused && shell.input_modes().focus_reporting {
+                shell.write(b"\x1b[O");
+            }
+        }
+        self.focused = false;
+    }
+
+    /// Hides the panel. The shell keeps running.
+    pub fn hide(&mut self) {
+        self.unfocus();
+        self.visible = false;
+    }
+
+    /// The shell exited: closes the panel, and answers the `hx` that waited on a buffer.
+    pub fn shell_exited(&mut self) {
+        self.shell = None;
+        self.visible = false;
+        self.focused = false;
+        for waiter in std::mem::take(&mut self.waiters) {
+            (waiter.done)();
+        }
+    }
+
+    /// Calls the waiters of `doc`, which was closed. Returns whether there were any.
+    pub fn document_closed(&mut self, doc: DocumentId) -> bool {
+        let (done, waiting): (Vec<_>, _) = std::mem::take(&mut self.waiters)
             .into_iter()
             .partition(|waiter| waiter.doc == doc);
         self.waiters = waiting;
+        let any = !done.is_empty();
         for waiter in done {
             (waiter.done)();
         }
+        any
     }
 
     pub fn is_awaited(&self, doc: DocumentId) -> bool {

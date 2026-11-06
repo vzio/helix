@@ -138,11 +138,12 @@ one, and a new line is indented like the last. Replay rather than reason.
 
 ## Fork conventions
 
-- **Own modules.** A feature lives in its own modules (see the code layout table in FORK.md). Core
-  files (`commands.rs`, `typed.rs`, `keymap/default.rs`, `ui/editor.rs`, `ui/picker.rs`,
-  `application.rs`, `helix-view/src/editor.rs`, ...) get the smallest hooks possible, and any
-  generic addition to them (a picker option, a keymap macro option) must make sense on its own.
-  This keeps rebasing on upstream cheap. List the hooks in FORK.md's code layout.
+- **Own modules, clean core.** The fork no longer syncs with upstream, so changing core files
+  (`commands.rs`, `typed.rs`, `keymap/default.rs`, `ui/editor.rs`, `application.rs`,
+  `helix-view/src/editor.rs`, ...) is fine when it makes the design cleaner: don't contort a
+  feature to keep its hooks small. A feature still lives in its own modules (see the code layout
+  table in FORK.md) where it has its own logic, and FORK.md's code layout lists the core files it
+  changes.
 - **FORK.md.** Every feature gets a section (usage, behaviour, limitations) and a row in the code
   layout table; ported work gets a credit with links to the original PR and its author.
 - **PRs go to the fork only:** `vzio/helix`, base `master`. Never open PRs against upstream

@@ -783,6 +783,7 @@ impl Default for StatusLineConfig {
             center: vec![],
             right: vec![
                 E::Diagnostics,
+                E::Shell,
                 E::Selections,
                 E::Register,
                 E::Position,
@@ -858,6 +859,10 @@ pub enum StatusLineElement {
 
     /// The number of selections (cursors)
     Selections,
+
+    /// `SH` while the terminal panel's shell runs, colored by what it does: at the prompt, running
+    /// a command, or how the last command ended (fork feature)
+    Shell,
 
     /// The number of characters currently in primary selection
     PrimarySelectionLength,
@@ -2313,6 +2318,11 @@ impl Editor {
             let doc = doc_mut!(self, &doc_id);
             doc.ensure_view_init(view_id);
             doc.mark_as_focused();
+        }
+
+        // an `hx` in the terminal panel waited on it (`git commit`): back to the panel
+        if self.terminal.document_closed(doc_id) {
+            self.terminal.focus();
         }
 
         self._refresh();
