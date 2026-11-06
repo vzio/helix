@@ -665,7 +665,7 @@ impl std::str::FromStr for MappableCommand {
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         if let Some(suffix) = s.strip_prefix(':') {
-            let (name, args, _) = command_line::split(suffix);
+            let (name, args, _) = typed::split_command_line(suffix);
             ensure!(!name.is_empty(), "Expected typable command name");
             typed::TYPABLE_COMMAND_MAP
                 .get(name)

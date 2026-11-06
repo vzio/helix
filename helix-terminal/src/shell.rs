@@ -25,6 +25,9 @@ use crate::{
     ShellStatus, Size,
 };
 
+/// How long input is held at most, waiting for the shell to be ready.
+const READY_TIMEOUT: Duration = Duration::from_secs(3);
+
 /// How often the foreground process group is looked at, without shell integration.
 #[cfg(unix)]
 const FALLBACK_POLL_INTERVAL: Duration = Duration::from_millis(250);
@@ -48,6 +51,12 @@ struct Common {
     output_pending: AtomicBool,
     /// The shell process is gone.
     exited: AtomicBool,
+    /// What was typed before the shell was ready to read it, or None once it is: bash and zsh
+    /// drop what is typed while they start (`:sh command` on a new shell).
+    held_input: Mutex<Option<Vec<u8>>>,
+    /// The shell is ready at its first prompt marker (with the integration), else at its first
+    /// output.
+    ready_at_marker: bool,
 }
 
 impl Common {
@@ -60,6 +69,26 @@ impl Common {
         let mut writer = self.writer.lock();
         if let Err(err) = writer.write_all(bytes).and_then(|()| writer.flush()) {
             log::debug!("writing to the terminal failed: {err}");
+        }
+    }
+
+    /// Writes what the user typed, or holds it until the shell is ready.
+    fn write_input(&self, bytes: &[u8]) {
+        let mut held = self.held_input.lock();
+        match &mut *held {
+            Some(held) => held.extend_from_slice(bytes),
+            None => {
+                drop(held);
+                self.write(bytes);
+            }
+        }
+    }
+
+    /// The shell is ready: writes what was typed before.
+    fn ready(&self) {
+        let held = self.held_input.lock().take();
+        if let Some(bytes) = held.filter(|bytes| !bytes.is_empty()) {
+            self.write(&bytes);
         }
     }
 
@@ -386,6 +415,8 @@ impl Shell {
             integrated: AtomicBool::new(false),
             output_pending: AtomicBool::new(false),
             exited: AtomicBool::new(false),
+            held_input: Mutex::new(Some(Vec::new())),
+            ready_at_marker: integration.dir.is_some(),
         });
         let config = Config {
             scrolling_history: options.scrollback,
@@ -424,6 +455,14 @@ impl Shell {
                 common.send(ShellEvent::Exited(code));
             })?;
         }
+        {
+            // in case the shell never sends a marker (an rc file that replaces the prompt hook)
+            let common = common.clone();
+            spawn_thread("helix-terminal-ready", move || {
+                std::thread::sleep(READY_TIMEOUT);
+                common.ready();
+            })?;
+        }
         #[cfg(unix)]
         if let Some(pid) = pid {
             let common = common.clone();
@@ -447,7 +486,7 @@ impl Shell {
     /// scrollback.
     pub fn write(&self, bytes: &[u8]) {
         self.term.lock().scroll_display(Scroll::Bottom);
-        self.common.write(bytes);
+        self.common.write_input(bytes);
     }
 
     /// Resizes the screen and the pseudo-terminal (the program gets `SIGWINCH`). Does nothing
@@ -608,8 +647,14 @@ fn read_loop(mut reader: Box<dyn Read + Send>, common: &Common, term: &SharedTer
         let chunk = &buf[..n];
         for marker in scanner.feed(chunk) {
             common.handle_marker(marker);
+            if marker == Marker::PromptStart {
+                common.ready();
+            }
         }
         processor.advance(&mut *term.lock(), chunk);
+        if !common.ready_at_marker {
+            common.ready();
+        }
         if !common.output_pending.swap(true, Ordering::SeqCst) {
             common.send(ShellEvent::Output);
         }

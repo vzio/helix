@@ -4281,12 +4281,21 @@ pub static TYPABLE_COMMAND_MAP: LazyLock<HashMap<&'static str, &'static TypableC
             .collect()
     });
 
+/// Splits a command line into the command and its arguments, as [`command_line::split`], with
+/// `:!cmd` read as `:! cmd`, as in Vim.
+pub(crate) fn split_command_line(input: &str) -> (&str, &str, bool) {
+    match input.strip_prefix('!') {
+        Some(rest) if !rest.is_empty() && !rest.starts_with([' ', '\t']) => ("!", rest, false),
+        _ => command_line::split(input),
+    }
+}
+
 fn execute_command_line(
     cx: &mut compositor::Context,
     input: &str,
     event: PromptEvent,
 ) -> anyhow::Result<()> {
-    let (command, rest, _) = command_line::split(input);
+    let (command, rest, _) = split_command_line(input);
     if command.is_empty() {
         return Ok(());
     }
@@ -4343,7 +4352,7 @@ pub(super) fn command_mode(cx: &mut Context) {
 }
 
 fn command_line_doc(input: &str) -> Option<Cow<'_, str>> {
-    let (command, _, _) = command_line::split(input);
+    let (command, _, _) = split_command_line(input);
     let command = TYPABLE_COMMAND_MAP.get(command)?;
 
     if command.aliases.is_empty() && command.signature.flags.is_empty() {
@@ -4415,7 +4424,7 @@ fn command_line_doc(input: &str) -> Option<Cow<'_, str>> {
 }
 
 fn complete_command_line(editor: &Editor, input: &str) -> Vec<ui::prompt::Completion> {
-    let (command, rest, complete_command) = command_line::split(input);
+    let (command, rest, complete_command) = split_command_line(input);
 
     if complete_command {
         fuzzy_match(
@@ -4430,7 +4439,7 @@ fn complete_command_line(editor: &Editor, input: &str) -> Vec<ui::prompt::Comple
         TYPABLE_COMMAND_MAP
             .get(command)
             .map_or_else(Vec::new, |cmd| {
-                let args_offset = command.len() + 1;
+                let args_offset = input.len() - rest.len();
                 complete_command_args(editor, cmd.signature, &cmd.completer, rest, args_offset)
             })
     }

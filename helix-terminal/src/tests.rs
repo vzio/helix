@@ -17,6 +17,14 @@ impl Harness {
     /// Starts `command` with a fresh `HOME` containing `bashrc` and `zshrc` that set a short
     /// prompt, so that the user's own rc files don't matter.
     fn start(command: &[&str], integration: bool) -> Harness {
+        let mut h = Self::spawn(command, integration);
+        // Input typed before the first prompt may be echoed out of order.
+        h.wait_row("$");
+        h
+    }
+
+    /// Starts `command` without waiting for its prompt.
+    fn spawn(command: &[&str], integration: bool) -> Harness {
         let home = tempfile::tempdir().unwrap();
         std::fs::write(home.path().join(".bashrc"), "PS1='$ '\n").unwrap();
         std::fs::write(home.path().join(".zshrc"), "PS1='$ '\n").unwrap();
@@ -38,15 +46,12 @@ impl Harness {
             tx,
         )
         .unwrap();
-        let mut h = Harness {
+        Harness {
             shell,
             events,
             seen: Vec::new(),
             _home: home,
-        };
-        // Input typed before the first prompt may be echoed out of order.
-        h.wait_row("$");
-        h
+        }
     }
 
     fn drain(&mut self) {
@@ -246,6 +251,17 @@ impl Harness {
     fn acknowledge_and_check_idle(&mut self) {
         self.shell.acknowledge();
         assert_eq!(self.shell.status(), ShellStatus::Idle);
+    }
+}
+
+/// `:sh command` on a new shell: bash and zsh drop what is typed while they start, so it is held
+/// until the first prompt.
+#[test]
+fn input_typed_before_the_prompt_is_kept() {
+    for command in [&["bash"][..], &["sh"]] {
+        let mut h = Harness::spawn(command, true);
+        h.type_line("echo early-$((40+2))");
+        h.wait_row("early-42");
     }
 }
 
