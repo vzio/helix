@@ -18,6 +18,9 @@ fn setup_logging(verbosity: u64) -> Result<()> {
 }
 
 fn main() -> Result<()> {
+    if let Some(code) = helix_term::terminal::shim::client_main() {
+        std::process::exit(code)
+    }
     let exit_code = main_impl()?;
     std::process::exit(exit_code);
 }
