@@ -1506,6 +1506,20 @@ impl Component for EditorView {
 
                 let mode = cx.editor.mode();
 
+                // Esc in normal mode, with nothing pending, hides the terminal panel (popups,
+                // which are above, take it first)
+                if key == key!(Esc)
+                    && mode == Mode::Normal
+                    && cx.editor.terminal.is_visible()
+                    && cx.editor.count.is_none()
+                    && self.keymaps.pending().is_empty()
+                    && self.pseudo_pending.is_empty()
+                    && self.on_next_key.is_none()
+                {
+                    cx.editor.terminal.hide();
+                    return EventResult::Consumed(None);
+                }
+
                 if !self.on_next_key(OnKeyCallbackKind::PseudoPending, &mut cx, key) {
                     match mode {
                         Mode::Insert => {
@@ -1647,6 +1661,9 @@ impl Component for EditorView {
             editor_area = editor_area.clip_top(1);
         }
 
+        // the terminal panel goes below all the splits
+        let (editor_area, panel_area) = crate::terminal::split_area(cx.editor, editor_area);
+
         // if the terminal size suddenly changed, we need to trigger a resize
         cx.editor.resize(editor_area);
 
@@ -1654,9 +1671,22 @@ impl Component for EditorView {
             Self::render_bufferline(cx.editor, area.with_height(1), surface);
         }
 
+        // with the panel focused, no split is
+        let panel_focused = cx.editor.terminal.is_focused();
         for (view, is_focused) in cx.editor.tree.views() {
             let doc = cx.editor.document(view.doc).unwrap();
-            self.render_view(cx.editor, doc, view, area, surface, is_focused);
+            self.render_view(
+                cx.editor,
+                doc,
+                view,
+                area,
+                surface,
+                is_focused && !panel_focused,
+            );
+        }
+
+        if let Some(panel_area) = panel_area {
+            crate::terminal::render(cx.editor, panel_area, surface);
         }
 
         crate::practice::render(cx.editor, editor_area, surface);
@@ -1750,6 +1780,9 @@ impl Component for EditorView {
     }
 
     fn cursor(&self, _area: Rect, editor: &Editor) -> (Option<Position>, CursorKind) {
+        if let Some((pos, kind)) = crate::terminal::cursor(editor) {
+            return (Some(pos), kind);
+        }
         match editor.cursor() {
             // all block cursors are drawn manually
             (pos, CursorKind::Block) => {

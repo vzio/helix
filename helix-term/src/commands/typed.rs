@@ -115,6 +115,13 @@ fn quit(cx: &mut compositor::Context, _args: Args, event: PromptEvent) -> anyhow
         return Ok(());
     }
 
+    // a buffer an `hx` in the terminal panel waits on (`git commit`): close it, and go back to
+    // the panel, rather than closing the split or the editor
+    let doc_id = view!(cx.editor).doc;
+    if cx.editor.terminal.is_awaited(doc_id) {
+        return buffer_close_by_ids_impl(cx, &[doc_id], false);
+    }
+
     // last view and we have unsaved changes
     if cx.editor.tree.views().count() == 1 {
         buffers_remaining_impl(cx.editor)?
@@ -129,6 +136,13 @@ fn quit(cx: &mut compositor::Context, _args: Args, event: PromptEvent) -> anyhow
 fn force_quit(cx: &mut compositor::Context, _args: Args, event: PromptEvent) -> anyhow::Result<()> {
     if event != PromptEvent::Validate {
         return Ok(());
+    }
+
+    // a buffer an `hx` in the terminal panel waits on (`git commit`): close it, and go back to
+    // the panel, rather than closing the split or the editor
+    let doc_id = view!(cx.editor).doc;
+    if cx.editor.terminal.is_awaited(doc_id) {
+        return buffer_close_by_ids_impl(cx, &[doc_id], true);
     }
 
     cx.block_try_flush_writes()?;
@@ -2718,11 +2732,21 @@ fn git_log(cx: &mut compositor::Context, _args: Args, event: PromptEvent) -> any
     Ok(())
 }
 
+/// `:sh`: types the command in the terminal panel's shell and focuses the panel.
 fn run_shell_command(
     cx: &mut compositor::Context,
     args: Args,
     event: PromptEvent,
 ) -> anyhow::Result<()> {
+    if event != PromptEvent::Validate {
+        return Ok(());
+    }
+    crate::terminal::run(cx.editor, &args.join(" "));
+    Ok(())
+}
+
+/// `:!`: runs the command and shows its output in a popup.
+fn shell_popup(cx: &mut compositor::Context, args: Args, event: PromptEvent) -> anyhow::Result<()> {
     if event != PromptEvent::Validate {
         return Ok(());
     }
@@ -4070,9 +4094,20 @@ pub const TYPABLE_COMMAND_LIST: &[TypableCommand] = &[
     },
     TypableCommand {
         name: "run-shell-command",
-        aliases: &["sh", "!"],
-        doc: "Run a shell command",
+        aliases: &["sh"],
+        doc: "Run a shell command in the terminal panel's shell, as if typed, and focus the panel. Without a command, just show and focus the panel.",
         fun: run_shell_command,
+        completer: SHELL_COMPLETER,
+        signature: Signature {
+            positionals: (0, None),
+            ..SHELL_SIGNATURE
+        },
+    },
+    TypableCommand {
+        name: "shell-popup",
+        aliases: &["!"],
+        doc: "Run a shell command and show its output in a popup",
+        fun: shell_popup,
         completer: SHELL_COMPLETER,
         signature: SHELL_SIGNATURE,
     },
@@ -4246,12 +4281,21 @@ pub static TYPABLE_COMMAND_MAP: LazyLock<HashMap<&'static str, &'static TypableC
             .collect()
     });
 
+/// Splits a command line into the command and its arguments, as [`command_line::split`], with
+/// `:!cmd` read as `:! cmd`, as in Vim.
+pub(crate) fn split_command_line(input: &str) -> (&str, &str, bool) {
+    match input.strip_prefix('!') {
+        Some(rest) if !rest.is_empty() && !rest.starts_with([' ', '\t']) => ("!", rest, false),
+        _ => command_line::split(input),
+    }
+}
+
 fn execute_command_line(
     cx: &mut compositor::Context,
     input: &str,
     event: PromptEvent,
 ) -> anyhow::Result<()> {
-    let (command, rest, _) = command_line::split(input);
+    let (command, rest, _) = split_command_line(input);
     if command.is_empty() {
         return Ok(());
     }
@@ -4308,7 +4352,7 @@ pub(super) fn command_mode(cx: &mut Context) {
 }
 
 fn command_line_doc(input: &str) -> Option<Cow<'_, str>> {
-    let (command, _, _) = command_line::split(input);
+    let (command, _, _) = split_command_line(input);
     let command = TYPABLE_COMMAND_MAP.get(command)?;
 
     if command.aliases.is_empty() && command.signature.flags.is_empty() {
@@ -4380,7 +4424,7 @@ fn command_line_doc(input: &str) -> Option<Cow<'_, str>> {
 }
 
 fn complete_command_line(editor: &Editor, input: &str) -> Vec<ui::prompt::Completion> {
-    let (command, rest, complete_command) = command_line::split(input);
+    let (command, rest, complete_command) = split_command_line(input);
 
     if complete_command {
         fuzzy_match(
@@ -4395,7 +4439,7 @@ fn complete_command_line(editor: &Editor, input: &str) -> Vec<ui::prompt::Comple
         TYPABLE_COMMAND_MAP
             .get(command)
             .map_or_else(Vec::new, |cmd| {
-                let args_offset = command.len() + 1;
+                let args_offset = input.len() - rest.len();
                 complete_command_args(editor, cmd.signature, &cmd.completer, rest, args_offset)
             })
     }

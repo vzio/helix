@@ -150,6 +150,7 @@ where
         helix_view::editor::StatusLineElement::Diagnostics => render_diagnostics,
         helix_view::editor::StatusLineElement::WorkspaceDiagnostics => render_workspace_diagnostics,
         helix_view::editor::StatusLineElement::Selections => render_selections,
+        helix_view::editor::StatusLineElement::Shell => render_shell,
         helix_view::editor::StatusLineElement::PrimarySelectionLength => {
             render_primary_selection_length
         }
@@ -346,6 +347,34 @@ where
             format!(" {}/{count} sels ", selection.primary_index() + 1).into()
         },
     );
+}
+
+/// `SH` while the terminal panel's shell runs. Its color says what the shell does, also while
+/// the panel is hidden: at the prompt, running a command, or how the last command ended (until
+/// the panel is focused).
+fn render_shell<'a, F>(context: &mut RenderContext<'a>, write: F)
+where
+    F: Fn(&mut RenderContext<'a>, Span<'a>) + Copy,
+{
+    use helix_view::{graphics::Color, terminal::ShellStatus, theme::Modifier};
+
+    let Some(shell) = &context.editor.terminal.shell else {
+        return;
+    };
+    let theme = &context.editor.theme;
+    let (scope, fallback) = match shell.status() {
+        ShellStatus::Idle => ("ui.statusline.shell", None),
+        ShellStatus::Running => ("ui.statusline.shell.running", Some(Color::Yellow)),
+        ShellStatus::Finished(0) => ("ui.statusline.shell.success", Some(Color::Green)),
+        ShellStatus::Finished(_) => ("ui.statusline.shell.failure", Some(Color::Red)),
+    };
+    let style = theme
+        .try_get_exact(scope)
+        .unwrap_or_else(|| match fallback {
+            Some(color) => Style::default().fg(color).add_modifier(Modifier::BOLD),
+            None => Style::default(),
+        });
+    write(context, Span::styled(" SH ", style));
 }
 
 fn render_primary_selection_length<'a, F>(context: &mut RenderContext<'a>, write: F)

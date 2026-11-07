@@ -47,6 +47,7 @@ bug-fixed version of it in omentic's [helix-ext](https://github.com/omentic/heli
 - [Inline git blame](#inline-git-blame)
 - [`x` on an empty line](#x-on-an-empty-line)
 - [Move lines](#move-lines)
+- [Terminal panel](#terminal-panel)
 - [Practice](#practice)
 - [Tutor](#tutor)
 
@@ -63,6 +64,7 @@ Each feature lives in its own modules, to keep rebasing on upstream cheap:
 | Inline blame | `helix-vcs/src/git/blame.rs`, `helix-vcs/src/blame_stub.rs`, `helix-vcs/benches/blame.rs`, `helix-stdx/src/time.rs`, `helix-view/src/blame.rs`, `helix-term/src/handlers/blame.rs`, `helix-term/src/commands/blame.rs`, `helix-term/src/ui/text_decorations/blame.rs` |
 | `x` on an empty line | `helix-term/src/handlers/line_select.rs` |
 | Move lines | `helix-term/src/commands/move_lines.rs` |
+| Terminal panel | `helix-terminal/` (the shell: pty, emulator, OSC 133, bash/zsh integration), `helix-view/src/terminal.rs` (panel state, `[editor.terminal]`), `helix-term/src/terminal/` (drawing, focus, input encoding, the `hx` shim), `helix-term/tests/test/terminal.rs` |
 | Practice | `helix-term/src/practice.rs`, `helix-term/src/practice/`, `runtime/practice/`, `helix-term/tests/test/practice.rs` |
 
 Hooks into core files: commands and keys in `helix-term/src/commands.rs`,
@@ -82,6 +84,14 @@ The move mode label (`MOV`) is a generic `mode="..."` option of sticky nodes in 
 `:practice` counts keys from two calls around the dispatch of terminal events in
 `Application::handle_terminal_events`, draws its panel from one call in `EditorView::render`, has
 one entry in `typed.rs`, and opens its buffers with `Editor::new_file_from_document`, made public.
+
+The terminal panel changes core files directly (the fork no longer syncs with upstream): the
+`Editor::terminal` field and `close_document` (an awaited buffer closing answers `hx` and focuses
+the panel) in `helix-view/src/editor.rs`, where `[editor.terminal]` also absorbed the debugger's
+`command`/`args`; the layout, the cursor and `Esc` in `ui/editor.rs`; the event routing in
+`Application::handle_terminal_events`; `toggle_terminal` in `commands.rs` and `keymap/default.rs`;
+`:sh`, `:!` (and `:!cmd` without a space) and `quit` on an awaited buffer in `typed.rs`; the `shell`
+element in `ui/statusline.rs`; the client mode at the top of `main.rs`.
 
 To build: `cargo install --path helix-term --locked`.
 
@@ -527,6 +537,113 @@ They are also in the command palette, and as the typable commands `:move-lines-d
 - If the file has no final line ending, a selection that ends with the line ending of the line that
   becomes the last one is shortened by it, as that line ending is gone.
 
+## Terminal panel
+
+A persistent shell in a panel below all the splits (not a split itself), with a statusline
+indicator that tells what the shell is doing while the panel is hidden.
+
+### Usage
+
+| Key or command | What it does |
+| --- | --- |
+| `Ctrl-t` | From the editor (normal, select or insert mode): shows and focuses the panel, starting a shell when none runs. From the panel: back to the editor, the panel stays shown |
+| `Esc` | In normal mode, with nothing pending and no popup: hides the panel. The shell keeps running |
+| `:sh cmd`, `:run-shell-command cmd` | Shows and focuses the panel and runs `cmd` in its shell, as if typed and Enter pressed |
+| `:sh` | Shows and focuses the panel, starting a shell only if none runs |
+| `:! cmd`, `:shell-popup cmd` | Runs `cmd` on its own and shows its output in a popup (what `:sh` used to do). `:!cmd` without a space works too |
+| `exit`, `Ctrl-d` in the shell | Closes the panel for real; the next `Ctrl-t` or `:sh` starts a fresh shell |
+
+While the panel is focused, every key goes to the shell except `Ctrl-t`: `Esc`, `Ctrl-c`, `Ctrl-w`,
+arrows, function keys... are translated to what an xterm sends, in the modes the program asked for
+(application cursor keys, bracketed paste). Full screen programs work: colors (indexed colors stay
+indexed, so your terminal's palette applies; RGB colors are passed through), the cursor and its
+shape, the alternate screen, mouse reporting, resizing. The mouse wheel over the panel scrolls the
+scrollback (or goes to the program when it asked for the mouse, or becomes arrow keys on the
+alternate screen); a click in the panel focuses it, a click in a split focuses the editor. The
+border shows the title the shell set and the keys that apply.
+
+### `hx` in the panel
+
+The shell gets an `hx` first on its `PATH`, and `EDITOR`, `VISUAL` and `GIT_EDITOR` pointing to
+it, which never starts a nested Helix. It is the `hx` binary itself in a client mode, talking to
+this editor over a private Unix socket (`HELIX_TERMINAL_SOCKET`):
+
+- `hx` alone focuses the editor (the panel stays shown).
+- `hx file[:line[:col]] ...` opens the files in the editor and focuses it.
+- As `$EDITOR` (`git commit`, `git rebase -i`, `crontab -e`...) it opens the file and waits until
+  that buffer is closed. `:wq` or `:q` on it closes the buffer (not the split, nor the editor,
+  even when it is the last one) and focuses the panel again; `:q!` closes it unsaved, so git
+  aborts as usual on an empty message.
+- `hx --help`, `--version`, `--health` and `--grammar` run normally.
+
+### Shell indicator
+
+The statusline element `shell` (in the default layout, before the selections) shows `SH` while a
+shell runs, in a color for its state, also while the panel is hidden:
+
+| State | Theme scope | Fallback |
+| --- | --- | --- |
+| at the prompt | `ui.statusline.shell` | the statusline's colors |
+| a command runs | `ui.statusline.shell.running` | yellow |
+| the last command exited 0 | `ui.statusline.shell.success` | green |
+| the last command failed | `ui.statusline.shell.failure` | red |
+
+Success and failure stay until the panel is focused, then it is back to idle. The states come from
+OSC 133 markers (prompt, command, exit code), injected into bash and zsh when the shell starts,
+the way VS Code does it, without touching your rc files: bash runs with `--init-file` pointing to a
+script that sources your `~/.bashrc` and then adds its hooks (`PS0`, or a `DEBUG` trap before bash
+4.4, and the front of `PROMPT_COMMAND`, keeping `$?` for your own prompt); zsh runs with a
+`ZDOTDIR` whose startup files source yours and then add `precmd`/`preexec` hooks, and restore your
+`ZDOTDIR`. Shells that send OSC 133 themselves work too. For other shells, a command is running
+when the terminal's foreground process group isn't the shell's; there is no exit code then, so the
+indicator goes back to idle.
+
+### Configuration
+
+```toml
+[editor.terminal]
+height = 30              # percent of the editor's height (10 to 90)
+shell = []               # the shell and its arguments; empty: $SHELL, else /bin/sh
+shell-integration = true # inject the OSC 133 markers into bash and zsh
+scrollback = 10000       # lines
+
+[editor.statusline]
+right = ["diagnostics", "shell", "selections", "register", "position", "file-encoding"]
+```
+
+The panel's colors are `ui.terminal` (background and default text; falls back to
+`ui.background`) and `ui.terminal.border` (its top border; falls back to `ui.window`).
+
+`[editor.terminal]` was already the debugger's external terminal (`command`, `args`); those keys
+still work there.
+
+### Behaviour
+
+- Typed input waits for the shell to be ready: `:sh cmd` on a new shell holds `cmd` until the
+  first prompt (bash and zsh drop what is typed while they start), 3 seconds at most.
+- Typing in the panel scrolls the view back down to the prompt.
+- Quitting Helix kills the shell (and what runs in it).
+
+### Practice
+
+The panel, `:sh` and `:!` don't change text, so they have no `:practice` exercise; they are in
+the tutor's "THE TERMINAL PANEL" section. The keys that put shell output into the text are
+upstream's: `|` is practised in the shell chapter, and `!` and `A-!` stay in the tutor, since
+with the POSIX tools the exercises may use no short text makes them beat typing the output.
+
+### Limitations
+
+- Unix first: the `hx` shim (a Unix socket) and the status of shells without integration (the
+  foreground process group) aren't available on Windows, where the panel itself should work
+  (ConPTY) but is untested.
+- No keyboard scrolling of the scrollback (every key goes to the shell): use the mouse wheel.
+- No text selection or copy inside the panel with the mouse; use the outer terminal's own
+  selection (usually with Shift held) or the shell's tools.
+- One shell, one panel: no tabs, no splits of the panel, no resizing it with the mouse.
+- The debugger's `runInTerminal` still uses the external terminal, not the panel.
+- `hx` in a shell started inside the panel over `ssh` or in a container doesn't reach this editor.
+- A command typed with `:sh` while a full screen program runs goes to that program.
+
 ## Practice
 
 A built-in trainer, Rustlings crossed with VimGolf: each exercise teaches a feature with a short
@@ -641,7 +758,7 @@ use `:practice` for editing, then covers only what doesn't fit an exercise check
 a buffer: opening, saving and quitting, buffers, pickers, the file tree, the jumplist, going
 places (`gw`, `[`/`]`), the view, splits, the system clipboard, language servers, git (with this
 fork's diff view, commit log and blame), the shell commands other than `|`, `:earlier`, settings,
-the debugger, and a last section with the editing keys that have no exercise. Upstream's lessons
+the debugger, this fork's terminal panel, and a last section with the editing keys that have no exercise. Upstream's lessons
 on editing are exercises now (the case keys, `<A-C>`, `n` in select mode, rotating and removing
 selections were added for them).
 

@@ -1,0 +1,23 @@
+[package]
+name = "helix-terminal"
+description = "The shell of Helix's terminal panel: a pseudo-terminal, its emulator and shell integration"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+categories.workspace = true
+repository.workspace = true
+homepage.workspace = true
+
+[dependencies]
+alacritty_terminal = "0.26"
+portable-pty = "0.9"
+tokio = { version = "1", features = ["sync"] }
+parking_lot.workspace = true
+tempfile.workspace = true
+anyhow = "1"
+log = "~0.4"
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"

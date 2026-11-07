@@ -461,7 +461,9 @@ pub struct Config {
     #[serde(default)]
     pub search: SearchConfig,
     pub lsp: LspConfig,
-    pub terminal: Option<TerminalConfig>,
+    /// The terminal panel, opened with `C-t` and `:sh` (fork feature), and the external
+    /// terminal the debugger runs programs in.
+    pub terminal: crate::terminal::TerminalConfig,
     /// Column numbers at which to draw the rulers. Defaults to `[]`, meaning no rulers.
     pub rulers: Vec<u16>,
     #[serde(default)]
@@ -647,21 +649,20 @@ impl Default for SmartTabConfig {
     }
 }
 
-#[derive(Debug, Default, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(default, rename_all = "kebab-case", deny_unknown_fields)]
-pub struct TerminalConfig {
+/// The external terminal the debugger runs programs in: `command` and `args` of
+/// `[editor.terminal]`.
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
+pub struct ExternalTerminal {
     pub command: String,
-    #[serde(default)]
-    #[serde(skip_serializing_if = "Vec::is_empty")]
     pub args: Vec<String>,
 }
 
 #[cfg(windows)]
-pub fn get_terminal_provider() -> Option<TerminalConfig> {
+pub fn get_terminal_provider() -> Option<ExternalTerminal> {
     use helix_stdx::env::binary_exists;
 
     if binary_exists("wt") {
-        return Some(TerminalConfig {
+        return Some(ExternalTerminal {
             command: "wt".to_string(),
             args: vec![
                 "new-tab".to_string(),
@@ -673,25 +674,25 @@ pub fn get_terminal_provider() -> Option<TerminalConfig> {
         });
     }
 
-    Some(TerminalConfig {
+    Some(ExternalTerminal {
         command: "conhost".to_string(),
         args: vec!["cmd".to_string(), "/C".to_string()],
     })
 }
 
 #[cfg(not(any(windows, target_arch = "wasm32")))]
-pub fn get_terminal_provider() -> Option<TerminalConfig> {
+pub fn get_terminal_provider() -> Option<ExternalTerminal> {
     use helix_stdx::env::{binary_exists, env_var_is_set};
 
     if env_var_is_set("TMUX") && binary_exists("tmux") {
-        return Some(TerminalConfig {
+        return Some(ExternalTerminal {
             command: "tmux".to_string(),
             args: vec!["split-window".to_string()],
         });
     }
 
     if env_var_is_set("WEZTERM_UNIX_SOCKET") && binary_exists("wezterm") {
-        return Some(TerminalConfig {
+        return Some(ExternalTerminal {
             command: "wezterm".to_string(),
             args: vec!["cli".to_string(), "split-pane".to_string()],
         });
@@ -782,6 +783,7 @@ impl Default for StatusLineConfig {
             center: vec![],
             right: vec![
                 E::Diagnostics,
+                E::Shell,
                 E::Selections,
                 E::Register,
                 E::Position,
@@ -857,6 +859,10 @@ pub enum StatusLineElement {
 
     /// The number of selections (cursors)
     Selections,
+
+    /// `SH` while the terminal panel's shell runs, colored by what it does: at the prompt, running
+    /// a command, or how the last command ended (fork feature)
+    Shell,
 
     /// The number of characters currently in primary selection
     PrimarySelectionLength,
@@ -1294,7 +1300,7 @@ impl Default for Config {
             undercurl: false,
             search: SearchConfig::default(),
             lsp: LspConfig::default(),
-            terminal: get_terminal_provider(),
+            terminal: crate::terminal::TerminalConfig::default(),
             rulers: Vec::new(),
             whitespace: WhitespaceConfig::default(),
             bufferline: BufferLine::default(),
@@ -1358,6 +1364,8 @@ type Diagnostics = BTreeMap<Uri, Vec<(lsp::Diagnostic, DiagnosticProvider)>>;
 pub struct Editor {
     /// Current editing mode.
     pub mode: Mode,
+    /// The terminal panel below the splits (fork feature).
+    pub terminal: crate::terminal::Panel,
     pub tree: Tree,
     pub next_document_id: DocumentId,
     pub documents: BTreeMap<DocumentId, Document>,
@@ -1512,6 +1520,7 @@ impl Editor {
 
         Self {
             mode: Mode::Normal,
+            terminal: crate::terminal::Panel::default(),
             tree: Tree::new(area),
             next_document_id: DocumentId::default(),
             documents: BTreeMap::new(),
@@ -2309,6 +2318,11 @@ impl Editor {
             let doc = doc_mut!(self, &doc_id);
             doc.ensure_view_init(view_id);
             doc.mark_as_focused();
+        }
+
+        // an `hx` in the terminal panel waited on it (`git commit`): back to the panel
+        if self.terminal.document_closed(doc_id) {
+            self.terminal.focus();
         }
 
         self._refresh();

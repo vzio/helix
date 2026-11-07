@@ -89,7 +89,8 @@
 | `:append-output` | Run shell command, appending output after each selection. |
 | `:pipe`, `:\|` | Pipe each selection to the shell command. |
 | `:pipe-to` | Pipe each selection to the shell command, ignoring output. |
-| `:run-shell-command`, `:sh`, `:!` | Run a shell command |
+| `:run-shell-command`, `:sh` | Run a shell command in the terminal panel's shell, as if typed, and focus the panel. Without a command, just show and focus the panel. |
+| `:shell-popup`, `:!` | Run a shell command and show its output in a popup |
 | `:git-log` | Open the git commit log picker. Enter lists the files changed by a commit, Enter on a file shows its diff. |
 | `:reset-diff-change`, `:diffget`, `:diffg` | Reset the diff change at the cursor position. |
 | `:clear-register` | Clear given register. If no argument is provided, clear all registers. |
@@ -104,4 +105,4 @@
 | `:workspace-trust` | Allow language servers and local config for the current workspace. |
 | `:workspace-untrust` | Revoke the current workspace's trust grant or exclusion. |
 | `:workspace-exclude` | Mark the current workspace as never-prompt. Never prompts for trust again. |
-| `:practice` | Practice with exercises that count your keystrokes: each teaches a feature, then you can come back and solve it with fewer keys. Without an argument it continues with the first exercise that is not solved yet. Arguments: a topic name (its first unsolved exercise), list (pick an exercise), hint (reveal the next hint), reset (start the exercise again), next, prev, lesson (show or hide the lesson panel). |
+| `:practice` | Practice with exercises that count your keystrokes: each teaches a feature, then you can come back and solve it with fewer keys. Without an argument it continues with the first exercise that is not solved yet. Arguments: a chapter name (its first unsolved exercise), list (pick an exercise), hint (reveal the next hint), reset (start the exercise again), next, prev, lesson (show or hide the lesson panel). |

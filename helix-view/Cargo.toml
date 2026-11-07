@@ -30,6 +30,7 @@ helix-loader = { path = "../helix-loader" }
 helix-lsp = { path = "../helix-lsp" }
 helix-dap = { path = "../helix-dap" }
 helix-vcs = { path = "../helix-vcs" }
+helix-terminal = { path = "../helix-terminal" }
 
 bitflags.workspace = true
 foldhash.workspace = true

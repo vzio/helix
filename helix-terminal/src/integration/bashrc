@@ -1,0 +1,53 @@
+# Shell integration for Helix's terminal panel. Started with `bash --init-file`, which replaces
+# ~/.bashrc only (bash still reads /etc/bash.bashrc itself). Emits OSC 133 markers:
+#   C: a command starts running      D;status: it finished      A: the prompt starts
+
+if [ -f "$HOME/.bashrc" ]; then
+    . "$HOME/.bashrc"
+fi
+
+if [ -z "$__hx_integration_loaded" ]; then
+    __hx_integration_loaded=1
+
+    # Runs first in PROMPT_COMMAND, to see the exit status of the command, and gives the same
+    # status back to whatever runs next.
+    __hx_precmd() {
+        local __hx_status=$?
+        __hx_at_prompt=
+        printf '\e]133;D;%s\a\e]133;A\a' "$__hx_status"
+        return "$__hx_status"
+    }
+
+    # Runs last in PROMPT_COMMAND: from here on, the DEBUG trap (old bash) is for the command.
+    __hx_arm() {
+        local __hx_status=$?
+        __hx_at_prompt=1
+        return "$__hx_status"
+    }
+
+    if [[ "$(declare -p PROMPT_COMMAND 2>/dev/null)" == "declare -a"* ]]; then
+        PROMPT_COMMAND=(__hx_precmd "${PROMPT_COMMAND[@]}" __hx_arm)
+    elif [ -n "$PROMPT_COMMAND" ]; then
+        PROMPT_COMMAND="__hx_precmd;${PROMPT_COMMAND%;};__hx_arm"
+    else
+        PROMPT_COMMAND="__hx_precmd;__hx_arm"
+    fi
+
+    if ((BASH_VERSINFO[0] > 4 || (BASH_VERSINFO[0] == 4 && BASH_VERSINFO[1] >= 4))); then
+        # PS0 is printed after the line is read, before the command runs.
+        PS0="${PS0}"'\e]133;C\a'
+    else
+        __hx_preexec() {
+            local __hx_status=$?
+            if [ -n "$__hx_at_prompt" ] && [ -z "$COMP_LINE" ]; then
+                __hx_at_prompt=
+                printf '\e]133;C\a'
+            fi
+            return "$__hx_status"
+        }
+        trap '__hx_preexec' DEBUG
+    fi
+
+    # The prompt ends: the user types the command.
+    PS1="${PS1}"'\[\e]133;B\a\]'
+fi

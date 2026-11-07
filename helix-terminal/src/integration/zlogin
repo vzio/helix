@@ -1,0 +1,7 @@
+# Runs the user's own .zlogin, see .zshenv.
+if [[ -n ${HELIX_USER_ZDOTDIR+x} ]]; then ZDOTDIR=$HELIX_USER_ZDOTDIR; else unset ZDOTDIR; fi
+if [[ -r ${ZDOTDIR:-$HOME}/.zlogin ]]; then source "${ZDOTDIR:-$HOME}/.zlogin"; fi
+if [[ -n ${ZDOTDIR+x} ]]; then HELIX_USER_ZDOTDIR=$ZDOTDIR; else unset HELIX_USER_ZDOTDIR; fi
+ZDOTDIR=$HELIX_ZDOTDIR
+if [[ -n ${HELIX_USER_ZDOTDIR+x} ]]; then ZDOTDIR=$HELIX_USER_ZDOTDIR; else unset ZDOTDIR; fi
+unset HELIX_USER_ZDOTDIR HELIX_ZDOTDIR
