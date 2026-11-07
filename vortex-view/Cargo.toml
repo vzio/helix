@@ -30,6 +30,7 @@ vortex-loader = { path = "../vortex-loader" }
 vortex-lsp = { path = "../vortex-lsp" }
 vortex-dap = { path = "../vortex-dap" }
 vortex-vcs = { path = "../vortex-vcs" }
+vortex-terminal = { path = "../vortex-terminal" }
 
 bitflags.workspace = true
 foldhash.workspace = true

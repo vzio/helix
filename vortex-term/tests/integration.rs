@@ -27,5 +27,6 @@ mod test {
     mod practice;
     mod practice_panel;
     mod splits;
+    mod terminal;
     mod x_empty_line;
 }

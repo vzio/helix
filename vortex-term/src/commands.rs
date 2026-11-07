@@ -549,6 +549,7 @@ impl MappableCommand {
         swap_view_up, "Swap with split above",
         swap_view_down, "Swap with split below",
         transpose_view, "Transpose splits",
+        toggle_terminal, "Show and focus the terminal panel, or go back to the editor",
         rotate_view, "Goto next window",
         rotate_view_reverse, "Goto previous window",
         hsplit, "Horizontal bottom split",
@@ -664,7 +665,7 @@ impl std::str::FromStr for MappableCommand {
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         if let Some(suffix) = s.strip_prefix(':') {
-            let (name, args, _) = command_line::split(suffix);
+            let (name, args, _) = typed::split_command_line(suffix);
             ensure!(!name.is_empty(), "Expected typable command name");
             typed::TYPABLE_COMMAND_MAP
                 .get(name)
@@ -6005,6 +6006,10 @@ fn swap_view_up(cx: &mut Context) {
 
 fn swap_view_down(cx: &mut Context) {
     cx.editor.swap_split_in_direction(tree::Direction::Down)
+}
+
+fn toggle_terminal(cx: &mut Context) {
+    crate::terminal::toggle_focus(cx.editor);
 }
 
 fn transpose_view(cx: &mut Context) {

@@ -342,7 +342,33 @@
 
 
 =================================================================
-=                     16 MORE EDITING KEYS                      =
+=                     16 THE TERMINAL PANEL                     =
+=================================================================
+
+ A shell runs in a panel below your splits. It keeps running
+ while the panel is hidden, and SH in the statusline says what
+ it does: yellow while a command runs, then green or red for
+ how it ended, until you look at the panel again.
+
+  C-t            show the panel and type in it; C-t again goes
+                 back to the editor, with the panel still shown
+  Esc            in normal mode, hide the panel
+  :sh CMD        run CMD in the panel's shell, as if typed
+  :! CMD         run CMD and show its output in a popup
+
+ In the panel, hx FILE opens the file in this editor instead of
+ starting another Helix, and git commit edits its message here:
+ :wq when done, and you are back in the shell. exit closes the
+ panel; C-t starts a new shell.
+
+ In insert mode:
+
+  C-t            the panel, as in normal mode
+
+
+
+=================================================================
+=                     17 MORE EDITING KEYS                      =
 =================================================================
 
  These keys change text or selections too, but :practice has no
