@@ -29,5 +29,6 @@ mod test {
     mod splits;
     mod stale_buffers;
     mod terminal;
+    mod uncommitted;
     mod x_empty_line;
 }
