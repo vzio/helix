@@ -4,16 +4,18 @@ use vortex_vcs::{CommitInfo, FileChange};
 use vortex_view::Editor;
 
 use crate::compositor::Compositor;
+use crate::live::Live;
 use crate::ui::diff_view::{DiffView, Side};
 use crate::ui::picker;
 
-/// A side by side diff between the HEAD version of `base_path` and the current contents of
-/// `path` (they only differ for renamed files), or `None` if they are the same.
-fn head_diff(
-    editor: &mut Editor,
+/// The two sides of the diff between the HEAD version of `base_path` and the current contents
+/// of `path` (they only differ for renamed files), the file to open from the diff, and the tab
+/// width to show it with.
+fn head_sides(
+    editor: &Editor,
     base_path: &Path,
     path: &Path,
-) -> anyhow::Result<Option<DiffView>> {
+) -> anyhow::Result<(Side, Side, Option<PathBuf>, usize)> {
     let relative = |path: &Path| {
         vortex_stdx::path::get_relative_path(path)
             .display()
@@ -64,13 +66,67 @@ fn head_diff(
 
     let left = Side::new(left_title, base, base_path, editor);
     let right = Side::new(right_title, current, path, editor);
-    let view = DiffView::new(left, right, exists.then(|| path.to_path_buf()), tab_width)
-        .with_soft_wrap(soft_wrap(editor, path));
+    Ok((left, right, exists.then(|| path.to_path_buf()), tab_width))
+}
+
+/// A side by side diff between the HEAD version of `base_path` and the current contents of
+/// `path`, or `None` if they are the same.
+fn head_diff(
+    editor: &mut Editor,
+    base_path: &Path,
+    path: &Path,
+) -> anyhow::Result<Option<DiffView>> {
+    let (left, right, open, tab_width) = head_sides(editor, base_path, path)?;
+    let view = DiffView::new(left, right, open, tab_width).with_soft_wrap(soft_wrap(editor, path));
     if !view.has_changes() {
-        editor.set_status(format!("No changes in {}", relative(path)));
+        let path = vortex_stdx::path::get_relative_path(path);
+        editor.set_status(format!("No changes in {}", path.display()));
         return Ok(None);
     }
     Ok(Some(view))
+}
+
+/// Opens the diff of an uncommitted change on top of the pickers of the commit log: HEAD against
+/// the working tree (or the buffer, with its unsaved changes). With `live`, it follows the
+/// working tree, and stays open when the file has no changes left.
+pub(crate) fn open_uncommitted(
+    editor: &mut Editor,
+    compositor: &mut Compositor,
+    change: &FileChange,
+    live: Option<Live>,
+) {
+    let (base_path, path) = paths_of(change);
+    let view = match head_diff(editor, &base_path, &path) {
+        Ok(Some(view)) => view,
+        Ok(None) => return,
+        Err(err) => return editor.set_error(err.to_string()),
+    };
+    let view = view.with_on_open(|compositor| {
+        // the uncommitted files picker and the commit log below it
+        compositor.remove(picker::ID);
+        compositor.remove(picker::ID);
+    });
+    let view = match live {
+        Some(live) => view.with_live(live, move |editor| {
+            // once a rename is committed, the new path is the one in HEAD
+            let committed = base_path != path && {
+                let workspace = vortex_loader::find_workspace_in(path.parent().unwrap_or(&path)).0;
+                let trust_full = editor
+                    .workspace_trust
+                    .query(&workspace, vortex_loader::workspace_trust::TrustQuery::Git)
+                    .is_trusted();
+                editor
+                    .diff_providers
+                    .get_diff_base(&path, trust_full)
+                    .is_some()
+            };
+            let base_path = if committed { &path } else { &base_path };
+            let (left, right, open, _) = head_sides(editor, base_path, &path)?;
+            Ok((left, right, open))
+        }),
+        None => view,
+    };
+    compositor.push(Box::new(view));
 }
 
 /// The HEAD path and the current path to diff for an entry of the changed files picker.

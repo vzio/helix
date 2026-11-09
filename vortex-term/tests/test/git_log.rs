@@ -24,7 +24,7 @@ use super::*;
 
 const IN_REPO: &str = "HELIX_GIT_LOG_TEST_IN_REPO";
 
-fn git(dir: &Path, date: &str, args: &[&str]) -> String {
+pub(super) fn git(dir: &Path, date: &str, args: &[&str]) -> String {
     let mut command = Command::new("git");
     if !date.is_empty() {
         command
@@ -70,9 +70,9 @@ fn git(dir: &Path, date: &str, args: &[&str]) -> String {
 /// * Add the parser               │
 /// * Initial commit               ┘
 /// ```
-struct Repo {
+pub(super) struct Repo {
     /// The working directory, which is the working directory of the process too.
-    work: PathBuf,
+    pub(super) work: PathBuf,
     minute: u32,
 }
 
@@ -140,6 +140,12 @@ impl Repo {
     ///
     /// `test` is the name of the calling function.
     fn enter(test: &str) -> Option<PathBuf> {
+        Self::enter_in(module_path!(), test)
+    }
+
+    /// [`Repo::enter`] for a test of another module of the tests: `module` is its
+    /// `module_path!()`.
+    pub(super) fn enter_in(module: &str, test: &str) -> Option<PathBuf> {
         if std::env::var_os(IN_REPO).is_some() {
             return Some(vortex_stdx::env::current_working_dir());
         }
@@ -147,7 +153,7 @@ impl Repo {
         // (not through a symlinked temp dir: paths are compared)
         let work = Repo::make(&std::fs::canonicalize(dir.path()).unwrap());
         // the name of the test as libtest knows it, without the name of the crate
-        let name = format!("{}::{test}", module_path!().split_once("::").unwrap().1);
+        let name = format!("{}::{test}", module.split_once("::").unwrap().1);
         let output = Command::new(std::env::current_exe().unwrap())
             .args(["--exact", &name, "--test-threads=1", "--nocapture"])
             .current_dir(&work)
@@ -173,7 +179,7 @@ impl Repo {
 }
 
 /// The ids (first 9 hexadecimal digits, as the picker shows them) of the commits by summary.
-fn id(summary: &str) -> String {
+pub(super) fn id(summary: &str) -> String {
     let log = git(
         &vortex_stdx::env::current_working_dir(),
         "",
@@ -204,15 +210,22 @@ const SELECTED: vortex_view::graphics::Color = vortex_view::graphics::Color::Rgb
 const DIVIDER: vortex_view::graphics::Color = vortex_view::graphics::Color::Rgb(0, 0xff, 0);
 
 /// Drives an application with keys and waits for the results of background tasks.
-struct Session {
-    app: Application,
+pub(super) struct Session {
+    pub(super) app: Application,
     tx: tokio::sync::mpsc::UnboundedSender<std::io::Result<Event>>,
     input: UnboundedReceiverStream<std::io::Result<Event>>,
 }
 
 impl Session {
-    fn new() -> Self {
-        let mut app = helpers::AppBuilder::new().build().unwrap();
+    pub(super) fn new() -> Self {
+        Self::with_config(helpers::test_config())
+    }
+
+    pub(super) fn with_config(config: vortex_term::config::Config) -> Self {
+        let mut app = helpers::AppBuilder::new()
+            .with_config(config)
+            .build()
+            .unwrap();
         app.editor.theme = theme();
         let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
         Self {
@@ -222,9 +235,20 @@ impl Session {
         }
     }
 
-    /// Opens the log and waits for all of it to be listed.
-    async fn open_log() -> Self {
-        let mut session = Self::new();
+    /// Opens the log, waits for all of it to be listed, and moves the cursor from the
+    /// uncommitted changes (the first row, where it starts) to the newest commit.
+    pub(super) async fn open_log() -> Self {
+        let mut session = Self::open_log_on_uncommitted().await;
+        session.keys("j").await;
+        session
+    }
+
+    /// Opens the log and waits for all of it to be listed: the cursor is on the first row.
+    pub(super) async fn open_log_on_uncommitted() -> Self {
+        Self::open_log_with(Self::new()).await
+    }
+
+    pub(super) async fn open_log_with(mut session: Self) -> Self {
         session.keys("<space>l").await;
         session
             .wait_for_screen("the log", |rows| on_screen(rows, "Initial commit"))
@@ -232,7 +256,7 @@ impl Session {
         session
     }
 
-    async fn keys(&mut self, keys: &str) {
+    pub(super) async fn keys(&mut self, keys: &str) {
         for key in parse_macro(keys).unwrap() {
             self.tx.send(Ok(Event::Key(KeyEvent::from(key)))).unwrap();
         }
@@ -250,7 +274,11 @@ impl Session {
     }
 
     /// Run until `condition` is true of the screen.
-    async fn wait_for_screen(&mut self, what: &str, condition: impl Fn(&[String]) -> bool) {
+    pub(super) async fn wait_for_screen(
+        &mut self,
+        what: &str,
+        condition: impl Fn(&[String]) -> bool,
+    ) {
         let deadline = Instant::now() + Duration::from_secs(20);
         while !condition(&screen_rows(&self.app)) {
             assert!(
@@ -270,13 +298,22 @@ impl Session {
         }
     }
 
-    fn rows(&self) -> Vec<String> {
+    /// Runs the application for `time`, for background tasks and watches to have their say.
+    pub(super) async fn run_for(&mut self, time: Duration) {
+        let end = Instant::now() + time;
+        while Instant::now() < end {
+            self.app.editor.reset_idle_timer();
+            assert!(self.app.event_loop_until_idle(&mut self.input).await);
+        }
+    }
+
+    pub(super) fn rows(&self) -> Vec<String> {
         screen_rows(&self.app)
     }
 
     /// The lines inside of the frame of the picker on top: the prompt, the line below it, the
     /// header, and the rows, without their trailing spaces.
-    fn frame(&self) -> Vec<String> {
+    pub(super) fn frame(&self) -> Vec<String> {
         let rows = self.rows();
         let top = rows
             .iter()
@@ -296,7 +333,7 @@ impl Session {
     }
 
     /// The rows of the commits and dividers of the commit picker.
-    fn log(&self) -> Vec<String> {
+    pub(super) fn log(&self) -> Vec<String> {
         let frame = self.frame();
         assert!(frame[2].contains("commit"), "{frame:#?}");
         frame[3..]
@@ -306,8 +343,9 @@ impl Session {
             .collect()
     }
 
-    /// The summary of the commit under the cursor. Panics if the cursor is on a divider.
-    fn cursor(&self) -> String {
+    /// The summary of the commit under the cursor, or `Uncommitted changes` (without the count)
+    /// for the first row. Panics if the cursor is on a divider.
+    pub(super) fn cursor(&self) -> String {
         let log = self.log();
         let mut cursors = log.iter().filter(|row| row.starts_with(" > "));
         let row = cursors
@@ -315,12 +353,15 @@ impl Session {
             .unwrap_or_else(|| panic!("no cursor: {log:#?}"));
         assert!(cursors.next().is_none(), "two cursors: {log:#?}");
         assert!(!row.contains('─'), "the cursor is on a divider: {row}");
+        if row.contains(UNCOMMITTED) {
+            return UNCOMMITTED.to_string();
+        }
         let (_, summary) = row.split_once("Jane Doe").unwrap();
         summary.trim().to_string()
     }
 
     /// The row on the screen (from 0) with `text` in it.
-    fn row_of(&self, text: &str) -> usize {
+    pub(super) fn row_of(&self, text: &str) -> usize {
         self.rows()
             .iter()
             .position(|row| row.contains(text))
@@ -346,7 +387,10 @@ impl Session {
     }
 }
 
-const COMMITS: [&str; 8] = [
+/// The first row of the log, which has the count of files after it.
+pub(super) const UNCOMMITTED: &str = "Uncommitted changes";
+
+pub(super) const COMMITS: [&str; 8] = [
     "Feature: tests",
     "Merge main into feature",
     "WIP: more feature",
@@ -357,7 +401,7 @@ const COMMITS: [&str; 8] = [
     "Initial commit",
 ];
 
-fn screen_rows(app: &Application) -> Vec<String> {
+pub(super) fn screen_rows(app: &Application) -> Vec<String> {
     let screen = app.screen();
     (0..screen.area.height)
         .map(|y| {
@@ -368,11 +412,11 @@ fn screen_rows(app: &Application) -> Vec<String> {
         .collect()
 }
 
-fn on_screen(rows: &[String], text: &str) -> bool {
+pub(super) fn on_screen(rows: &[String], text: &str) -> bool {
     rows.iter().any(|row| row.contains(text))
 }
 
-fn status(app: &Application) -> String {
+pub(super) fn status(app: &Application) -> String {
     app.editor
         .get_status()
         .map(|(msg, _)| msg.to_string())
@@ -384,11 +428,15 @@ async fn the_log_has_a_divider_for_each_branch() {
     let Some(_) = Repo::enter("the_log_has_a_divider_for_each_branch") else {
         return;
     };
-    let session = Session::open_log().await;
+    let session = Session::open_log_on_uncommitted().await;
 
+    // the uncommitted changes come first, above the first divider, and have the cursor
+    assert_eq!(session.cursor(), UNCOMMITTED);
+    assert!(session.log()[0].contains(UNCOMMITTED));
+    assert!(!session.log()[0].contains('─'));
     // dividers are full width lines, the commits follow in order
     let frame = session.frame();
-    let log = session.log();
+    let log = session.log()[1..].to_vec();
     let expected = [
         ("feature (unpushed)", 0..3),
         ("feature", 3..5),
@@ -418,9 +466,8 @@ async fn the_log_has_a_divider_for_each_branch() {
         session.app.screen().get(x as u16, row as u16).unwrap().fg,
         DIVIDER
     );
-    // and the numbers don't count them
-    assert!(frame[0].ends_with("8/8"), "{:?}", frame[0]);
-    assert_eq!(session.cursor(), "Feature: tests");
+    // and the numbers don't count them (the uncommitted changes are a row)
+    assert!(frame[0].ends_with("9/9"), "{:?}", frame[0]);
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -428,24 +475,28 @@ async fn the_cursor_never_rests_on_a_divider() {
     let Some(_) = Repo::enter("the_cursor_never_rests_on_a_divider") else {
         return;
     };
-    let mut session = Session::open_log().await;
+    let mut session = Session::open_log_on_uncommitted().await;
     // (`cursor` panics when it's on a divider)
-    assert_eq!(session.cursor(), COMMITS[0]);
+    assert_eq!(session.cursor(), UNCOMMITTED);
 
     // down and up, over the dividers
-    for expected in &COMMITS[1..] {
+    for expected in COMMITS {
         session.keys("<down>").await;
-        assert_eq!(session.cursor(), *expected);
+        assert_eq!(session.cursor(), expected);
     }
-    // the last commit is followed by the first one, not by the first divider
+    // the last commit is followed by the uncommitted changes, not by the first divider
     session.keys("<down>").await;
-    assert_eq!(session.cursor(), COMMITS[0]);
+    assert_eq!(session.cursor(), UNCOMMITTED);
     session.keys("<up>").await;
     assert_eq!(session.cursor(), COMMITS[7]);
     for expected in COMMITS[..7].iter().rev() {
         session.keys("<up>").await;
         assert_eq!(session.cursor(), *expected);
     }
+    session.keys("<up>").await;
+    assert_eq!(session.cursor(), UNCOMMITTED);
+    session.keys("<down>").await;
+    assert_eq!(session.cursor(), COMMITS[0]);
 
     // the other keys for it
     session.keys("<C-n><C-n><C-n>").await;
@@ -457,7 +508,7 @@ async fn the_cursor_never_rests_on_a_divider() {
     session.keys("<end>").await;
     assert_eq!(session.cursor(), COMMITS[7]);
     session.keys("<home>").await;
-    assert_eq!(session.cursor(), COMMITS[0]);
+    assert_eq!(session.cursor(), UNCOMMITTED);
     // (the page is longer than the log, so these go round and round)
     for _ in 0..12 {
         session.keys("<pagedown>").await;
@@ -483,7 +534,7 @@ async fn a_query_hides_the_dividers() {
     assert_eq!(log.len(), 1, "{log:#?}");
     assert_eq!(session.cursor(), "Fix a crash on empty input");
     assert!(
-        session.frame()[0].ends_with("1/8"),
+        session.frame()[0].ends_with("1/9"),
         "{:?}",
         session.frame()[0]
     );
@@ -494,10 +545,10 @@ async fn a_query_hides_the_dividers() {
     session
         .wait_for_screen("the whole log", |rows| on_screen(rows, "Add the parser"))
         .await;
-    assert_eq!(session.log().len(), 11, "{:#?}", session.log());
-    // the first commit, not the divider above it
-    assert_eq!(session.cursor(), COMMITS[0]);
-    assert!(session.frame()[0].ends_with("8/8"));
+    assert_eq!(session.log().len(), 12, "{:#?}", session.log());
+    // the first row (the uncommitted changes), not the divider below it
+    assert_eq!(session.cursor(), UNCOMMITTED);
+    assert!(session.frame()[0].ends_with("9/9"));
 }
 
 /// The range label of the status line, oldest..newest.
@@ -580,11 +631,24 @@ async fn shift_arrows_extend_by_one_commit() {
     assert_eq!(session.cursor(), COMMITS[1]);
     session.keys("<S-up>").await;
     assert_eq!(status(&session.app), "");
-    // no wrapping around the log
+    // extending onto the uncommitted changes, past the divider, is still the commit alone
     session.keys("<S-up>").await;
-    assert_eq!(session.cursor(), COMMITS[0]);
+    assert_eq!(session.cursor(), UNCOMMITTED);
     assert_eq!(status(&session.app), "");
     assert_eq!(session.marked(), [] as [&str; 0]);
+    session.keys("<down>").await;
+    assert_eq!(session.cursor(), COMMITS[0]);
+    // up to the uncommitted changes, which are not a commit
+    session.keys("<up>").await;
+    assert_eq!(session.cursor(), UNCOMMITTED);
+    assert_eq!(status(&session.app), "");
+    // no wrapping around the log
+    session.keys("<S-up>").await;
+    assert_eq!(session.cursor(), UNCOMMITTED);
+    assert_eq!(status(&session.app), "");
+    assert_eq!(session.marked(), [] as [&str; 0]);
+    session.keys("<down>").await;
+    assert_eq!(session.cursor(), COMMITS[0]);
 
     // over the divider, and a plain movement is the commit alone again
     session.keys("<S-down><S-down><S-down>").await;
@@ -621,7 +685,7 @@ async fn alt_s_selects_the_section_of_the_cursor() {
     assert_eq!(session.marked(), &COMMITS[5..7]);
 
     // (extending goes on from the oldest commit of the section)
-    session.keys("<esc><home><A-s><S-down>").await;
+    session.keys("<esc><home><down><A-s><S-down>").await;
     assert_eq!(status(&session.app), range(COMMITS[2], COMMITS[1], 2));
 }
 
@@ -659,7 +723,7 @@ async fn the_range_covers_the_commits_the_query_hides() {
 
 impl Session {
     /// The rows of the picker of files: change and path.
-    fn files(&self) -> Vec<String> {
+    pub(super) fn files(&self) -> Vec<String> {
         let frame = self.frame();
         assert!(frame[2].contains("change"), "{frame:#?}");
         frame[3..]
@@ -811,10 +875,10 @@ async fn enter_on_one_commit_is_what_it_was() {
         .await;
 }
 
-const HINT: &str = "s filter, v extend, w/b section, enter files";
+pub(super) const HINT: &str = "s filter, v extend, w/b section, enter files";
 
 /// The query in the prompt of the picker on top.
-fn prompt(session: &Session) -> String {
+pub(super) fn prompt(session: &Session) -> String {
     session.frame()[0].trim().to_string()
 }
 
@@ -843,8 +907,8 @@ async fn the_log_opens_in_normal_mode_where_the_letters_are_keys() {
 
     // letters don't reach the prompt (`x` and `p` are no keys of the log), pasting neither
     session.keys("xp").await;
-    assert_eq!(prompt(&session).split_whitespace().next(), Some("8/8"));
-    assert_eq!(session.log().len(), 11);
+    assert_eq!(prompt(&session).split_whitespace().next(), Some("9/9"));
+    assert_eq!(session.log().len(), 12);
     // moving keeps the hint
     session.keys("j").await;
     assert_eq!(status(&session.app), HINT);
@@ -883,8 +947,8 @@ async fn the_log_opens_in_normal_mode_where_the_letters_are_keys() {
     session
         .wait_for_screen("the whole log", |rows| on_screen(rows, "Add the parser"))
         .await;
-    assert_eq!(session.log().len(), 11);
-    assert_eq!(prompt(&session).split_whitespace().next(), Some("8/8"));
+    assert_eq!(session.log().len(), 12);
+    assert_eq!(prompt(&session).split_whitespace().next(), Some("9/9"));
     session.keys("<esc>").await;
     assert!(!on_screen(&session.rows(), "origin/main"));
 }
@@ -918,14 +982,16 @@ async fn j_k_and_the_goto_keys_move_over_the_dividers() {
         session.keys("k").await;
         assert_eq!(session.cursor(), *expected);
     }
+    session.keys("k").await;
+    assert_eq!(session.cursor(), UNCOMMITTED);
     session.keys("G").await;
     assert_eq!(session.cursor(), COMMITS[7]);
     session.keys("gg").await;
-    assert_eq!(session.cursor(), COMMITS[0]);
+    assert_eq!(session.cursor(), UNCOMMITTED);
     session.shifted('G').await;
     assert_eq!(session.cursor(), COMMITS[7]);
     session.keys("gg").await;
-    assert_eq!(session.cursor(), COMMITS[0]);
+    assert_eq!(session.cursor(), UNCOMMITTED);
     // (the `e` of `ge` is not the key that extends to the end of the section)
     session.keys("ge").await;
     assert_eq!(session.cursor(), COMMITS[7]);
@@ -935,7 +1001,7 @@ async fn j_k_and_the_goto_keys_move_over_the_dividers() {
     assert_eq!(session.cursor(), COMMITS[6]);
     // the other keys of the picker work as ever, and the preview key is not typed
     session.keys("<down><down>").await;
-    assert_eq!(session.cursor(), COMMITS[0]);
+    assert_eq!(session.cursor(), UNCOMMITTED);
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -1023,7 +1089,7 @@ async fn w_and_e_extend_to_the_oldest_commit_of_the_section() {
 
     // in extend mode the anchor stays
     session.keys("<esc>gg").await;
-    session.keys("jv").await;
+    session.keys("jjv").await;
     assert_eq!(session.cursor(), COMMITS[1]);
     session.keys("w").await;
     assert_eq!(session.cursor(), COMMITS[2]);
@@ -1154,7 +1220,7 @@ async fn w_and_b_go_to_the_matching_commits_of_the_section() {
     session
         .wait_for_screen("the whole log", |rows| on_screen(rows, "Add the parser"))
         .await;
-    assert_eq!(session.log().len(), 11);
+    assert_eq!(session.log().len(), 12);
     session.keys("<esc>").await;
     assert!(!on_screen(&session.rows(), "origin/main"));
 }
@@ -1169,5 +1235,5 @@ async fn the_alt_keys_work_in_filter_mode() {
     assert_eq!(status(&session.app), range(COMMITS[2], COMMITS[0], 3));
     session.keys("<S-down>").await;
     assert_eq!(status(&session.app), range(COMMITS[2], COMMITS[1], 2));
-    assert_eq!(prompt(&session).split_whitespace().next(), Some("8/8"));
+    assert_eq!(prompt(&session).split_whitespace().next(), Some("9/9"));
 }

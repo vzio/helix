@@ -204,6 +204,19 @@ shell = ["fish"]
 
 [^2]: You may also have to activate them in the language server config for them to appear, not just in Helix. Inlay hints in Helix are still being improved on and may be a little bit laggy/janky under some circumstances. Please report any bugs you see so we can fix them!
 
+### `[editor.changes]` Section
+
+The lists of changed files of the commit log (`space l`): the files of a commit, and the uncommitted changes.
+
+| Key | Description | Default |
+| --- | --- | --- |
+| `lockfiles` | File names (not paths) of lockfiles. In the lists they are one quiet row with their line counts, like `Cargo.lock (+340 -12)`, after the other files; Enter still opens their diff | `["Cargo.lock", "package-lock.json", "pnpm-lock.yaml", "yarn.lock", "bun.lock", "bun.lockb", "poetry.lock", "uv.lock", "go.sum", "Gemfile.lock", "composer.lock", "flake.lock"]` |
+
+```toml
+[editor.changes]
+lockfiles = ["Cargo.lock", "package-lock.json", "deps.lock"]
+```
+
 ### `[editor.inline-blame]` Section
 
 Inline blame is virtual text at the end of a line with information about the commit that last changed it, like `Jane Doe, 3 days ago • Fix the parser`. It is styled like inlay hints (see the `ui.virtual.inline-blame` [theme key](./themes.md#interface)).

@@ -396,6 +396,11 @@ fn write_impl(
     path: Option<&str>,
     options: WriteOptions,
 ) -> anyhow::Result<()> {
+    // a buffer that is not modified is brought up to date instead of overwritten
+    if !options.force && path.is_none() {
+        let doc_id = doc!(cx.editor).id();
+        crate::handlers::disk::check_docs(cx.editor, [doc_id]);
+    }
     let config = cx.editor.config();
     let (view, doc) = current!(cx.editor);
     let doc_id = doc.id();
@@ -876,6 +881,10 @@ pub fn write_all_impl(
     options: WriteAllOptions,
 ) -> anyhow::Result<()> {
     let mut errors: Vec<&'static str> = Vec::new();
+    // buffers that are not modified are brought up to date instead of overwritten
+    if !options.force {
+        crate::handlers::disk::check_all(cx.editor);
+    }
     let config = cx.editor.config();
     let saves: Vec<_> = cx
         .editor

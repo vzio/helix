@@ -42,6 +42,8 @@ bug-fixed version of it in omentic's [helix-ext](https://github.com/omentic/heli
 
 - [Side by side git diff](#side-by-side-git-diff)
 - [Git commit log](#git-commit-log)
+- [Uncommitted changes, live](#uncommitted-changes-live)
+- [Files changed on disk](#files-changed-on-disk)
 - [Staged files in the changed files picker](#staged-files-in-the-changed-files-picker)
 - [File tree overlay](#file-tree-overlay)
 - [Inline git blame](#inline-git-blame)
@@ -59,6 +61,8 @@ Each feature lives in its own modules, to keep rebasing on upstream cheap:
 | --- | --- |
 | Diff view | `vortex-term/src/ui/diff_view.rs`, `vortex-term/src/commands/diff_view.rs` |
 | Commit log | `vortex-term/src/commands/git_log.rs`, `vortex-vcs/src/commit.rs`, `vortex-vcs/src/git/log.rs` |
+| Uncommitted changes, live views | `vortex-term/src/commands/changes.rs` (the lists of changed files, lockfiles), `vortex-term/src/live.rs` (the shared watch, background refreshes), `vortex-view/src/watcher.rs` (the reusable watcher), `RepoState` and `log_entries` in `vortex-vcs/src/lib.rs`, `[editor.changes]` in `vortex-view/src/editor.rs`, `vortex-term/tests/test/uncommitted.rs` |
+| Files changed on disk | `vortex-term/src/handlers/disk.rs`, the disk state of `Document` in `vortex-view/src/document.rs`, `vortex-term/tests/test/stale_buffers.rs` |
 | Staged files, commit diffs | `vortex-vcs/src/git.rs`, `vortex-vcs/src/lib.rs`, `vortex-vcs/src/status.rs` |
 | File tree | `vortex-term/src/ui/explorer.rs`, `vortex-term/src/ui/explorer/`, `vortex-term/benches/explorer.rs` |
 | Inline blame | `vortex-vcs/src/git/blame.rs`, `vortex-vcs/src/blame_stub.rs`, `vortex-vcs/benches/blame.rs`, `vortex-stdx/src/time.rs`, `vortex-view/src/blame.rs`, `vortex-term/src/handlers/blame.rs`, `vortex-term/src/commands/blame.rs`, `vortex-term/src/ui/text_decorations/blame.rs` |
@@ -92,6 +96,13 @@ the panel) in `vortex-view/src/editor.rs`, where `[editor.terminal]` also absorb
 `Application::handle_terminal_events`; `toggle_terminal` in `commands.rs` and `keymap/default.rs`;
 `:sh`, `:!` (and `:!cmd` without a space) and `quit` on an awaited buffer in `typed.rs`; the `shell`
 element in `ui/statusline.rs`; the client mode at the top of `main.rs`.
+
+The uncommitted changes and files changed on disk also change core files: the disk state of
+`Document` (`disk_change`, and `save_impl`, whose external-change check now compares content
+instead of the modification time) in `vortex-view/src/document.rs`; the checks before writing in
+`write_impl` and `write_all_impl` (`typed.rs`), on focus (`ui/editor.rs`) and when leaving the
+terminal panel (`terminal/panel.rs`); the `notify` watcher in `vortex-view`; `[editor.changes]` in
+`vortex-view/src/editor.rs`.
 
 To build: `cargo install --path vortex-term --locked`.
 
@@ -190,10 +201,10 @@ theme scope `ui.picker.divider` if the theme has it, else `ui.text.inactive`, el
 
 | Keys | Action |
 | --- | --- |
-| `space l`, `:git-log` | Open the commit picker, in normal mode. The status line shows `s filter, v extend, w/b section, enter files`. |
+| `space l`, `:git-log` | Open the commit picker, in normal mode, with the cursor on its first row, the [uncommitted changes](#uncommitted-changes-live). The status line shows `s filter, v extend, w/b section, enter files`. |
 | `s` | Filter mode: typing filters by summary; `%commit`, `%author`, `%date` filter by the other columns. `Esc` goes back to normal mode and keeps the query. |
 | `j`/`k`, `Down`/`Up`, `C-n`/`C-p`, `Tab`/`S-Tab`, `C-d`/`C-u`/`PageDown`/`PageUp`, `gg`/`ge`/`G`, `Home`/`End` | Move. The keys that aren't letters work in filter mode too. |
-| `Enter` in the commit picker | List the files changed by the commit, or by the selected commits, on top of the commit picker. The status line shows the commit or the range. |
+| `Enter` in the commit picker | List the files changed by the commit, or by the selected commits, or the uncommitted files, on top of the commit picker. The status line shows the commit or the range. |
 | `v`, `A-v` | Toggle extend mode: while it's on, every movement extends the selection from the commit where it started to the commit under the cursor. `A-v` works in filter mode too. |
 | `w`, `e` | Extend the selection down (older) to the oldest commit of the section the cursor is in, and put the cursor on it. Pressed again they do nothing, they never go past the divider. |
 | `b` | Extend the selection up (newer) to the newest commit of the section the cursor is in, and put the cursor on it. |
@@ -232,6 +243,8 @@ in front when extend mode is on:
   query. With a query, the cursor moves among the commits that match, but the selection still has
   every commit between the two ends, matching or not (so does the count).
 - A selection across sections takes the commits of both, in the order they are listed in.
+- The uncommitted changes are never part of a range: extending from their row selects from the
+  first commit.
 - Any movement that isn't extending (and typing a query that moves the cursor) goes back to the
   commit under the cursor alone, unless extend mode is on. `A-v` itself keeps the selection.
   After `A-s`, extending goes on from the oldest commit of the section.
@@ -265,6 +278,96 @@ in front when extend mode is on:
 - List the commits that changed the current file.
 - Show the commit message and stats in a preview.
 - Pick another branch.
+
+## Uncommitted changes, live
+
+The [commit log](#git-commit-log) starts with a row for what isn't committed yet, above the first
+divider: `Uncommitted changes (3 files)`. Enter on it lists the files that differ from HEAD (staged
+or not, untracked files included, renames detected), and Enter on a file opens its
+[side by side diff](#side-by-side-git-diff): HEAD on the left, the working tree on the right (the
+buffer, with its unsaved changes, when the file is open).
+
+While the commit log, or anything opened from it, is open, the working tree is watched, and what
+is on screen follows it:
+
+- the count of the first row;
+- the list of uncommitted files: the cursor stays on the same file, or at the same place when that
+  file is gone;
+- the diff of an uncommitted file: the line at the top of the screen stays there, and so does the
+  horizontal scroll. A diff with no changes left stays open, empty, with `no changes` in the
+  footer;
+- the log itself when HEAD moves (a commit, a checkout, a reset), with the cursor on the same
+  commit;
+- the open buffers of the files that changed, with the rule of
+  [files changed on disk](#files-changed-on-disk).
+
+The watch covers what git doesn't ignore (`.gitignore` files at any depth, `.git/info/exclude`, the
+global excludes file), with one watch per directory, so `target/` or `node_modules/` cost nothing,
+plus `HEAD`, the index and `logs/HEAD` in the git dir. Changes are applied 200ms after the last one
+(at most a second after the first, when they never stop). The watch stops when the last of these
+views closes.
+
+### Lockfiles
+
+In the lists of changed files, of a commit or uncommitted, lockfiles are never hidden, but each is
+one quiet row (`ui.text.inactive`) with the lines it adds and removes, after the other files:
+
+```
+  ~ modified  src/main.rs
+  + untracked notes.md
+  ~ modified  Cargo.lock (+340 -12)
+```
+
+Enter on it opens its diff like any file. The other files are sorted by path. Which files are
+lockfiles is set by their name in `[editor.changes]`:
+
+```toml
+[editor.changes]
+lockfiles = ["Cargo.lock", "package-lock.json", "pnpm-lock.yaml", "yarn.lock", "bun.lock",
+  "bun.lockb", "poetry.lock", "uv.lock", "go.sum", "Gemfile.lock", "composer.lock", "flake.lock"]
+```
+
+A binary lockfile (`bun.lockb`) shows `(binary)` instead of counts.
+
+### Limitations
+
+- Only the commit log's views update live. The changed files picker (`space g`) and `space =` don't,
+  and the files of a commit don't need to.
+- A directory that a `.gitignore` edit stops ignoring isn't watched until it is created again.
+- Symlinked directories are not followed.
+
+## Files changed on disk
+
+Open buffers are compared with their file when it matters, without a background watcher:
+
+- after switching to another buffer (`ga`, the buffer picker, `:bn`, a jump, a split that shows
+  another buffer...);
+- when the terminal regains focus, and when going back to the editor from the
+  [terminal panel](#terminal-panel) (`Ctrl-t`, a click, `hx`);
+- right before writing (`:w`, `:wq`, `:x`, `:wa`, auto-save);
+- while the [uncommitted changes](#uncommitted-changes-live) are watched, on every change of a
+  file.
+
+Every open buffer is checked on focus; the other cases check the buffers concerned. What happens
+depends on the buffer:
+
+| The buffer | What happens |
+| --- | --- |
+| has no unsaved changes | It is reloaded silently, as one undoable step (`u` brings the old text back). Cursors and selections are mapped through the change, so they stay on the same text when it is still there |
+| has unsaved changes | The statusline warns once, `<file> changed on disk: :reload to load it, or :write! to overwrite it`. `:write` (and `:wq`, `:wa`...) refuses with the same message until `:reload` (the disk wins, undoable) or `:write!` (the buffer wins) |
+
+A change is a change of content: the modification time and size are compared first, and when they
+differ the file is read and hashed, so `touch` or a checkout that rewrites the same bytes changes
+nothing. A file that was deleted is left alone (writing creates it again), and so is a buffer
+whose file didn't exist when it was opened.
+
+### Limitations
+
+- Nothing is checked while Helix is focused and idle, unless the uncommitted changes are watched:
+  the check comes with the next buffer switch, focus or write.
+- Terminals that don't report focus (or tmux without `focus-events on`) only get the checks on
+  switching and writing.
+- Writing a buffer to another path (`:w other.txt`) doesn't check that path.
 
 ## Staged files in the changed files picker
 

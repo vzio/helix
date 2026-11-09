@@ -222,6 +222,22 @@ pub fn for_each_changed_file(
     status(&open_repo(cwd, trust_full)?.to_thread_local(), f)
 }
 
+/// The working tree and the git dir of the repository `cwd` is in, and the id of HEAD (`None`
+/// before the first commit).
+pub fn repo_state(cwd: &Path, trust_full: bool) -> Result<crate::RepoState> {
+    let repo = open_repo(cwd, trust_full)?.to_thread_local();
+    let work_dir = repo
+        .workdir()
+        .ok_or_else(|| anyhow::anyhow!("working tree not found"))?
+        .to_path_buf();
+    let head = repo.head_id().ok().map(|id| id.detach().to_string());
+    Ok(crate::RepoState {
+        work_dir,
+        git_dir: repo.git_dir().to_path_buf(),
+        head,
+    })
+}
+
 fn open_repo(path: &Path, trust_full: bool) -> Result<ThreadSafeRepository> {
     // `trust_full` is the workspace-trust decision made by the caller, and it must be the
     // authority on the gix trust level. gix's own discovery (`discover_*`) ignores a
