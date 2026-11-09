@@ -71,7 +71,7 @@ pub struct Panel {
     pub visible: bool,
     /// Keys go to the shell.
     pub focused: bool,
-    /// Where the screen of the shell was last drawn (without the border).
+    /// Where the screen of the shell was last drawn.
     pub area: Rect,
     /// Buffers an `hx` in the panel waits on.
     pub waiters: Vec<Waiter>,

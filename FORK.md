@@ -560,7 +560,8 @@ indexed, so your terminal's palette applies; RGB colors are passed through), the
 shape, the alternate screen, mouse reporting, resizing. The mouse wheel over the panel scrolls the
 scrollback (or goes to the program when it asked for the mouse, or becomes arrow keys on the
 alternate screen); a click in the panel focuses it, a click in a split focuses the editor. The
-border shows the title the shell set and the keys that apply.
+panel has no border or title of its own: it starts right below the statusline of the split above,
+which shows as inactive while the panel has the keys.
 
 ### `hx` in the panel
 
@@ -612,7 +613,7 @@ right = ["diagnostics", "shell", "selections", "register", "position", "file-enc
 ```
 
 The panel's colors are `ui.terminal` (background and default text; falls back to
-`ui.background`) and `ui.terminal.border` (its top border; falls back to `ui.window`).
+`ui.background`).
 
 `[editor.terminal]` was already the debugger's external terminal (`command`, `args`); those keys
 still work there.
