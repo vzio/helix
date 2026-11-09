@@ -23,6 +23,7 @@ use std::process::Stdio;
 
 use futures_util::Future;
 mod handlers;
+mod live;
 
 use helix_stdx::Url;
 use ignore::DirEntry;

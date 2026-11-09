@@ -1,4 +1,5 @@
 pub(crate) mod blame;
+pub(crate) mod changes;
 pub(crate) mod dap;
 pub(crate) mod diff_view;
 pub(crate) mod git_log;
@@ -3518,6 +3519,48 @@ pub(crate) struct FileChangeData {
     style_renamed: Style,
 }
 
+impl FileChangeData {
+    pub(crate) fn new(editor: &Editor, cwd: PathBuf) -> Self {
+        Self {
+            cwd,
+            style_untracked: editor.theme.get("diff.plus"),
+            style_modified: editor.theme.get("diff.delta"),
+            style_conflict: editor.theme.get("diff.delta.conflict"),
+            style_deleted: editor.theme.get("diff.minus"),
+            style_renamed: editor.theme.get("diff.delta.moved"),
+        }
+    }
+
+    /// The text of the "change" column, and its style.
+    pub(crate) fn label(&self, change: &FileChange) -> (&'static str, Style) {
+        match change {
+            FileChange::Untracked { .. } => ("+ untracked", self.style_untracked),
+            FileChange::Added { .. } => ("+ added", self.style_untracked),
+            FileChange::Modified { .. } => ("~ modified", self.style_modified),
+            FileChange::Conflict { .. } => ("x conflict", self.style_conflict),
+            FileChange::Deleted { .. } => ("- deleted", self.style_deleted),
+            FileChange::Renamed { .. } => ("> renamed", self.style_renamed),
+        }
+    }
+
+    /// The text of the "path" column: the path relative to the working directory, both paths
+    /// of a rename.
+    pub(crate) fn path(&self, change: &FileChange) -> String {
+        let display_path = |path: &Path| {
+            path.strip_prefix(&self.cwd)
+                .unwrap_or(path)
+                .display()
+                .to_string()
+        };
+        match change {
+            FileChange::Renamed { from_path, to_path } => {
+                format!("{} -> {}", display_path(from_path), display_path(to_path))
+            }
+            change => display_path(change.path()),
+        }
+    }
+}
+
 /// The "change" and "path" columns of a picker of changed files, and their data.
 pub(crate) fn file_change_columns(
     editor: &Editor,
@@ -3528,45 +3571,14 @@ pub(crate) fn file_change_columns(
 ) {
     let columns = [
         PickerColumn::new("change", |change: &FileChange, data: &FileChangeData| {
-            match change {
-                FileChange::Untracked { .. } => Span::styled("+ untracked", data.style_untracked),
-                FileChange::Added { .. } => Span::styled("+ added", data.style_untracked),
-                FileChange::Modified { .. } => Span::styled("~ modified", data.style_modified),
-                FileChange::Conflict { .. } => Span::styled("x conflict", data.style_conflict),
-                FileChange::Deleted { .. } => Span::styled("- deleted", data.style_deleted),
-                FileChange::Renamed { .. } => Span::styled("> renamed", data.style_renamed),
-            }
-            .into()
+            let (label, style) = data.label(change);
+            Span::styled(label, style).into()
         }),
         PickerColumn::new("path", |change: &FileChange, data: &FileChangeData| {
-            let display_path = |path: &PathBuf| {
-                path.strip_prefix(&data.cwd)
-                    .unwrap_or(path)
-                    .display()
-                    .to_string()
-            };
-            match change {
-                FileChange::Untracked { path } => display_path(path),
-                FileChange::Added { path } => display_path(path),
-                FileChange::Modified { path } => display_path(path),
-                FileChange::Conflict { path } => display_path(path),
-                FileChange::Deleted { path } => display_path(path),
-                FileChange::Renamed { from_path, to_path } => {
-                    format!("{} -> {}", display_path(from_path), display_path(to_path))
-                }
-            }
-            .into()
+            data.path(change).into()
         }),
     ];
-    let data = FileChangeData {
-        cwd,
-        style_untracked: editor.theme.get("diff.plus"),
-        style_modified: editor.theme.get("diff.delta"),
-        style_conflict: editor.theme.get("diff.delta.conflict"),
-        style_deleted: editor.theme.get("diff.minus"),
-        style_renamed: editor.theme.get("diff.delta.moved"),
-    };
-    (columns, data)
+    (columns, FileChangeData::new(editor, cwd))
 }
 
 fn changed_file_picker(cx: &mut Context) {

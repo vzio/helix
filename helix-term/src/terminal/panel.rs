@@ -116,6 +116,8 @@ fn spawn(editor: &mut Editor) -> anyhow::Result<()> {
 pub fn toggle_focus(editor: &mut Editor) {
     if editor.terminal.is_focused() {
         editor.terminal.unfocus();
+        // the shell may have changed files
+        crate::handlers::disk::check_all(editor);
     } else if ensure_shell(editor) {
         editor.terminal.focus();
     }
@@ -147,6 +149,7 @@ pub fn handle_event(event: &Event, editor: &mut Editor, compositor: &mut Composi
         Event::Key(key) if panel.is_focused() => {
             if *key == TOGGLE_KEY {
                 panel.unfocus();
+                crate::handlers::disk::check_all(editor);
             } else if let Some(bytes) = encode_key(*key, &shell.input_modes()) {
                 shell.write(&bytes);
             }
@@ -164,7 +167,11 @@ pub fn handle_event(event: &Event, editor: &mut Editor, compositor: &mut Composi
                 && mouse.row < area.bottom();
             if !over {
                 if matches!(mouse.kind, MouseEventKind::Down(_)) {
+                    let was_focused = panel.is_focused();
                     panel.unfocus();
+                    if was_focused {
+                        crate::handlers::disk::check_all(editor);
+                    }
                 }
                 return false;
             }
@@ -193,6 +200,7 @@ fn handle_shim_request(editor: &mut Editor, request: shim::Request, reply: shim:
     let (files, wait) = match request {
         shim::Request::Focus => {
             editor.terminal.unfocus();
+            crate::handlers::disk::check_all(editor);
             return reply.send(shim::Response::Done);
         }
         shim::Request::Open { files, wait } => (files, wait),
@@ -221,6 +229,7 @@ fn handle_shim_request(editor: &mut Editor, request: shim::Request, reply: shim:
         }
     }
     editor.terminal.unfocus();
+    crate::handlers::disk::check_all(editor);
     if !wait || opened.is_empty() {
         return reply.send(shim::Response::Done);
     }

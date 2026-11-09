@@ -1622,6 +1622,8 @@ impl Component for EditorView {
                 self.terminal_focused = true;
                 // other programs may have committed in the meantime
                 crate::handlers::blame::request_all(context.editor);
+                // and so may have other programs with the files
+                crate::handlers::disk::check_all(context.editor);
                 EventResult::Consumed(None)
             }
             Event::FocusLost => {

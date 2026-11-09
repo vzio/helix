@@ -551,14 +551,22 @@ async fn regaining_focus_notices_new_commits() {
         Some("Jane Doe|Add numbers")
     );
 
-    // another program changes and commits the first line, the buffer still has the old one
+    // another program changes and commits the first line; the buffer has no edits, so it is
+    // reloaded when focus returns
     std::fs::write(&file, "ONE\ntwo\nthree\n").unwrap();
+    // (the modification time moved on for sure, whatever the clock's resolution)
+    std::fs::File::options()
+        .write(true)
+        .open(&file)
+        .unwrap()
+        .set_modified(std::time::SystemTime::now() + std::time::Duration::from_secs(2))
+        .unwrap();
     commit(dir.path(), "Bob Smith", "Shout one");
     session.event(FOCUS_EVENTS.0).await;
     session.event(FOCUS_EVENTS.1).await;
     session
         .wait_for("the new blame", |app| {
-            shown(app, 0).as_deref() == Some("Not committed yet")
+            shown(app, 0).as_deref() == Some("Bob Smith|Shout one")
         })
         .await;
     assert!(matches!(
