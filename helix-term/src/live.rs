@@ -57,8 +57,12 @@ impl RepoWatch {
 
         let generation = Arc::new(AtomicU64::new(0));
         let bump = generation.clone();
+        // the job queue belongs to the runtime (one per test in integration tests), which the
+        // watcher's thread isn't part of
+        let runtime = tokio::runtime::Handle::current();
         let watcher = Watcher::spawn(config, move |paths| {
             let bump = bump.clone();
+            let _runtime = runtime.enter();
             job::dispatch_blocking(move |editor, _| {
                 // the same rule as when switching buffers: reload the unmodified ones, warn
                 // about the others

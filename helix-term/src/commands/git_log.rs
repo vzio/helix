@@ -356,9 +356,12 @@ impl CommitLog {
     fn select(&mut self, anchor: usize, cursor: usize) {
         self.selection.anchor = Some(anchor);
         let mut range = (anchor.min(cursor), anchor.max(cursor));
-        // the uncommitted changes aren't a commit: a range of commits starts after them
+        // the uncommitted changes aren't a commit: a range of commits starts at the first one
+        // after them (past the divider), so that it may be that commit alone
         if range.0 == 0 && range.1 > 0 {
-            range.0 = 1;
+            range.0 = (1..=range.1)
+                .find(|&pos| self.commit_at(pos).is_some())
+                .unwrap_or(range.1);
         }
         self.selection.range = Some(range);
         self.marked.set((range.0 != range.1).then_some(range));
