@@ -120,6 +120,55 @@ pub struct DocumentSavedEvent {
     pub text: Rope,
 }
 
+/// What the file of a document looks like on disk, as of the last time the document loaded or
+/// wrote it.
+///
+/// The hash tells a real change from one that only touched the modification time (`touch`, a
+/// checkout that rewrites identical content).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct DiskState {
+    mtime: SystemTime,
+    len: u64,
+    hash: u64,
+}
+
+impl DiskState {
+    /// The state of the file at `path`, or `None` if it can't be read.
+    fn read(path: &Path) -> Option<Self> {
+        let mtime_len = Self::stat(path)?;
+        let bytes = std::fs::read(path).ok()?;
+        Some(Self::of(mtime_len, &bytes))
+    }
+
+    fn stat(path: &Path) -> Option<(SystemTime, u64)> {
+        let metadata = path.metadata().ok()?;
+        Some((metadata.modified().ok()?, metadata.len()))
+    }
+
+    fn of((mtime, len): (SystemTime, u64), bytes: &[u8]) -> Self {
+        use std::hash::{Hash, Hasher};
+        let mut hasher = std::hash::DefaultHasher::new();
+        bytes.hash(&mut hasher);
+        Self {
+            mtime,
+            len,
+            hash: hasher.finish(),
+        }
+    }
+}
+
+/// How the file of a document compares to what the document loaded or last wrote.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DiskChange {
+    /// The same content (or there is nothing to compare: no path, or a file that did not exist
+    /// when the document was opened).
+    Unchanged,
+    /// Another content.
+    Changed,
+    /// The file is gone.
+    Missing,
+}
+
 pub type DocumentSavedEventResult = Result<DocumentSavedEvent, anyhow::Error>;
 pub type DocumentSavedEventFuture = BoxFuture<'static, DocumentSavedEventResult>;
 
@@ -198,6 +247,13 @@ pub struct Document {
     // Last time we wrote to the file. This will carry the time the file was last opened if there
     // were no saves.
     last_saved_time: SystemTime,
+
+    /// The file on disk as of the last load or save. `None` for a path that did not exist.
+    disk: Option<DiskState>,
+    /// The hash of the disk content that [`Self::disk_change`] last found changed, and of the
+    /// one the user was already warned about.
+    changed_hash: Option<u64>,
+    warned_hash: Option<u64>,
 
     last_saved_revision: usize,
     version: i32, // should be usize?
@@ -758,6 +814,9 @@ impl Document {
             history: Cell::new(History::default()),
             savepoints: Vec::new(),
             last_saved_time: SystemTime::now(),
+            disk: None,
+            changed_hash: None,
+            warned_hash: None,
             last_saved_revision: 0,
             modified_since_accessed: false,
             language_servers: HashMap::new(),
@@ -814,9 +873,14 @@ impl Document {
         encoding = encoding.or(editor_config.encoding);
 
         // Open the file if it exists, otherwise assume it is a new file (and thus empty).
+        let mut disk = None;
         let (rope, encoding, has_bom) = if path.exists() {
             let mut file = std::fs::File::open(path)?;
-            from_reader(&mut file, encoding)?
+            let mtime_len = DiskState::stat(path);
+            let mut bytes = Vec::new();
+            io::Read::read_to_end(&mut file, &mut bytes)?;
+            disk = mtime_len.map(|mtime_len| DiskState::of(mtime_len, &bytes));
+            from_reader(&mut &bytes[..], encoding)?
         } else {
             let line_ending = editor_config
                 .line_ending
@@ -829,7 +893,8 @@ impl Document {
         let mut doc = Self::from(rope, Some((encoding, has_bom)), config, syn_loader);
 
         // set the path and try detecting the language
-        doc.set_path(Some(path));
+        doc.set_path_impl(Some(path), false);
+        doc.disk = disk;
         if detect_language {
             doc.detect_language(&loader);
         }
@@ -1034,7 +1099,16 @@ impl Document {
         let atomic_save = self.config.load().atomic_save;
 
         let encoding_with_bom_info = (self.encoding, self.has_bom);
-        let last_saved_time = self.last_saved_time;
+
+        // Protect against overwriting changes made externally. Only a real change of the
+        // content counts, not a new modification time.
+        if !force && self.path.as_ref() == Some(&path) && self.disk_change() == DiskChange::Changed
+        {
+            bail!(
+                "{} changed on disk: :reload to load it, or :write! to overwrite it",
+                self.display_name()
+            );
+        }
 
         // We encode the file according to the `Document`'s encoding.
         let future = async move {
@@ -1050,16 +1124,6 @@ impl Document {
                 }
             }
 
-            // Protect against overwriting changes made externally
-            if !force {
-                if let Ok(metadata) = fs::metadata(&path).await {
-                    if let Ok(mtime) = metadata.modified() {
-                        if last_saved_time < mtime {
-                            bail!("file modified by an external process, use :w! to overwrite");
-                        }
-                    }
-                }
-            }
             let write_path = tokio::fs::read_link(&path)
                 .await
                 .ok()
@@ -1272,6 +1336,53 @@ impl Document {
         };
     }
 
+    /// Compares the file on disk with what this document loaded or last wrote.
+    ///
+    /// Costs a `stat` when the modification time and size are the same. Otherwise the file is
+    /// read and hashed: the same content only updates the stored state (and
+    /// `last_saved_time`), so touching a file is not a change.
+    pub fn disk_change(&mut self) -> DiskChange {
+        let (Some(path), Some(state)) = (self.path.as_deref(), self.disk) else {
+            return DiskChange::Unchanged;
+        };
+        let Some((mtime, len)) = DiskState::stat(path) else {
+            return if path.exists() {
+                DiskChange::Unchanged
+            } else {
+                DiskChange::Missing
+            };
+        };
+        if mtime == state.mtime && len == state.len {
+            return DiskChange::Unchanged;
+        }
+        let Ok(bytes) = std::fs::read(path) else {
+            return DiskChange::Unchanged;
+        };
+        let now = DiskState::of((mtime, len), &bytes);
+        if now.hash == state.hash {
+            self.disk = Some(now);
+            self.last_saved_time = mtime;
+            return DiskChange::Unchanged;
+        }
+        self.changed_hash = Some(now.hash);
+        DiskChange::Changed
+    }
+
+    /// Whether the user was not yet told that the disk content found by the last
+    /// [`Self::disk_change`] is different. Asking counts as telling.
+    pub fn take_disk_change_warning(&mut self) -> bool {
+        let due = self.changed_hash != self.warned_hash;
+        self.warned_hash = self.changed_hash;
+        due
+    }
+
+    /// Takes the file as it is now for the state of the disk.
+    fn refresh_disk_state(&mut self) {
+        self.disk = self.path.as_deref().and_then(DiskState::read);
+        self.changed_hash = None;
+        self.warned_hash = None;
+    }
+
     // Detect if the file is readonly and change the readonly field if necessary (unix only)
     pub fn detect_readonly(&mut self) {
         // Allows setting the flag for files the user cannot modify, like root files
@@ -1300,8 +1411,12 @@ impl Document {
         // Once we have a valid path we check if its readonly status has changed
         self.detect_readonly();
 
-        let mut file = std::fs::File::open(&path)?;
-        let (rope, ..) = from_reader(&mut file, Some(encoding))?;
+        let mtime_len = DiskState::stat(&path);
+        let bytes = std::fs::read(&path)?;
+        let (rope, ..) = from_reader(&mut &bytes[..], Some(encoding))?;
+        self.disk = mtime_len.map(|mtime_len| DiskState::of(mtime_len, &bytes));
+        self.changed_hash = None;
+        self.warned_hash = None;
 
         // Calculate the difference between the buffer and source text, and apply it.
         // This is not considered a modification of the contents of the file regardless
@@ -1342,6 +1457,10 @@ impl Document {
     /// observers (like LSP), in most cases `Editor::set_doc_path`
     /// should be used instead
     pub fn set_path(&mut self, path: Option<&Path>) {
+        self.set_path_impl(path, true);
+    }
+
+    fn set_path_impl(&mut self, path: Option<&Path>, read_disk: bool) {
         let path = path.map(helix_stdx::path::canonicalize);
 
         // `take` to remove any prior relative path that may have existed.
@@ -1356,6 +1475,9 @@ impl Document {
 
         self.detect_readonly();
         self.pickup_last_saved_time();
+        if read_disk {
+            self.refresh_disk_state();
+        }
     }
 
     /// Set the programming language for the file and load associated data (e.g. highlighting)
@@ -1863,6 +1985,7 @@ impl Document {
         );
         self.last_saved_revision = rev;
         self.last_saved_time = save_time;
+        self.refresh_disk_state();
     }
 
     /// Get the document's latest saved revision.
@@ -2545,7 +2668,7 @@ mod test {
         let mut doc = Document::from(
             text,
             None,
-            Arc::new(ArcSwap::new(Arc::new(Config::default()))),
+            Arc::new(ArcSwap::new(Arc::new(crate::editor::Config::default()))),
             Arc::new(ArcSwap::from_pointee(syntax::Loader::default())),
         );
         let view = ViewId::default();
@@ -2584,7 +2707,7 @@ mod test {
         let mut doc = Document::from(
             text,
             None,
-            Arc::new(ArcSwap::new(Arc::new(Config::default()))),
+            Arc::new(ArcSwap::new(Arc::new(crate::editor::Config::default()))),
             Arc::new(ArcSwap::from_pointee(syntax::Loader::default())),
         );
         let view = ViewId::default();
@@ -2700,7 +2823,7 @@ mod test {
     fn test_line_ending() {
         assert_eq!(
             Document::default(
-                Arc::new(ArcSwap::new(Arc::new(Config::default()))),
+                Arc::new(ArcSwap::new(Arc::new(crate::editor::Config::default()))),
                 Arc::new(ArcSwap::from_pointee(syntax::Loader::default()))
             )
             .text()
@@ -2771,4 +2894,86 @@ mod test {
     decode!(jis0212_decode, "jis0212", "EUC-JP");
     decode!(shift_jis_decode, "shift_jis");
     encode!(shift_jis_encode, "shift_jis");
+
+    fn open_doc(path: &Path) -> Document {
+        let config = Arc::new(ArcSwap::new(Arc::new(crate::editor::Config::default())));
+        let loader = Arc::new(ArcSwap::from_pointee(syntax::Loader::default()));
+        Document::open(path, None, false, config, loader).unwrap()
+    }
+
+    fn set_mtime(path: &Path, secs: u64) {
+        std::fs::File::options()
+            .write(true)
+            .open(path)
+            .unwrap()
+            .set_modified(SystemTime::UNIX_EPOCH + std::time::Duration::from_secs(secs))
+            .unwrap();
+    }
+
+    #[test]
+    fn disk_change_detects_real_changes_only() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("file.txt");
+        std::fs::write(&path, "one\n").unwrap();
+        set_mtime(&path, 1_000_000);
+        let mut doc = open_doc(&path);
+        assert_eq!(doc.disk_change(), DiskChange::Unchanged);
+
+        // touched, same content: unchanged, and the state follows
+        set_mtime(&path, 1_000_100);
+        assert_eq!(doc.disk_change(), DiskChange::Unchanged);
+        assert_eq!(
+            doc.last_saved_time,
+            path.metadata().unwrap().modified().unwrap()
+        );
+        assert_eq!(doc.disk_change(), DiskChange::Unchanged);
+
+        // other content, even of the same size
+        std::fs::write(&path, "two\n").unwrap();
+        set_mtime(&path, 1_000_200);
+        assert_eq!(doc.disk_change(), DiskChange::Changed);
+        assert!(doc.take_disk_change_warning());
+        assert_eq!(doc.disk_change(), DiskChange::Changed);
+        assert!(!doc.take_disk_change_warning());
+
+        // and it can't be saved over without force
+        assert!(doc.save_impl(None, false).is_err());
+
+        std::fs::remove_file(&path).unwrap();
+        assert_eq!(doc.disk_change(), DiskChange::Missing);
+    }
+
+    #[test]
+    fn disk_change_is_unchanged_after_reload_and_save() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("file.txt");
+        std::fs::write(&path, "one\n").unwrap();
+        let mut doc = open_doc(&path);
+
+        std::fs::write(&path, "other\n").unwrap();
+        set_mtime(&path, 2_000_000);
+        assert_eq!(doc.disk_change(), DiskChange::Changed);
+        let mut view = View::new(doc.id(), Default::default());
+        doc.ensure_view_init(view.id);
+        doc.reload(&mut view, &DiffProviderRegistry::default(), false)
+            .unwrap();
+        assert_eq!(doc.text().to_string(), "other\n");
+        assert_eq!(doc.disk_change(), DiskChange::Unchanged);
+
+        // a save refreshes the state
+        std::fs::write(&path, "written\n").unwrap();
+        set_mtime(&path, 2_000_100);
+        doc.set_last_saved_revision(0, SystemTime::now());
+        assert_eq!(doc.disk_change(), DiskChange::Unchanged);
+    }
+
+    #[test]
+    fn disk_change_ignores_files_that_did_not_exist() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("new.txt");
+        let mut doc = open_doc(&path);
+        assert_eq!(doc.disk_change(), DiskChange::Unchanged);
+        std::fs::write(&path, "created\n").unwrap();
+        assert_eq!(doc.disk_change(), DiskChange::Unchanged);
+    }
 }
