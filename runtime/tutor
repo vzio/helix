@@ -258,12 +258,17 @@
   space g        pick a changed file, staged or not; C-g there
                  shows its diff
   space =        this file next to its last commit, side by side
-                 (fork): n N go from change to change, q closes
+                 (fork): n N go from change to change, q closes;
+                 s u r stage, unstage and revert the change, and
+                 S U R the whole file. A revert is an edit of the
+                 file: u in its buffer brings it back
   space l        the commit log (fork): Enter lists the files of
                  a commit, Enter on a file shows its diff; v
                  selects several commits. Its first row is what
                  you haven't committed, and it follows your
-                 edits while it's open, even from another program
+                 edits while it's open, even from another
+                 program. In its diffs, n N go on to the next
+                 file
   space B        who changed each line, and when (fork)
 
  A file another program changed is reloaded when you come back

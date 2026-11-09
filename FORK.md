@@ -43,6 +43,7 @@ bug-fixed version of it in omentic's [helix-ext](https://github.com/omentic/heli
 - [Side by side git diff](#side-by-side-git-diff)
 - [Git commit log](#git-commit-log)
 - [Uncommitted changes, live](#uncommitted-changes-live)
+- [Stage, unstage and revert hunks](#stage-unstage-and-revert-hunks)
 - [Files changed on disk](#files-changed-on-disk)
 - [Staged files in the changed files picker](#staged-files-in-the-changed-files-picker)
 - [File tree overlay](#file-tree-overlay)
@@ -60,6 +61,7 @@ Each feature lives in its own modules, to keep rebasing on upstream cheap:
 | Feature | Modules |
 | --- | --- |
 | Diff view | `helix-term/src/ui/diff_view.rs`, `helix-term/src/commands/diff_view.rs` |
+| Hunk actions, `n`/`N` across files | `helix-term/src/commands/hunks.rs` (stage, unstage, revert), `helix-vcs/src/staging.rs` (the texts of the index and of the working tree after an action), `helix-vcs/src/git/stage.rs` (reading and writing one entry of the index), the `Actions` and `FileNav` of the diff view, `base` of `:practice` exercises, `helix-term/tests/test/hunks.rs` |
 | Commit log | `helix-term/src/commands/git_log.rs`, `helix-vcs/src/commit.rs`, `helix-vcs/src/git/log.rs` |
 | Uncommitted changes, live views | `helix-term/src/commands/changes.rs` (the lists of changed files, lockfiles), `helix-term/src/live.rs` (the shared watch, background refreshes), `helix-view/src/watcher.rs` (the reusable watcher), `RepoState` and `log_entries` in `helix-vcs/src/lib.rs`, `[editor.changes]` in `helix-view/src/editor.rs`, `helix-term/tests/test/uncommitted.rs` |
 | Files changed on disk | `helix-term/src/handlers/disk.rs`, the disk state of `Document` in `helix-view/src/document.rs`, `helix-term/tests/test/stale_buffers.rs` |
@@ -124,7 +126,8 @@ Inside the diff:
 
 | Keys | Action |
 | --- | --- |
-| `n` / `N`, `]c` / `[c` | Next / previous hunk |
+| `n` / `N`, `]c` / `[c` | Next / previous hunk; past the last (first) one, around to the first (last), or, in a diff opened from the [commit log](#git-commit-log), on to the next (previous) file |
+| `s` `u` `r`, `S` `U` `R` | Stage, unstage, revert the hunk, or the whole file, see [hunks](#stage-unstage-and-revert-hunks) |
 | `j` / `k`, `C-d` / `C-u`, `C-f` / `C-b`, `PageDown` / `PageUp`, mouse wheel | Scroll |
 | `gg` / `ge`, `G` | Top / bottom |
 | `h` / `l`, `0` | Scroll horizontally, back to the start of the line |
@@ -133,7 +136,9 @@ Inside the diff:
 | `Enter` | Close the diff (and the picker it was opened from) and open the file at the current hunk |
 | `q`, `Esc` | Close |
 
-The footer shows the current hunk (e.g. `hunk 2/5`), and its line numbers are bold. New files
+The footer shows the current hunk (e.g. `hunk 2/5`), whether it is staged, the number of the file
+in a diff opened from a list of files (`file 1/3`) and the keys; the line numbers of the current
+hunk are bold. The last line of the screen stays the editor's, for its messages. New files
 (untracked or staged) only have a right side, and deleted files only have a left side. Renamed files
 are compared with their old path in HEAD.
 
@@ -154,7 +159,7 @@ can be read whole. `w` switches between wrapping and horizontal scrolling.
 
 - Search inside the diff.
 - Fold long runs of unchanged lines.
-- Stage or revert a hunk from the diff.
+- Stage part of a hunk (a selection of its lines).
 
 ## Git commit log
 
@@ -335,6 +340,56 @@ A binary lockfile (`bun.lockb`) shows `(binary)` instead of counts.
   and the files of a commit don't need to.
 - A directory that a `.gitignore` edit stops ignoring isn't watched until it is created again.
 - Symlinked directories are not followed.
+
+## Stage, unstage and revert hunks
+
+In the diff of a file of the working tree (the [uncommitted changes](#uncommitted-changes-live) of
+the commit log, `space =`, `C-g` in `space g`), the current hunk, or the whole file, can be staged,
+unstaged and reverted:
+
+| Keys | Action |
+| --- | --- |
+| `s`, `S` | Stage the hunk, the file (`git add`; a deleted file is staged as deleted) |
+| `u`, `U` | Unstage the hunk, the file (back to its version in HEAD; a new file becomes untracked) |
+| `r`, `R` | Revert the hunk, the file, to its version in the index |
+
+The footer shows them, and the state of the current hunk: `hunk 2/5 staged`. On the separator
+between the two sides, a staged hunk is marked `┃` and a partly staged one `╏` (the colors of
+`diff.plus` and `diff.delta`), and the background of a staged hunk is quieter.
+
+- **Staging** changes no text, so it is not part of undo: `u` is its inverse. Each action writes
+  one entry of the index, with the git CLI (`git hash-object`, `git update-index`), from the texts
+  the diff shows: the hunk is applied to the index version, never as a patch, so it can't fail on
+  context. Git doesn't run the filters or the fsmonitor of the repository's configuration: the
+  conversion to what is stored (like `core.autocrlf`) is done by the same code as the reads, with
+  the same workspace trust rules (`:workspace-trust`).
+- **Reverting** is an edit: the file's buffer (opened in the background if it isn't open) gets one
+  transaction, and is written. `u` in that buffer undoes it, and a whole file is one undo step.
+  It goes back to the index, like `git restore`: what is staged is kept, so a staged hunk has
+  nothing to revert (`u` unstages it first).
+- An **untracked file** has no version to go back to: reverting it deletes it, after asking
+  (`y` deletes it, any other key keeps it), since git can't bring it back.
+- A buffer with unsaved changes can't be staged or reverted (write it first): the diff shows the
+  buffer, which is not what is on disk.
+- After an action the diff is built again at once; in the commit log it also follows changes made
+  from elsewhere, like `git add` in a terminal.
+
+`n`/`N` go through the hunks of every file of the entry the diff was opened from: the uncommitted
+changes, a commit, or a range of commits. Past the last hunk of a file, `n` opens the diff of the
+next file at its first hunk (`N`: the previous file at its last hunk), and the cursor of the list of
+files follows. At the end of the list they go around to the first (last) file, with `Wrapped
+around to the first file` in the statusline. Lockfiles and files that can't be shown (binary) are
+skipped.
+
+### Limitations
+
+- A hunk is staged whole. When the index has part of a hunk's change, the hunk is partly staged,
+  and `s` stages the rest.
+- The diff is HEAD against the working tree, so a change that is staged and then undone in the
+  working tree has no hunk (`U` unstages it).
+- Reverting a renamed file reverts its new path only.
+- Symlinks and submodules can't be staged.
+- The saved message (`'file' written`) replaces the message of the revert.
 
 ## Files changed on disk
 

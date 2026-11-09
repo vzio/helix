@@ -1,0 +1,60 @@
+title = "Hunks in the diff"
+chapter = "search"
+kind = "combine"
+feature = "<space>= shows the changes since the commit; n/N jump between hunks, r reverts one"
+lesson = """
+`<space>=` shows the changes since the last commit side by side, and `n` and
+`N` jump between its hunks the way they jump between matches. `r` puts the
+hunk you are on back as it was committed (`R` the whole file); a revert is an
+edit, so `u` in the buffer brings it back. This diff view is this fork's.
+"""
+language = "python"
+base = '''
+def load(path):
+    with open(path) as f:
+        rows = f.readlines()
+    return [r.strip() for r in rows]
+
+def total(rows):
+    return sum(int(r) for r in rows)
+
+def report(path):
+    rows = load(path)
+    print("total:", total(rows))
+'''
+start = '''
+def load(path):
+    print("DEBUG load", path)
+    with open(path) as f:
+        rows = f.readlines()
+    print("DEBUG rows", len(rows))
+    return [r.strip() for r in rows]
+
+def total(rows):
+    return sum(int(r) for r in rows if r)
+
+def report(path):
+    rows = load(path)
+    print("DEBUG report", rows)
+    print("total:", total(rows))
+'''
+goal = '''
+def load(path):
+    with open(path) as f:
+        rows = f.readlines()
+    return [r.strip() for r in rows]
+
+def total(rows):
+    return sum(int(r) for r in rows if r)
+
+def report(path):
+    rows = load(path)
+    print("total:", total(rows))
+'''
+hints = [
+  "Of the four changes since the commit, three are debug prints; only the `if r` fix stays.",
+  "`<space>=` opens the diff with the commit. `n` jumps to the next hunk, and `r` reverts the one you are on, then shows the next.",
+  "`<space>=`, `r` twice for the first two prints, `n` to step over the fix, and `r` for the last print.",
+]
+teach = "<space>=rrnr"
+naive = "jxdjjxdjjjjjjjxd"
