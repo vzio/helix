@@ -4,6 +4,8 @@ use std::rc::Rc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 
+use helix_vcs::DiffProviderRegistry;
+
 use helix_core::{movement::Direction, Position};
 use helix_event::status;
 use helix_vcs::{CommitInfo, FileChange, LogEntry};
@@ -13,20 +15,17 @@ use helix_view::{
 };
 use tui::{buffer::Buffer as Surface, text::Span};
 
-use super::{diff_view, file_change_columns};
+use super::{changes, diff_view};
 use crate::compositor::{self, Component, Compositor, Event, EventResult};
 use crate::job::Callback;
-use crate::ui::{
-    overlay::overlaid,
-    picker::{self, PickerMode},
-    Picker, PickerColumn,
-};
-use crate::{alt, ctrl, key, shift};
+use crate::live::{Live, Pending, RepoWatch};
+use crate::ui::{overlay::overlaid, picker::PickerMode, Picker, PickerColumn};
+use crate::{alt, key, shift};
 
 /// Shown in the status line when the log opens.
 const HINT: &str = "s filter, v extend, w/b section, enter files";
 
-fn trust_full(editor: &Editor, cwd: &Path) -> bool {
+pub(crate) fn trust_full(editor: &Editor, cwd: &Path) -> bool {
     editor
         .workspace_trust
         .query(
@@ -36,8 +35,10 @@ fn trust_full(editor: &Editor, cwd: &Path) -> bool {
         .is_trusted()
 }
 
-/// Lists the commits reachable from HEAD in sections by branch, see `FORK.md`. Enter lists the
-/// files changed by the selected commit, or by the selected range of commits.
+/// Lists the uncommitted changes, then the commits reachable from HEAD in sections by branch, see
+/// `FORK.md`. Enter lists the files changed by the selected commit, or by the selected range of
+/// commits, or the uncommitted files. While it is open, it follows the working tree: the number of
+/// uncommitted files, and the log when HEAD moves.
 pub(crate) fn commit_picker(editor: &mut Editor) -> Option<CommitLog> {
     let cwd = helix_stdx::env::current_working_dir();
     if !cwd.exists() {
@@ -55,35 +56,50 @@ pub(crate) fn commit_picker(editor: &mut Editor) -> Option<CommitLog> {
         PickerColumn::new("author", |row: &LogRow, style: &CommitStyle| {
             row.text(|commit| Span::styled(commit.author.clone(), style.author).into())
         }),
-        PickerColumn::new("summary", |row: &LogRow, _: &CommitStyle| {
-            row.text(|commit| commit.summary.as_str().into())
+        PickerColumn::new("summary", |row: &LogRow, style: &CommitStyle| {
+            match &row.kind {
+                RowKind::Uncommitted => {
+                    Span::styled(style.uncommitted.label(), style.uncommitted_style).into()
+                }
+                _ => row.text(|commit| commit.summary.as_str().into()),
+            }
         }),
     ];
+    let uncommitted = Arc::new(UncommittedCount::default());
     let style = CommitStyle {
         id: editor.theme.get("constant"),
         date: editor.theme.get("comment"),
         author: editor.theme.get("variable"),
+        uncommitted_style: editor.theme.get("diff.delta"),
+        uncommitted: uncommitted.clone(),
     };
 
+    let watch = RepoWatch::start(editor, &cwd);
     let marked = Rc::new(Cell::new(None));
-    let open_cwd = cwd.clone();
-    let picker = Picker::new(columns, 3, [], style, move |cx, row, _action| {
-        if let Some(commit) = row.commit() {
-            open_commit_files(cx, open_cwd.clone(), CommitRange::single(commit))
-        }
-    })
-    .with_stacked_key_handler(key!(Enter), {
+    let open = {
         let cwd = cwd.clone();
-        move |cx, row| {
-            if let Some(commit) = row.commit() {
+        let watch = watch.clone();
+        move |cx: &mut compositor::Context, row: &LogRow| match &row.kind {
+            RowKind::Uncommitted => changes::open_uncommitted(cx, cwd.clone(), watch.clone()),
+            RowKind::Commit(commit) => {
                 open_commit_files(cx, cwd.clone(), CommitRange::single(commit))
             }
+            RowKind::Divider(_) => {}
         }
+    };
+    let first_rows = [LogRow {
+        pos: 0,
+        kind: RowKind::Uncommitted,
+    }];
+    let picker = Picker::new(columns, 3, first_rows, style, {
+        let open = open.clone();
+        move |cx, row, _action| open(cx, row)
     })
+    .with_stacked_key_handler(key!(Enter), open)
     .with_modes()
-    .with_dividers(|row, _| match &row.entry {
-        LogEntry::Divider(title) => Some(title.as_str().into()),
-        LogEntry::Commit(_) => None,
+    .with_dividers(|row, _| match &row.kind {
+        RowKind::Divider(title) => Some(title.as_str().into()),
+        _ => None,
     })
     .with_marked_rows({
         let marked = marked.clone();
@@ -98,14 +114,15 @@ pub(crate) fn commit_picker(editor: &mut Editor) -> Option<CommitLog> {
     let injector = picker.injector();
 
     let trust_full = trust_full(editor, &cwd);
-    let pos = AtomicUsize::new(0);
+    // the uncommitted changes are the first row
+    let pos = AtomicUsize::new(1);
     editor
         .diff_providers
         .clone()
         .for_each_log_entry(cwd.clone(), trust_full, move |entry| match entry {
             Ok(entry) => {
                 let pos = pos.fetch_add(1, Ordering::Relaxed);
-                injector.push(LogRow { pos, entry }).is_ok()
+                injector.push(LogRow::new(pos, entry)).is_ok()
             }
             Err(err) => {
                 status::report_blocking(err);
@@ -113,31 +130,125 @@ pub(crate) fn commit_picker(editor: &mut Editor) -> Option<CommitLog> {
             }
         });
     editor.set_status(HINT);
-    Some(CommitLog {
+    let log = CommitLog {
         picker,
-        cwd,
+        source: Source {
+            cwd,
+            providers: editor.diff_providers.clone(),
+            trust_full,
+        },
         marked,
         selection: Selection::default(),
         announced: false,
-    })
+        live: watch.map(Live::new),
+        refresh: Pending::new(),
+        uncommitted,
+        head: None,
+    };
+    // the number of uncommitted files, and the HEAD the log is read from
+    let source = log.source.clone();
+    log.refresh.run(move || source.read(None));
+    Some(log)
 }
 
-/// A row of the commit picker: a commit or the divider of a section of the log.
+/// The number of uncommitted files the commit log shows, updated while it is open.
+#[derive(Default)]
+pub(crate) struct UncommittedCount {
+    /// The number of files, plus one; 0 while it isn't known yet.
+    files: AtomicUsize,
+}
+
+impl UncommittedCount {
+    fn set(&self, files: usize) {
+        self.files.store(files + 1, Ordering::Relaxed);
+    }
+
+    /// `Uncommitted changes (3 files)`.
+    fn label(&self) -> String {
+        match self.files.load(Ordering::Relaxed) {
+            0 => "Uncommitted changes".to_string(),
+            1 => "Uncommitted changes (none)".to_string(),
+            2 => "Uncommitted changes (1 file)".to_string(),
+            files => format!("Uncommitted changes ({} files)", files - 1),
+        }
+    }
+}
+
+/// What the commit log reads off the main thread.
+#[derive(Clone)]
+struct Source {
+    cwd: PathBuf,
+    providers: DiffProviderRegistry,
+    trust_full: bool,
+}
+
+/// What the commit log learns when the working tree changes.
+struct Refresh {
+    /// The number of uncommitted files.
+    files: Option<usize>,
+    /// The commit HEAD points to.
+    head: Option<String>,
+    /// The log again, when HEAD moved since it was read.
+    log: Option<Vec<LogEntry>>,
+}
+
+impl Source {
+    /// Reads the number of uncommitted files and HEAD, and the log too if HEAD isn't `known`
+    /// (`None`: not known yet, the log is being read).
+    fn read(&self, known: Option<Option<String>>) -> Refresh {
+        let files = self
+            .providers
+            .changed_files(&self.cwd, self.trust_full)
+            .map_err(|err| log::debug!("uncommitted changes: {err}"))
+            .ok()
+            .map(|changes| changes.len());
+        let head = self
+            .providers
+            .repo_state(&self.cwd, self.trust_full)
+            .ok()
+            .and_then(|state| state.head);
+        let log = known
+            .is_some_and(|known| known != head)
+            .then(|| self.providers.log_entries(&self.cwd, self.trust_full).ok())
+            .flatten();
+        Refresh { files, head, log }
+    }
+}
+
+/// A row of the commit picker: the uncommitted changes, a commit, or the divider of a section of
+/// the log.
 pub(crate) struct LogRow {
-    /// The position among the rows of the log, dividers included.
+    /// The position among the rows, dividers included; the uncommitted changes are at 0.
     pos: usize,
-    entry: LogEntry,
+    kind: RowKind,
+}
+
+enum RowKind {
+    /// The changes of the working tree since HEAD: always the first row.
+    Uncommitted,
+    /// The label of the section that follows.
+    Divider(String),
+    Commit(CommitInfo),
 }
 
 impl LogRow {
+    fn new(pos: usize, entry: LogEntry) -> Self {
+        let kind = match entry {
+            LogEntry::Divider(title) => RowKind::Divider(title),
+            LogEntry::Commit(commit) => RowKind::Commit(commit),
+        };
+        Self { pos, kind }
+    }
+
     fn commit(&self) -> Option<&CommitInfo> {
-        match &self.entry {
-            LogEntry::Commit(commit) => Some(commit),
-            LogEntry::Divider(_) => None,
+        match &self.kind {
+            RowKind::Commit(commit) => Some(commit),
+            _ => None,
         }
     }
 
-    /// The cell for `text` of the commit, or an empty one for a divider: dividers match no query.
+    /// The cell for `text` of the commit, or an empty one for a divider (dividers match no query)
+    /// and for the uncommitted changes.
     fn text<'a>(
         &'a self,
         text: impl FnOnce(&'a CommitInfo) -> tui::widgets::Cell<'a>,
@@ -199,12 +310,18 @@ struct Selection {
 /// the whole selection.
 pub(crate) struct CommitLog {
     picker: Picker<LogRow, CommitStyle>,
-    cwd: PathBuf,
+    source: Source,
     /// The selected range of more than one commit, for the picker to mark the rows of.
     marked: Rc<Cell<Option<(usize, usize)>>>,
     selection: Selection,
     /// Whether the status line shows the selection.
     announced: bool,
+    /// Sees the working tree change while the log is open.
+    live: Option<Live>,
+    refresh: Pending<Refresh>,
+    uncommitted: Arc<UncommittedCount>,
+    /// The commit HEAD pointed to when the log was read, once known.
+    head: Option<Option<String>>,
 }
 
 impl CommitLog {
@@ -238,20 +355,25 @@ impl CommitLog {
     /// Selects the commits from `anchor` to `cursor` (in any order) in the log, filtered or not.
     fn select(&mut self, anchor: usize, cursor: usize) {
         self.selection.anchor = Some(anchor);
-        let range = (anchor.min(cursor), anchor.max(cursor));
+        let mut range = (anchor.min(cursor), anchor.max(cursor));
+        // the uncommitted changes aren't a commit: a range of commits starts after them
+        if range.0 == 0 && range.1 > 0 {
+            range.0 = 1;
+        }
         self.selection.range = Some(range);
         self.marked.set((range.0 != range.1).then_some(range));
     }
 
     /// The commits of the selection, both ends included, if it has any.
     fn range(&self) -> Option<CommitRange> {
-        let (newest, oldest) = self.selection.range?;
-        let count = (newest..=oldest)
-            .filter(|&pos| self.commit_at(pos).is_some())
-            .count();
+        let (first, last) = self.selection.range?;
+        // the ends may be dividers
+        let mut commits = (first..=last).filter_map(|pos| self.commit_at(pos));
+        let newest = commits.next()?;
+        let (oldest, count) = commits.fold((newest, 1), |(_, count), commit| (commit, count + 1));
         Some(CommitRange {
-            oldest: self.commit_at(oldest)?.clone(),
-            newest: self.commit_at(newest)?.clone(),
+            oldest: oldest.clone(),
+            newest: newest.clone(),
             count,
         })
     }
@@ -361,6 +483,53 @@ impl CommitLog {
         self.select(anchor, target.0);
     }
 
+    /// Follows the working tree: reads the number of uncommitted files again when it changed, and
+    /// the log too when HEAD moved (a commit, a checkout...), keeping the cursor on the same row.
+    fn refresh(&mut self) {
+        if self.live.as_mut().is_some_and(Live::changed) {
+            let source = self.source.clone();
+            let known = self.head.clone();
+            self.refresh.run(move || source.read(known));
+        }
+        let Some(refresh) = self.refresh.take() else {
+            return;
+        };
+        if let Some(files) = refresh.files {
+            self.uncommitted.set(files);
+        }
+        self.head = Some(refresh.head);
+        let Some(log) = refresh.log else {
+            return;
+        };
+        let selected = self
+            .picker
+            .selection()
+            .map(|row| row.commit().map(|commit| commit.id.clone()));
+        let rows = std::iter::once(LogRow {
+            pos: 0,
+            kind: RowKind::Uncommitted,
+        })
+        .chain(
+            log.into_iter()
+                .enumerate()
+                .map(|(i, entry)| LogRow::new(i + 1, entry)),
+        );
+        self.picker.replace_items(rows, 0);
+        self.selection = Selection::default();
+        self.marked.set(None);
+        // the same commit, or the uncommitted changes
+        if let Some(selected) = selected {
+            let mut index = 0;
+            while let Some(row) = self.picker.matched_item(index) {
+                if row.commit().map(|commit| &commit.id) == selected.as_ref() {
+                    self.picker.set_cursor_index(index);
+                    break;
+                }
+                index += 1;
+            }
+        }
+    }
+
     fn toggle_extend(&mut self) {
         self.follow_cursor();
         self.selection.extend = !self.selection.extend;
@@ -378,6 +547,7 @@ impl CommitLog {
 
 impl Component for CommitLog {
     fn render(&mut self, area: Rect, surface: &mut Surface, cx: &mut compositor::Context) {
+        self.refresh();
         self.picker.render(area, surface, cx);
         // the first commit gets the cursor when it arrives
         self.follow_cursor();
@@ -400,7 +570,7 @@ impl Component for CommitLog {
             key!(Esc) if normal && (self.is_range() || self.selection.extend) => self.collapse(),
             key!(Enter) if self.is_range() => {
                 if let Some(range) = self.range() {
-                    open_commit_files(cx, self.cwd.clone(), range);
+                    open_commit_files(cx, self.source.cwd.clone(), range);
                 }
                 return EventResult::Consumed(None);
             }
@@ -432,6 +602,8 @@ pub(crate) struct CommitStyle {
     id: helix_view::graphics::Style,
     date: helix_view::graphics::Style,
     author: helix_view::graphics::Style,
+    uncommitted_style: helix_view::graphics::Style,
+    uncommitted: Arc<UncommittedCount>,
 }
 
 /// Pushes the picker of the files changed by the commits of `range` on top of the commit picker.
@@ -471,15 +643,30 @@ fn open_commit_files(cx: &mut compositor::Context, cwd: PathBuf, range: CommitRa
     });
 }
 
-/// The files changed by the commits of `range`. Enter and `C-g` open the diff of the selected file
-/// on top.
+/// The files changed by the commits of `range`, lockfiles last. Enter and `C-g` open the diff of
+/// the selected file on top.
 fn commit_files_picker(
     editor: &Editor,
     cwd: PathBuf,
     range: Arc<CommitRange>,
     changes: Vec<FileChange>,
-) -> Picker<FileChange, super::FileChangeData> {
-    let (columns, data) = file_change_columns(editor, cwd.clone());
+) -> Picker<changes::FileRow, changes::FileRowData> {
+    let trust_full = trust_full(editor, &cwd);
+    let read = |id: &str, path: &Path| {
+        editor
+            .diff_providers
+            .file_at_commit(&cwd, trust_full, id, path)
+            .ok()
+            .flatten()
+            .unwrap_or_default()
+    };
+    let parent = format!("{}^", range.oldest.id);
+    let rows = changes::rows(changes, &editor.config().changes, |change| {
+        let (base_path, path) = diff_view::paths_of(change);
+        Some((read(&parent, &base_path), read(&range.newest.id, &path)))
+    });
+
+    let picker_cwd = cwd.clone();
     let show_diff = move |cx: &mut compositor::Context, change: &FileChange| {
         let cwd = cwd.clone();
         let range = range.clone();
@@ -500,27 +687,5 @@ fn commit_files_picker(
             Ok(Callback::EditorCompositor(Box::new(call)))
         });
     };
-
-    Picker::new(
-        columns,
-        1,
-        changes,
-        data,
-        |cx, change: &FileChange, action| {
-            // the file as it is now, closing the commit picker below too
-            let path = change.path().to_path_buf();
-            if let Err(err) = cx.editor.open(&path, action) {
-                cx.editor
-                    .set_error(format!("unable to open \"{}\": {err}", path.display()));
-            }
-            cx.jobs.callback(async move {
-                let call = |_: &mut Editor, compositor: &mut Compositor| {
-                    compositor.remove(picker::ID);
-                };
-                Ok(Callback::EditorCompositor(Box::new(call)))
-            });
-        },
-    )
-    .with_stacked_key_handler(key!(Enter), show_diff.clone())
-    .with_stacked_key_handler(ctrl!('g'), show_diff)
+    changes::files_picker(editor, picker_cwd, rows, show_diff)
 }

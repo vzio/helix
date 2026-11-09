@@ -16,6 +16,7 @@ use imara_diff::{Algorithm, Diff, InternedInput};
 use tui::buffer::Buffer as Surface;
 
 use crate::compositor::{Component, Compositor, Context, EventResult};
+use crate::live::Live;
 
 pub const ID: &str = "git-diff-view";
 
@@ -88,6 +89,16 @@ impl Row {
             right_words: Vec::new(),
         }
     }
+}
+
+/// The width of the longest line of both sides, for horizontal scrolling.
+fn widest(left: &Side, right: &Side, tab_width: usize) -> usize {
+    [left, right]
+        .into_iter()
+        .flat_map(|side| (0..side.lines.len()).map(move |line| side.line(line)))
+        .map(|line| layout(line, tab_width, None, |_, _, _, _, _| true).1)
+        .max()
+        .unwrap_or(0)
 }
 
 /// Splits `text` like imara-diff's line tokenizer does, returning each line without its ending.
@@ -370,6 +381,10 @@ impl Palette {
 
 type OnOpen = Box<dyn FnOnce(&mut Compositor)>;
 
+/// Builds both sides again for a live diff, see [`DiffView::with_live`]: the left side, the right
+/// side and the file Enter opens.
+pub type Rebuild = Box<dyn FnMut(&Editor) -> anyhow::Result<(Side, Side, Option<PathBuf>)>>;
+
 pub struct DiffView {
     left: Side,
     right: Side,
@@ -401,6 +416,8 @@ pub struct DiffView {
     /// Index of the current hunk in `hunks`. Tracked explicitly because several hunks can map
     /// to the same scroll position (near the top or bottom, or when everything fits on screen).
     current: usize,
+    /// Rebuilds the diff when the working tree changes.
+    live: Option<(Live, Rebuild)>,
 }
 
 impl DiffView {
@@ -410,12 +427,7 @@ impl DiffView {
             .first()
             .map_or(0, |hunk| hunk.saturating_sub(HUNK_CONTEXT));
         let tab_width = tab_width.max(1);
-        let widest = [&left, &right]
-            .into_iter()
-            .flat_map(|side| (0..side.lines.len()).map(move |line| side.line(line)))
-            .map(|line| layout(line, tab_width, None, |_, _, _, _, _| true).1)
-            .max()
-            .unwrap_or(0);
+        let widest = widest(&left, &right, tab_width);
         DiffView {
             left,
             right,
@@ -434,7 +446,54 @@ impl DiffView {
             visible: 0,
             pending: None,
             current: 0,
+            live: None,
         }
+    }
+
+    /// Rebuilds the diff with `rebuild` whenever `live` sees the working tree change, keeping the
+    /// lines on screen where they were. A diff that has no changes left stays open, empty.
+    pub fn with_live(
+        mut self,
+        live: Live,
+        rebuild: impl FnMut(&Editor) -> anyhow::Result<(Side, Side, Option<PathBuf>)> + 'static,
+    ) -> DiffView {
+        self.live = Some((live, Box::new(rebuild)));
+        self
+    }
+
+    /// Rebuilds a live diff if the working tree changed. An error (the file became binary...)
+    /// keeps the diff as it was.
+    fn refresh(&mut self, editor: &Editor) {
+        let Some((live, rebuild)) = &mut self.live else {
+            return;
+        };
+        if !live.changed() {
+            return;
+        }
+        match rebuild(editor) {
+            Ok((left, right, path)) => self.replace_sides(left, right, path),
+            Err(err) => log::debug!("diff view: {err}"),
+        }
+    }
+
+    /// Shows new versions of both sides. The line at the top of the screen stays there (the same
+    /// line number of the right side, or of the left side on a row without a right line), so
+    /// does the horizontal scroll, and the current hunk is the one closest to it.
+    fn replace_sides(&mut self, left: Side, right: Side, path: Option<PathBuf>) {
+        let top = self.rows.get(self.scroll).map(|row| (row.left, row.right));
+        let (rows, hunks) = build_rows(&left.text, &right.text);
+        self.widest = widest(&left, &right, self.tab_width);
+        (self.left, self.right, self.rows, self.hunks, self.path) =
+            (left, right, rows, hunks, path);
+        let scroll = top
+            .and_then(|(left, right)| match right {
+                Some(right) => self.rows.iter().position(|row| row.right == Some(right)),
+                None => self.rows.iter().position(|row| row.left == left),
+            })
+            .unwrap_or(self.scroll);
+        self.set_position(scroll, self.offset);
+        self.current = self.current.min(self.hunks.len().saturating_sub(1));
+        self.follow_hunk();
     }
 
     /// Runs `on_open` on the compositor when Enter opens the file.
@@ -843,6 +902,7 @@ impl Component for DiffView {
     }
 
     fn render(&mut self, area: Rect, surface: &mut Surface, cx: &mut Context) {
+        self.refresh(cx.editor);
         let palette = Palette::new(&cx.editor.theme);
         surface.clear_with(area, palette.background);
         if area.height < 3 || area.width < 10 {
@@ -944,10 +1004,12 @@ impl Component for DiffView {
         // footer with the position and the keys
         let footer_y = area.bottom() - 1;
         surface.set_style(Rect::new(area.x, footer_y, area.width, 1), palette.hint);
+        let position = match self.hunks.len() {
+            0 => "no changes".to_string(),
+            hunks => format!("hunk {}/{hunks}", self.current + 1),
+        };
         let footer = format!(
-            " hunk {}/{} · n/N or ]c/[c next/prev hunk · j/k scroll · h/l pan · w wrap · enter open at hunk · q close",
-            self.current + 1,
-            self.hunks.len(),
+            " {position} · n/N or ]c/[c next/prev hunk · j/k scroll · h/l pan · w wrap · enter open at hunk · q close",
         );
         surface.set_stringn(area.x, footer_y, &footer, area.width as usize, palette.hint);
     }

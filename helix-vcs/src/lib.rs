@@ -34,6 +34,17 @@ mod commit;
 
 pub use commit::{CommitInfo, LogEntry};
 
+/// Where a repository is, and its HEAD.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RepoState {
+    /// The root of the working tree.
+    pub work_dir: PathBuf,
+    /// The git dir: `.git`, or the directory of a linked worktree.
+    pub git_dir: PathBuf,
+    /// The full hex id of the commit HEAD points to, `None` before the first commit.
+    pub head: Option<String>,
+}
+
 /// Contains all active diff providers. Diff providers are compiled in via features. Currently
 /// only `git` is supported.
 #[derive(Clone)]
@@ -139,6 +150,33 @@ impl DiffProviderRegistry {
         });
     }
 
+    /// The whole commit log of HEAD in sections, like `for_each_log_entry` but blocking until it
+    /// is all read.
+    pub fn log_entries(&self, cwd: &Path, trust_full: bool) -> Result<Vec<LogEntry>> {
+        // report the error of the first provider, not the fallback's "no diff support"
+        let mut first_err = None;
+        for provider in &self.providers {
+            let entries = std::cell::RefCell::new(Vec::new());
+            let collect = |entry: Result<LogEntry>| match entry {
+                Ok(entry) => {
+                    entries.borrow_mut().push(entry);
+                    true
+                }
+                Err(err) => {
+                    log::debug!("{err:#?}");
+                    false
+                }
+            };
+            match provider.for_each_log_entry(cwd, trust_full, collect) {
+                Ok(()) => return Ok(entries.into_inner()),
+                Err(err) => {
+                    first_err.get_or_insert(err);
+                }
+            }
+        }
+        Err(first_err.unwrap_or_else(|| anyhow!("no diff provider returns success")))
+    }
+
     /// The files changed by the commits from `oldest` to `newest`: the difference between the
     /// first parent of `oldest` (nothing, for a root commit) and `newest`.
     pub fn range_changes(
@@ -153,6 +191,21 @@ impl DiffProviderRegistry {
         for provider in &self.providers {
             match provider.range_changes(cwd, trust_full, oldest, newest) {
                 Ok(changes) => return Ok(changes),
+                Err(err) => {
+                    first_err.get_or_insert(err);
+                }
+            }
+        }
+        Err(first_err.unwrap_or_else(|| anyhow!("no diff provider returns success")))
+    }
+
+    /// The repository `cwd` is in: its directories and HEAD.
+    pub fn repo_state(&self, cwd: &Path, trust_full: bool) -> Result<RepoState> {
+        // report the error of the first provider, not the fallback's "no diff support"
+        let mut first_err = None;
+        for provider in &self.providers {
+            match provider.repo_state(cwd, trust_full) {
+                Ok(state) => return Ok(state),
                 Err(err) => {
                     first_err.get_or_insert(err);
                 }
@@ -265,6 +318,14 @@ impl DiffProvider {
         match self {
             #[cfg(feature = "git")]
             Self::Git => git::range_changes(cwd, trust_full, oldest, newest),
+            Self::None => bail!("No diff support compiled in"),
+        }
+    }
+
+    fn repo_state(&self, cwd: &Path, trust_full: bool) -> Result<RepoState> {
+        match self {
+            #[cfg(feature = "git")]
+            Self::Git => git::repo_state(cwd, trust_full),
             Self::None => bail!("No diff support compiled in"),
         }
     }
