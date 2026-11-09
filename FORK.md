@@ -340,7 +340,7 @@ A binary lockfile (`bun.lockb`) shows `(binary)` instead of counts.
 
 Open buffers are compared with their file when it matters, without a background watcher:
 
-- after switching to another buffer (`ga`, the buffer picker, `:b`, a jump, a split that shows
+- after switching to another buffer (`ga`, the buffer picker, `:bn`, a jump, a split that shows
   another buffer...);
 - when the terminal regains focus, and when going back to the editor from the
   [terminal panel](#terminal-panel) (`Ctrl-t`, a click, `hx`);
