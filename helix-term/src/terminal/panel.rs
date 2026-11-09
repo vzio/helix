@@ -25,13 +25,13 @@ pub const TOGGLE_KEY: KeyEvent = KeyEvent {
     modifiers: KeyModifiers::CONTROL,
 };
 
-/// The height of the panel's screen (without its border) in an editor area of `height` rows,
-/// leaving the editor at least a few rows.
+/// The height of the panel's screen in an editor area of `height` rows, leaving the splits at
+/// least a few rows.
 pub fn screen_height(editor: &Editor, height: u16) -> u16 {
     let percent = editor.config().terminal.height.clamp(10, 90);
     let panel = (height as u32 * percent as u32 / 100) as u16;
-    // the border takes a row; the splits keep at least 3 (a line and a statusline)
-    panel.min(height.saturating_sub(4)).max(2) - 1
+    // the splits keep at least 3 rows (a line and a statusline)
+    panel.min(height.saturating_sub(3)).max(1)
 }
 
 /// Starts the shell when none runs. An error (the shell can't start) is shown in the statusline.
@@ -158,10 +158,9 @@ pub fn handle_event(event: &Event, editor: &mut Editor, compositor: &mut Composi
         }
         Event::Mouse(mouse) if panel.is_visible() => {
             let area = panel.area;
-            // the border row above the screen belongs to the panel too
             let over = mouse.column >= area.x
                 && mouse.column < area.right()
-                && mouse.row + 1 >= area.y
+                && mouse.row >= area.y
                 && mouse.row < area.bottom();
             if !over {
                 if matches!(mouse.kind, MouseEventKind::Down(_)) {
@@ -176,12 +175,8 @@ pub fn handle_event(event: &Event, editor: &mut Editor, compositor: &mut Composi
             let Some(shell) = &panel.shell else {
                 return true;
             };
-            // a click on the border only focuses
-            if mouse.row < area.y {
-                return true;
-            }
             let col = mouse.column - area.x;
-            let row = mouse.row.saturating_sub(area.y);
+            let row = mouse.row - area.y;
             match encode_mouse(mouse, col, row, scroll_lines, &shell.input_modes()) {
                 MouseAction::Send(bytes) => shell.write(&bytes),
                 MouseAction::Scroll(lines) => shell.scroll(lines),
@@ -256,7 +251,7 @@ pub fn split_area(editor: &Editor, area: Rect) -> (Rect, Option<Rect>) {
         return (area, None);
     }
     let screen = screen_height(editor, area.height);
-    let editor_area = area.clip_bottom(screen + 1);
-    let panel = Rect::new(area.x, editor_area.bottom(), area.width, screen + 1);
+    let editor_area = area.clip_bottom(screen);
+    let panel = Rect::new(area.x, editor_area.bottom(), area.width, screen);
     (editor_area, Some(panel))
 }

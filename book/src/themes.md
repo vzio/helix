@@ -354,7 +354,6 @@ These scopes are used for theming the editor interface:
 | `ui.practice.dim`                 | Secondary text and the bar before the goal (`ui.text.inactive`, `comment`)                     |
 | `ui.window`                       | Borderlines separating splits                                                                  |
 | `ui.terminal`                     | The terminal panel (default: `ui.background`)                                                  |
-| `ui.terminal.border`              | The terminal panel's top border (default: `ui.window`)                                         |
 | `ui.help`                         | Description box for commands                                                                   |
 | `ui.text`                         | Default text style, command prompts, popup text, etc.                                          |
 | `ui.text.focus`                   | The currently selected line in the picker                                                      |
