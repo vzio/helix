@@ -296,6 +296,45 @@ impl Default for ExplorerConfig {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case", default, deny_unknown_fields)]
+pub struct ChangesConfig {
+    /// File names (not paths) of lockfiles: in the lists of changed files they are collapsed to
+    /// one quiet row with their line counts, after the other files.
+    pub lockfiles: Vec<String>,
+}
+
+impl ChangesConfig {
+    /// Whether `path` is a lockfile, by its file name.
+    pub fn is_lockfile(&self, path: &Path) -> bool {
+        path.file_name()
+            .and_then(|name| name.to_str())
+            .is_some_and(|name| self.lockfiles.iter().any(|lockfile| lockfile == name))
+    }
+}
+
+impl Default for ChangesConfig {
+    fn default() -> Self {
+        let lockfiles = [
+            "Cargo.lock",
+            "package-lock.json",
+            "pnpm-lock.yaml",
+            "yarn.lock",
+            "bun.lock",
+            "bun.lockb",
+            "poetry.lock",
+            "uv.lock",
+            "go.sum",
+            "Gemfile.lock",
+            "composer.lock",
+            "flake.lock",
+        ];
+        Self {
+            lockfiles: lockfiles.into_iter().map(String::from).collect(),
+        }
+    }
+}
+
 /// A value that is read and dropped.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 struct Ignored;
@@ -449,6 +488,8 @@ pub struct Config {
     pub explorer: ExplorerConfig,
     /// Inline git blame (fork feature).
     pub inline_blame: InlineBlameConfig,
+    /// The lists of changed files: the uncommitted changes and the commits (fork feature).
+    pub changes: ChangesConfig,
     /// Configuration of the statusline elements
     pub statusline: StatusLineConfig,
     /// Shape for cursor in each mode
@@ -1294,6 +1335,7 @@ impl Default for Config {
             file_explorer: FileExplorerConfig::default(),
             explorer: ExplorerConfig::default(),
             inline_blame: InlineBlameConfig::default(),
+            changes: ChangesConfig::default(),
             statusline: StatusLineConfig::default(),
             cursor_shape: CursorShapeConfig::default(),
             true_color: false,
