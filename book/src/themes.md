@@ -370,6 +370,7 @@ These scopes are used for theming the editor interface:
 | `ui.virtual.wrap`                 | Soft-wrap indicator (see the [`editor.soft-wrap` config][editor-section])                      |
 | `ui.virtual.jump-label`           | Style for virtual jump labels                                                                  |
 | `ui.virtual.inline-blame`         | Inline git blame (see the [`editor.inline-blame` config][editor-section]); falls back to `ui.virtual.inlay-hint` |
+| `ui.virtual.inline-blame.hash`    | The commit hash in the inline git blame, patched over `ui.virtual.inline-blame` (this fork) |
 | `ui.menu`                         | Code and command completion menus                                                              |
 | `ui.menu.selected`                | Selected autocomplete item                                                                     |
 | `ui.menu.scroll`                  | `fg` sets thumb color, `bg` sets track color of scrollbar                                      |

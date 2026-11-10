@@ -219,7 +219,7 @@ lockfiles = ["Cargo.lock", "package-lock.json", "deps.lock"]
 
 ### `[editor.inline-blame]` Section
 
-Inline blame is virtual text at the end of a line with information about the commit that last changed it, like `Jane Doe, 3 days ago • Fix the parser`. It is styled like inlay hints (see the `ui.virtual.inline-blame` [theme key](./themes.md#interface)).
+Inline blame is virtual text at the end of a line with information about the commit that last changed it, like `a1b2c3d Jane Doe, 3 days ago • Fix the parser`. It is styled like inlay hints (see the `ui.virtual.inline-blame` [theme key](./themes.md#interface)).
 
 It is off by default. Toggle it at runtime with `:toggle-inline-blame` or `Space + B`.
 
@@ -227,7 +227,7 @@ It is off by default. Toggle it at runtime with `:toggle-inline-blame` or `Space
 | -------- | ---------------------------------------------------------------------------------------------------- | -------------------------------------- |
 | `enable` | Whether inline blame is on                                                                           | `false`                                |
 | `show`   | Which lines show blame: `"cursor-line"` or `"all-lines"`                                             | `"cursor-line"`                        |
-| `format` | The text of the blame, see below                                                                     | `"{author}, {time-ago} • {title}"`     |
+| `format` | The text of the blame, see below                                                                     | `"{commit} {author}, {time-ago} • {title}"` |
 | `delay`  | Milliseconds the cursor has to stay on a line before its blame shows (`"cursor-line"` only), 0 for none | `300`                                  |
 
 With `show = "cursor-line"` only the line of the primary cursor has blame, in the focused view. With `"all-lines"` every visible line has it.
@@ -238,6 +238,8 @@ The blame of a file is computed in the background when inline blame is turned on
 
 The `blame_line` command (unbound by default, available from the command palette) shows the blame of the current line in the statusline using the same `format`, whether or not inline blame is on.
 
+`:yank-diagnostic` (`Space + i`) yanks the diagnostics under the cursor; when there are none and inline blame is on, it yanks the full hash of the commit of the cursor's line instead.
+
 #### `format`
 
 Variables are text placeholders wrapped in curly braces: `{variable}`. The following variables are available:
@@ -247,7 +249,7 @@ Variables are text placeholders wrapped in curly braces: `{variable}`. The follo
 - `time-ago`: How long ago the commit was made
 - `title`: The title (first line) of the commit message
 - `body`: The rest of the commit message
-- `commit`: The short hex SHA1 hash of the commit
+- `commit`: The short hex hash of the commit, abbreviated as git does (`core.abbrev`, unique in the repository); styled with `ui.virtual.inline-blame.hash`
 - `email`: The email of the author of the commit
 
 Text before a variable that has no value (for example `{body}` for a commit without one) is left out too.
