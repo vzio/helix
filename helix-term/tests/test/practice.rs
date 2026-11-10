@@ -223,6 +223,7 @@ fn exercise(id: &str, start: &str, goal: &str, teach: &str) -> Exercise {
         feature: "A feature".to_owned(),
         lesson: "The lesson of this exercise.\nA second line of the lesson.\n".to_owned(),
         before: Vec::new(),
+        base: None,
         start: start.to_owned(),
         goal: goal.to_owned(),
         language: None,

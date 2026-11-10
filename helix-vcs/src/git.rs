@@ -29,6 +29,7 @@ mod test;
 
 pub mod blame;
 mod log;
+pub mod stage;
 
 pub use log::for_each_log_entry;
 

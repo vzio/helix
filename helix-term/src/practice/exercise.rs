@@ -34,9 +34,9 @@ pub const DIR_NAME: &str = "practice";
 pub const MAX_LESSON_LINE: usize = 80;
 /// Most lines in a lesson.
 pub const MAX_LESSON_LINES: usize = 6;
-/// Longest line of `start`, `goal` and the `before` texts, in characters.
+/// Longest line of `start`, `goal`, `base` and the `before` texts, in characters.
 pub const MAX_TEXT_LINE: usize = 50;
-/// Most lines in `start`, `goal` and the `before` texts.
+/// Most lines in `start`, `goal`, `base` and the `before` texts.
 pub const MAX_TEXT_LINES: usize = 16;
 /// Longest title of an exercise, in characters.
 pub const MAX_TITLE: usize = 40;
@@ -110,6 +110,9 @@ pub struct Exercise {
     /// The texts the buffer had before `start`, oldest first: they become its undo history, so
     /// that `u` goes back through them (see `session::start_index`). No selection markup.
     pub before: Vec<String>,
+    /// The diff base of the buffer, as if it were the file's version in HEAD: the git gutter and
+    /// the diff view (`<space>=`) show the changes from it. No selection markup.
+    pub base: Option<String>,
     /// A solution that uses the feature that is taught, in the notation of macros (`wd<esc>`).
     pub teach: String,
     /// The shortest known solution, strictly shorter than `teach`.
@@ -136,6 +139,7 @@ struct RawExercise {
     lesson: String,
     #[serde(default)]
     before: Vec<String>,
+    base: Option<String>,
     start: String,
     goal: String,
     language: Option<String>,
@@ -211,6 +215,7 @@ impl Exercise {
             feature: String::new(),
             lesson: String::new(),
             before: Vec::new(),
+            base: None,
             start: String::new(),
             goal: String::new(),
             language: None,
@@ -234,6 +239,7 @@ impl Exercise {
             feature: raw.feature,
             lesson: raw.lesson,
             before: raw.before,
+            base: raw.base,
             start: raw.start,
             goal: raw.goal,
             language: raw.language,
@@ -736,6 +742,22 @@ pub fn validate(exercises: &[Exercise], dir: &Path, loader: &syntax::Loader) -> 
             if text.contains("#[") || text.contains("#(") {
                 problems.push(format!(
                     "{id}: {what} has `#[` or `#(`, before texts have no selection markup"
+                ));
+            }
+        }
+
+        if let Some(base) = &exercise.base {
+            check_lines(
+                &mut problems,
+                id,
+                "base",
+                base,
+                MAX_TEXT_LINES,
+                MAX_TEXT_LINE,
+            );
+            if base.contains("#[") || base.contains("#(") {
+                problems.push(format!(
+                    "{id}: base has `#[` or `#(`, the base has no selection markup"
                 ));
             }
         }

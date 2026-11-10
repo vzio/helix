@@ -1,20 +1,28 @@
-//! A read-only, side by side diff between the HEAD version of a file (left) and its current
-//! contents (right). Changed lines are aligned, with filler rows where one side has no line.
+//! A side by side diff between the HEAD version of a file (left) and its current contents
+//! (right). Changed lines are aligned, with filler rows where one side has no line.
+//!
+//! The text is read-only, but a diff of the working tree can stage, unstage and revert its hunks
+//! (see `commands/hunks.rs`), and the diffs opened from a list of files (the uncommitted changes,
+//! a commit, a range) go on to the next file with `n`/`N`.
 
 use std::ops::Range;
 use std::path::{Path, PathBuf};
+use std::rc::Rc;
 
 use helix_core::syntax::{self, HighlightEvent};
 use helix_core::unicode::width::UnicodeWidthChar;
 use helix_core::{RopeSlice, Selection, Syntax};
+use helix_vcs::staging::{self, HunkState, LineHunk};
+use helix_vcs::FileChange;
 use helix_view::editor::Action;
 use helix_view::graphics::{Color, CursorKind, Modifier, Rect, Style};
 use helix_view::input::{Event, KeyEvent, MouseEventKind};
 use helix_view::keyboard::{KeyCode, KeyModifiers};
-use helix_view::{align_view, current, Align, Editor, Theme};
+use helix_view::{align_view, current, Align, DocumentId, Editor, Theme};
 use imara_diff::{Algorithm, Diff, InternedInput};
 use tui::buffer::Buffer as Surface;
 
+use crate::commands::hunks;
 use crate::compositor::{Component, Compositor, Context, EventResult};
 use crate::live::Live;
 
@@ -101,6 +109,13 @@ fn widest(left: &Side, right: &Side, tab_width: usize) -> usize {
         .unwrap_or(0)
 }
 
+/// `path` relative to the working directory, for messages.
+fn relative(path: &Path) -> String {
+    helix_stdx::path::get_relative_path(path)
+        .display()
+        .to_string()
+}
+
 /// Splits `text` like imara-diff's line tokenizer does, returning each line without its ending.
 fn line_ranges(text: &str) -> Vec<Range<usize>> {
     let mut start = 0;
@@ -115,18 +130,17 @@ fn line_ranges(text: &str) -> Vec<Range<usize>> {
         .collect()
 }
 
-/// Aligns the lines of `before` and `after`, returning the rows and the first row of each hunk.
-fn build_rows(before: &str, after: &str) -> (Vec<Row>, Vec<usize>) {
+/// Aligns the lines of `before` and `after`, returning the rows, the first row of each hunk and
+/// the lines of each hunk (the hunks the staging functions of `helix_vcs` work with).
+fn build_rows(before: &str, after: &str) -> (Vec<Row>, Vec<usize>, Vec<LineHunk>) {
     let before_lines = line_ranges(before);
     let after_lines = line_ranges(after);
-    let input = InternedInput::new(before, after);
-    let mut diff = Diff::compute(Algorithm::Histogram, &input);
-    diff.postprocess_lines(&input);
+    let line_hunks = staging::line_hunks(before, after);
 
     let mut rows = Vec::new();
     let mut hunks = Vec::new();
     let (mut b, mut a) = (0, 0);
-    for hunk in diff.hunks() {
+    for hunk in &line_hunks {
         let (before_start, before_end) = (hunk.before.start as usize, hunk.before.end as usize);
         let (after_start, after_end) = (hunk.after.start as usize, hunk.after.end as usize);
         while b < before_start && a < after_start {
@@ -169,7 +183,7 @@ fn build_rows(before: &str, after: &str) -> (Vec<Row>, Vec<usize>) {
         b += 1;
         a += 1;
     }
-    (rows, hunks)
+    (rows, hunks, line_hunks)
 }
 
 /// Splits a line into words, runs of whitespace and single punctuation characters.
@@ -331,6 +345,13 @@ struct Palette {
     /// Line, word and sign styles for removed lines (left) and added lines (right).
     minus: ChangeStyle,
     plus: ChangeStyle,
+    /// The same, quieter, for the hunks that are staged.
+    minus_staged: ChangeStyle,
+    plus_staged: ChangeStyle,
+    /// The marks on the separator next to staged and partly staged hunks.
+    staged: Style,
+    partly_staged: Style,
+    warning: Style,
 }
 
 struct ChangeStyle {
@@ -340,12 +361,13 @@ struct ChangeStyle {
 }
 
 impl ChangeStyle {
-    fn new(theme: &Theme, scope: &str, background: Option<Color>) -> ChangeStyle {
+    /// `alpha` is how much of the color of the change the background of a line takes.
+    fn new(theme: &Theme, scope: &str, background: Option<Color>, alpha: f32) -> ChangeStyle {
         let color = theme.get(scope).fg;
         let sign = Style::default().fg(color.unwrap_or(Color::Reset));
         match (
-            blend(background, color, 0.15),
-            blend(background, color, 0.4),
+            blend(background, color, alpha),
+            blend(background, color, alpha * 8.0 / 3.0),
         ) {
             (Some(line), Some(word)) => ChangeStyle {
                 line: Style::default().bg(line),
@@ -373,23 +395,98 @@ impl Palette {
             separator: theme.get("ui.window"),
             title: theme.get("ui.statusline").add_modifier(Modifier::BOLD),
             hint: theme.get("ui.statusline.inactive"),
-            minus: ChangeStyle::new(theme, "diff.minus", background.bg),
-            plus: ChangeStyle::new(theme, "diff.plus", background.bg),
+            minus: ChangeStyle::new(theme, "diff.minus", background.bg, 0.15),
+            plus: ChangeStyle::new(theme, "diff.plus", background.bg, 0.15),
+            minus_staged: ChangeStyle::new(theme, "diff.minus", background.bg, 0.06),
+            plus_staged: ChangeStyle::new(theme, "diff.plus", background.bg, 0.06),
+            staged: Style::default()
+                .fg(theme.get("diff.plus").fg.unwrap_or(Color::Reset))
+                .add_modifier(Modifier::BOLD),
+            partly_staged: Style::default()
+                .fg(theme.get("diff.delta").fg.unwrap_or(Color::Reset))
+                .add_modifier(Modifier::BOLD),
+            warning: theme.get("warning"),
         }
     }
 }
 
 type OnOpen = Box<dyn FnOnce(&mut Compositor)>;
 
-/// Builds both sides again for a live diff, see [`DiffView::with_live`]: the left side, the right
-/// side and the file Enter opens.
-pub type Rebuild = Box<dyn FnMut(&Editor) -> anyhow::Result<(Side, Side, Option<PathBuf>)>>;
+/// Both sides of a diff, built again after a change (see [`DiffView::with_rebuild`]).
+pub struct Snapshot {
+    pub left: Side,
+    pub right: Side,
+    /// The file Enter opens, if it exists.
+    pub path: Option<PathBuf>,
+    /// The index side of the file, for a diff that can stage.
+    pub staging: Option<Staging>,
+}
+
+/// Builds the sides of the diff again, after the working tree changed or a hunk action.
+pub type Rebuild = Box<dyn FnMut(&Editor) -> anyhow::Result<Snapshot>>;
+
+/// What the hunk actions of a diff act on: the right side is the working tree (or a buffer).
+pub struct Actions {
+    pub target: Target,
+    /// For a file of a git working tree, what staging needs. Without it there is no staging, and
+    /// reverting goes back to the left side.
+    pub staging: Option<Staging>,
+}
+
+/// What the right side of a diff that can be edited shows.
+pub enum Target {
+    /// A file of the working tree, or its buffer when it is open.
+    File(PathBuf),
+    /// A buffer without a file, diffed against its diff base (the `:practice` buffers).
+    Buffer(DocumentId),
+}
+
+/// The git side of an uncommitted file.
+#[derive(Clone)]
+pub struct Staging {
+    pub change: FileChange,
+    /// Its version in the index, `None` when it isn't in the index (untracked).
+    pub index: Option<String>,
+    /// Whether HEAD has it (at its old path, for a rename).
+    pub in_head: bool,
+}
+
+/// The files of an entry, see [`FileNav::files`].
+pub type ListFiles = Rc<dyn Fn() -> Vec<(FileChange, bool)>>;
+/// Builds the diff of another file of the entry, see [`FileNav::open`].
+pub type OpenFile = Rc<dyn Fn(&mut Editor, &FileChange) -> anyhow::Result<DiffView>>;
+/// Puts the cursor of the list on a file, see [`FileNav::select`].
+pub type SelectFile = Rc<dyn Fn(&mut Compositor, &FileChange)>;
+
+/// The other files of the entry a diff was opened from (the uncommitted changes, a commit or a
+/// range), for `n`/`N` to go on to the next or previous file's hunks.
+pub struct FileNav {
+    /// The files of the entry in the order of its list, each with whether `n`/`N` skip it
+    /// (lockfiles). Called when needed: the uncommitted changes follow the working tree.
+    pub files: ListFiles,
+    /// The file shown.
+    pub current: FileChange,
+    /// The diff of another file of the entry.
+    pub open: OpenFile,
+    /// Puts the cursor of the list on a file, when `n`/`N` go to it.
+    pub select: SelectFile,
+}
+
+/// A question the next key answers.
+enum Confirm {
+    /// Deleting an untracked file: git can't bring it back.
+    Delete(PathBuf),
+}
 
 pub struct DiffView {
     left: Side,
     right: Side,
     rows: Vec<Row>,
     hunks: Vec<usize>,
+    /// The lines of each hunk, in the same order as `hunks`.
+    line_hunks: Vec<LineHunk>,
+    /// Whether each hunk is staged, for a diff that can stage; empty otherwise.
+    states: Vec<HunkState>,
     /// File to open with Enter, if it still exists.
     path: Option<PathBuf>,
     /// Run when Enter opens the file, to close what the view was opened from.
@@ -416,13 +513,19 @@ pub struct DiffView {
     /// Index of the current hunk in `hunks`. Tracked explicitly because several hunks can map
     /// to the same scroll position (near the top or bottom, or when everything fits on screen).
     current: usize,
-    /// Rebuilds the diff when the working tree changes.
-    live: Option<(Live, Rebuild)>,
+    /// Builds the sides again, after a hunk action or when `live` sees the working tree change.
+    rebuild: Option<Rebuild>,
+    live: Option<Live>,
+    /// Stage, unstage and revert.
+    actions: Option<Actions>,
+    /// The other files of the entry, for `n`/`N`.
+    nav: Option<FileNav>,
+    confirm: Option<Confirm>,
 }
 
 impl DiffView {
     pub fn new(left: Side, right: Side, path: Option<PathBuf>, tab_width: usize) -> DiffView {
-        let (rows, hunks) = build_rows(&left.text, &right.text);
+        let (rows, hunks, line_hunks) = build_rows(&left.text, &right.text);
         let scroll = hunks
             .first()
             .map_or(0, |hunk| hunk.saturating_sub(HUNK_CONTEXT));
@@ -433,6 +536,8 @@ impl DiffView {
             right,
             rows,
             hunks,
+            line_hunks,
+            states: Vec::new(),
             path,
             on_open: None,
             tab_width,
@@ -446,32 +551,71 @@ impl DiffView {
             visible: 0,
             pending: None,
             current: 0,
+            rebuild: None,
             live: None,
+            actions: None,
+            nav: None,
+            confirm: None,
         }
     }
 
-    /// Rebuilds the diff with `rebuild` whenever `live` sees the working tree change, keeping the
-    /// lines on screen where they were. A diff that has no changes left stays open, empty.
-    pub fn with_live(
+    /// Builds the sides again with `rebuild` after a hunk action.
+    pub fn with_rebuild(
         mut self,
-        live: Live,
-        rebuild: impl FnMut(&Editor) -> anyhow::Result<(Side, Side, Option<PathBuf>)> + 'static,
+        rebuild: impl FnMut(&Editor) -> anyhow::Result<Snapshot> + 'static,
     ) -> DiffView {
-        self.live = Some((live, Box::new(rebuild)));
+        self.rebuild = Some(Box::new(rebuild));
         self
     }
 
-    /// Rebuilds a live diff if the working tree changed. An error (the file became binary...)
-    /// keeps the diff as it was.
+    /// Builds the sides again whenever `live` sees the working tree change, keeping the lines on
+    /// screen where they were. A diff that has no changes left stays open, empty. Needs
+    /// [`DiffView::with_rebuild`].
+    pub fn with_live(mut self, live: Live) -> DiffView {
+        self.live = Some(live);
+        self
+    }
+
+    /// Enables the hunk actions: revert, and stage and unstage with `actions.staging`.
+    pub fn with_actions(mut self, actions: Actions) -> DiffView {
+        self.actions = Some(actions);
+        self.update_states();
+        self
+    }
+
+    /// Lets `n`/`N` go on to the other files of the entry.
+    pub fn with_nav(mut self, nav: FileNav) -> DiffView {
+        self.nav = Some(nav);
+        self
+    }
+
+    /// Whether each hunk is staged, from the index version of the file.
+    fn update_states(&mut self) {
+        self.states = match self.actions.as_ref().and_then(|a| a.staging.as_ref()) {
+            Some(staging) => staging::hunk_states(
+                &self.left.text,
+                staging.index.as_deref().unwrap_or(""),
+                &self.right.text,
+                &self.line_hunks,
+            ),
+            None => Vec::new(),
+        };
+    }
+
+    /// Rebuilds a live diff if the working tree changed.
     fn refresh(&mut self, editor: &Editor) {
-        let Some((live, rebuild)) = &mut self.live else {
+        if self.live.as_mut().is_some_and(Live::changed) {
+            self.reload(editor);
+        }
+    }
+
+    /// Builds the sides again. An error (the file became binary...) keeps the diff as it was.
+    fn reload(&mut self, editor: &Editor) {
+        let Some(rebuild) = &mut self.rebuild else {
             return;
         };
-        if !live.changed() {
-            return;
-        }
         match rebuild(editor) {
-            Ok((left, right, path)) => self.replace_sides(left, right, path),
+            Ok(snapshot) => self.replace_sides(snapshot),
             Err(err) => log::debug!("diff view: {err}"),
         }
     }
@@ -479,12 +623,30 @@ impl DiffView {
     /// Shows new versions of both sides. The line at the top of the screen stays there (the same
     /// line number of the right side, or of the left side on a row without a right line), so
     /// does the horizontal scroll, and the current hunk is the one closest to it.
-    fn replace_sides(&mut self, left: Side, right: Side, path: Option<PathBuf>) {
+    fn replace_sides(&mut self, snapshot: Snapshot) {
+        let Snapshot {
+            left,
+            right,
+            path,
+            staging,
+        } = snapshot;
         let top = self.rows.get(self.scroll).map(|row| (row.left, row.right));
-        let (rows, hunks) = build_rows(&left.text, &right.text);
+        let (rows, hunks, line_hunks) = build_rows(&left.text, &right.text);
         self.widest = widest(&left, &right, self.tab_width);
-        (self.left, self.right, self.rows, self.hunks, self.path) =
-            (left, right, rows, hunks, path);
+        (
+            self.left,
+            self.right,
+            self.rows,
+            self.hunks,
+            self.line_hunks,
+            self.path,
+        ) = (left, right, rows, hunks, line_hunks, path);
+        if let Some(actions) = &mut self.actions {
+            if staging.is_some() {
+                actions.staging = staging;
+            }
+        }
+        self.update_states();
         let scroll = top
             .and_then(|(left, right)| match right {
                 Some(right) => self.rows.iter().position(|row| row.right == Some(right)),
@@ -613,15 +775,188 @@ impl DiffView {
         };
     }
 
-    fn jump_to_hunk(&mut self, next: bool) {
-        self.current = if next {
-            (self.current + 1).min(self.hunks.len().saturating_sub(1))
-        } else {
-            self.current.saturating_sub(1)
-        };
+    /// Makes hunk `index` the current one, and scrolls to it.
+    fn go_to_hunk(&mut self, index: usize) {
+        self.current = index.min(self.hunks.len().saturating_sub(1));
         if let Some(&hunk) = self.hunks.get(self.current) {
             self.set_position(hunk.saturating_sub(HUNK_CONTEXT), 0);
         }
+    }
+
+    /// `n`/`N`: the next or previous hunk. Past the last or first one, the first hunk of the next
+    /// file of the entry or the last hunk of the previous one, around the ends of the entry.
+    fn step_hunk(&mut self, forward: bool, editor: &mut Editor) -> EventResult {
+        let last = self.hunks.len().saturating_sub(1);
+        let inside = !self.hunks.is_empty()
+            && if forward {
+                self.current < last
+            } else {
+                self.current > 0
+            };
+        if inside {
+            self.go_to_hunk(if forward {
+                self.current + 1
+            } else {
+                self.current - 1
+            });
+            return EventResult::Consumed(None);
+        }
+        if let Some(result) = self.step_file(forward, editor) {
+            return result;
+        }
+        // no other file with changes: around the ends of this one
+        if !self.hunks.is_empty() {
+            self.go_to_hunk(if forward { 0 } else { last });
+            editor.set_status(if forward {
+                "Wrapped around to the first hunk"
+            } else {
+                "Wrapped around to the last hunk"
+            });
+        }
+        EventResult::Consumed(None)
+    }
+
+    /// Replaces the view with the diff of the next (or previous) file of the entry that has
+    /// changes, at its first (or last) hunk. `None` when there is no other such file.
+    fn step_file(&mut self, forward: bool, editor: &mut Editor) -> Option<EventResult> {
+        let nav = self.nav.as_ref()?;
+        let (list, open) = (nav.files.clone(), nav.open.clone());
+        let files = list();
+        let len = files.len() as isize;
+        if len == 0 {
+            return None;
+        }
+        // the files after (or before) the current one, or after the place it had when it is gone
+        let current = files
+            .iter()
+            .position(|(change, _)| change.path() == nav.current.path());
+        let (start, count) = match current {
+            Some(pos) => (pos as isize + if forward { 1 } else { -1 }, len - 1),
+            None => {
+                let pos = files
+                    .iter()
+                    .position(|(change, _)| change.path() > nav.current.path())
+                    .unwrap_or(files.len()) as isize;
+                (if forward { pos } else { pos - 1 }, len)
+            }
+        };
+        for step in 0..count {
+            let raw = if forward { start + step } else { start - step };
+            let (change, skip) = &files[raw.rem_euclid(len) as usize];
+            if *skip {
+                continue;
+            }
+            let Ok(mut view) = open(editor, change) else {
+                continue;
+            };
+            if !view.has_changes() {
+                continue;
+            }
+            let mut nav = self.nav.take()?;
+            nav.current = change.clone();
+            let select = nav.select.clone();
+            view.nav = Some(nav);
+            (view.height, view.visible, view.text_widths) =
+                (self.height, self.visible, self.text_widths);
+            view.go_to_hunk(if forward { 0 } else { usize::MAX });
+            *self = view;
+            if raw < 0 || raw >= len {
+                editor.set_status(if forward {
+                    "Wrapped around to the first file"
+                } else {
+                    "Wrapped around to the last file"
+                });
+            }
+            let change = change.clone();
+            return Some(EventResult::Consumed(Some(Box::new(
+                move |compositor: &mut Compositor, _: &mut Context| select(compositor, &change),
+            ))));
+        }
+        None
+    }
+
+    /// Runs a hunk action on the current hunk, or on the whole file, then shows the result.
+    fn act(&mut self, op: hunks::Op, whole_file: bool, editor: &mut Editor) {
+        let Some(actions) = &self.actions else {
+            return;
+        };
+        if op != hunks::Op::Revert && actions.staging.is_none() {
+            editor.set_status("Only the files of a git working tree can be staged");
+            return;
+        }
+        let scope = if whole_file {
+            hunks::Scope::File
+        } else {
+            match self.line_hunks.get(self.current) {
+                Some(hunk) => hunks::Scope::Hunk(hunk.clone()),
+                None => {
+                    editor.set_status("No changes");
+                    return;
+                }
+            }
+        };
+        match hunks::run(
+            editor,
+            actions,
+            &self.left.text,
+            &self.right.text,
+            op,
+            scope,
+        ) {
+            Ok(hunks::Outcome::Done(message)) => editor.set_status(message),
+            Ok(hunks::Outcome::ConfirmDelete(path)) => {
+                editor.set_warning(format!(
+                    "Delete untracked {}? git can't bring it back. y deletes it, any other key keeps it",
+                    relative(&path)
+                ));
+                self.confirm = Some(Confirm::Delete(path));
+            }
+            Err(err) => editor.set_error(err.to_string()),
+        }
+        self.reload(editor);
+    }
+
+    /// The answer to `confirm`.
+    fn answer(&mut self, confirm: Confirm, key: &KeyEvent, editor: &mut Editor) -> EventResult {
+        let Confirm::Delete(path) = confirm;
+        if key.code != KeyCode::Char('y') || !key.modifiers.is_empty() {
+            editor.set_status(format!("Kept {}", relative(&path)));
+            return EventResult::Consumed(None);
+        }
+        match hunks::delete_untracked(editor, &path) {
+            // nothing left to show
+            Ok(message) => {
+                editor.set_status(message);
+                Self::close()
+            }
+            Err(err) => {
+                editor.set_error(err.to_string());
+                EventResult::Consumed(None)
+            }
+        }
+    }
+
+    /// The hunk `row` is part of.
+    fn hunk_of_row(&self, row: usize) -> Option<usize> {
+        let hunk = self
+            .hunks
+            .partition_point(|&start| start <= row)
+            .checked_sub(1)?;
+        (self.rows.get(row)?.kind != RowKind::Equal).then_some(hunk)
+    }
+
+    /// The number of the file among the files of the entry `n`/`N` go through, and how many there
+    /// are.
+    fn file_position(&self) -> Option<(usize, usize)> {
+        let nav = self.nav.as_ref()?;
+        let files: Vec<_> = (nav.files)()
+            .into_iter()
+            .filter(|(_, skip)| !skip)
+            .collect();
+        let index = files
+            .iter()
+            .position(|(change, _)| change.path() == nav.current.path())?;
+        Some((index + 1, files.len()))
     }
 
     /// Rows of the current hunk.
@@ -674,13 +1009,17 @@ impl DiffView {
         })))
     }
 
-    fn handle_key(&mut self, key: &KeyEvent) -> EventResult {
+    fn handle_key(&mut self, key: &KeyEvent, editor: &mut Editor) -> EventResult {
         let half_page = (self.height / 2).max(1) as isize;
         let page = self.height.max(1) as isize;
 
+        if let Some(confirm) = self.confirm.take() {
+            return self.answer(confirm, key, editor);
+        }
+
         if let Some(prefix) = self.pending.take() {
             match (prefix, key.code) {
-                (']' | '[', KeyCode::Char('c')) => self.jump_to_hunk(prefix == ']'),
+                (']' | '[', KeyCode::Char('c')) => return self.step_hunk(prefix == ']', editor),
                 ('g', KeyCode::Char('g')) => self.scroll_to(0),
                 ('g', KeyCode::Char('e')) => self.scroll_to(usize::MAX),
                 ('g', KeyCode::Char('h')) => self.hscroll = 0,
@@ -705,8 +1044,14 @@ impl DiffView {
             KeyCode::PageUp => self.scroll_by(-page),
             KeyCode::Home => self.scroll_to(0),
             KeyCode::Char('G') | KeyCode::End => self.scroll_to(usize::MAX),
-            KeyCode::Char('n') => self.jump_to_hunk(true),
-            KeyCode::Char('N') => self.jump_to_hunk(false),
+            KeyCode::Char('n') => return self.step_hunk(true, editor),
+            KeyCode::Char('N') => return self.step_hunk(false, editor),
+            KeyCode::Char('s') => self.act(hunks::Op::Stage, false, editor),
+            KeyCode::Char('S') => self.act(hunks::Op::Stage, true, editor),
+            KeyCode::Char('u') => self.act(hunks::Op::Unstage, false, editor),
+            KeyCode::Char('U') => self.act(hunks::Op::Unstage, true, editor),
+            KeyCode::Char('r') => self.act(hunks::Op::Revert, false, editor),
+            KeyCode::Char('R') => self.act(hunks::Op::Revert, true, editor),
             KeyCode::Char(c @ (']' | '[' | 'g')) => self.pending = Some(c),
             KeyCode::Char('h') | KeyCode::Left => self.hscroll = self.hscroll.saturating_sub(4),
             KeyCode::Char('l') | KeyCode::Right => {
@@ -737,6 +1082,7 @@ impl DiffView {
         words: &[Range<usize>],
         is_left: bool,
         is_current: bool,
+        staged: bool,
         number_width: usize,
         palette: &Palette,
     ) {
@@ -748,10 +1094,12 @@ impl DiffView {
             return;
         };
 
-        let change = match (kind, is_left) {
-            (RowKind::Equal, _) => None,
-            (_, true) => Some(&palette.minus),
-            (_, false) => Some(&palette.plus),
+        let change = match (kind, is_left, staged) {
+            (RowKind::Equal, _, _) => None,
+            (_, true, false) => Some(&palette.minus),
+            (_, false, false) => Some(&palette.plus),
+            (_, true, true) => Some(&palette.minus_staged),
+            (_, false, true) => Some(&palette.plus_staged),
         };
         let line_style = change.map_or(Style::default(), |change| change.line);
         surface.set_style(Rect::new(area.x, y, area.width, height), line_style);
@@ -883,9 +1231,9 @@ fn layout(
 }
 
 impl Component for DiffView {
-    fn handle_event(&mut self, event: &Event, _cx: &mut Context) -> EventResult {
+    fn handle_event(&mut self, event: &Event, cx: &mut Context) -> EventResult {
         match event {
-            Event::Key(key) => self.handle_key(key),
+            Event::Key(key) => self.handle_key(key, cx.editor),
             Event::Mouse(mouse) => {
                 match mouse.kind {
                     MouseEventKind::ScrollDown => self.scroll_by(3),
@@ -903,13 +1251,25 @@ impl Component for DiffView {
 
     fn render(&mut self, area: Rect, surface: &mut Surface, cx: &mut Context) {
         self.refresh(cx.editor);
+        // the last line stays the editor's, for its messages (what an action did...)
+        let area = area.clip_bottom(1);
         let palette = Palette::new(&cx.editor.theme);
         surface.clear_with(area, palette.background);
         if area.height < 3 || area.width < 10 {
             return;
         }
 
-        let body = Rect::new(area.x, area.y + 1, area.width, area.height - 2);
+        // the keys of the hunk actions get a line of their own
+        let footer_height = if self.actions.is_some() { 2 } else { 1 };
+        if area.height < 2 + footer_height {
+            return;
+        }
+        let body = Rect::new(
+            area.x,
+            area.y + 1,
+            area.width,
+            area.height - 1 - footer_height,
+        );
 
         let half = (area.width - 1) / 2;
         let left_area = Rect::new(area.x, body.y, half, body.height);
@@ -963,6 +1323,18 @@ impl Component for DiffView {
             let skip = if i == 0 { self.offset } else { 0 };
             let height = (self.row_height(row) - skip).min((body.bottom() - y) as usize) as u16;
             let is_current = current_rows.contains(&(self.scroll + i));
+            let state = self
+                .hunk_of_row(self.scroll + i)
+                .and_then(|hunk| self.states.get(hunk).copied());
+            let staged = state == Some(HunkState::Staged);
+            let (mark, mark_style) = match state {
+                Some(HunkState::Staged) => ("┃", palette.staged),
+                Some(HunkState::PartlyStaged) => ("╏", palette.partly_staged),
+                _ => ("│", palette.separator),
+            };
+            for y in y..y + height {
+                surface.set_stringn(separator_x, y, mark, 1, mark_style);
+            }
             self.render_cell(
                 surface,
                 left_area,
@@ -975,6 +1347,7 @@ impl Component for DiffView {
                 &row.left_words,
                 true,
                 is_current,
+                staged,
                 number_width,
                 &palette,
             );
@@ -990,6 +1363,7 @@ impl Component for DiffView {
                 &row.right_words,
                 false,
                 is_current,
+                staged,
                 number_width,
                 &palette,
             );
@@ -997,21 +1371,62 @@ impl Component for DiffView {
             visible += 1;
         }
         self.visible = visible.max(1);
-        for y in body.y..body.bottom() {
+        for y in y..body.bottom() {
             surface.set_stringn(separator_x, y, "│", 1, palette.separator);
         }
 
         // footer with the position and the keys
-        let footer_y = area.bottom() - 1;
-        surface.set_style(Rect::new(area.x, footer_y, area.width, 1), palette.hint);
-        let position = match self.hunks.len() {
+        let footer_y = area.bottom() - footer_height;
+        surface.set_style(
+            Rect::new(area.x, footer_y, area.width, footer_height),
+            palette.hint,
+        );
+        let mut position = match self.hunks.len() {
             0 => "no changes".to_string(),
             hunks => format!("hunk {}/{hunks}", self.current + 1),
         };
-        let footer = format!(
-            " {position} · n/N or ]c/[c next/prev hunk · j/k scroll · h/l pan · w wrap · enter open at hunk · q close",
-        );
-        surface.set_stringn(area.x, footer_y, &footer, area.width as usize, palette.hint);
+        match self.states.get(self.current) {
+            Some(HunkState::Staged) => position.push_str(" staged"),
+            Some(HunkState::PartlyStaged) => position.push_str(" partly staged"),
+            _ => {}
+        }
+        if let Some((file, files)) = self.file_position() {
+            position.push_str(&format!(" · file {file}/{files}"));
+        }
+        let navigation =
+            "n/N next/prev hunk · j/k scroll · h/l pan · w wrap · enter open at hunk · q close";
+        let lines = match &self.actions {
+            None => vec![(format!(" {position} · {navigation}"), palette.hint)],
+            Some(actions) => {
+                let first = match &self.confirm {
+                    Some(Confirm::Delete(path)) => (
+                        format!(
+                            " Delete untracked {}? y deletes it, any other key keeps it",
+                            relative(path)
+                        ),
+                        palette.hint.patch(palette.warning),
+                    ),
+                    None if actions.staging.is_some() => (
+                        format!(" {position} · s/u/r stage/unstage/revert hunk · S/U/R the file"),
+                        palette.hint,
+                    ),
+                    None => (
+                        format!(" {position} · r revert hunk · R the file"),
+                        palette.hint,
+                    ),
+                };
+                vec![first, (format!(" {navigation}"), palette.hint)]
+            }
+        };
+        for (i, (line, style)) in lines.iter().enumerate() {
+            surface.set_stringn(
+                area.x,
+                footer_y + i as u16,
+                line,
+                area.width as usize,
+                *style,
+            );
+        }
     }
 
     fn cursor(&self, _area: Rect, _editor: &Editor) -> (Option<helix_core::Position>, CursorKind) {
@@ -1113,7 +1528,7 @@ mod test {
         use RowKind::*;
         let before = "fn main() {\n    let x = 1;\n    println!(x);\n}\n";
         let after = "fn main() {\n    let x = 2;\n    let y = 3;\n    println!(x);\n}\n";
-        let (rows, hunks) = build_rows(before, after);
+        let (rows, hunks, _) = build_rows(before, after);
         assert_eq!(
             kinds(&rows),
             [
@@ -1132,7 +1547,7 @@ mod test {
 
     #[test]
     fn handles_new_and_deleted_files() {
-        let (rows, hunks) = build_rows("", "a\nb\n");
+        let (rows, hunks, _) = build_rows("", "a\nb\n");
         assert_eq!(
             kinds(&rows),
             [
@@ -1142,10 +1557,10 @@ mod test {
         );
         assert_eq!(hunks, [0]);
 
-        let (rows, _) = build_rows("a\n", "");
+        let (rows, _, _) = build_rows("a\n", "");
         assert_eq!(kinds(&rows), [(RowKind::Removed, Some(0), None)]);
 
-        let (rows, hunks) = build_rows("same\n", "same\n");
+        let (rows, hunks, _) = build_rows("same\n", "same\n");
         assert_eq!(kinds(&rows), [(RowKind::Equal, Some(0), Some(0))]);
         assert!(hunks.is_empty());
     }

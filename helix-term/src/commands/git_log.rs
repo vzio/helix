@@ -670,10 +670,12 @@ fn commit_files_picker(
     });
 
     let picker_cwd = cwd.clone();
+    let files = Arc::new(changes::nav_files(&rows));
     let show_diff = move |cx: &mut compositor::Context, change: &FileChange| {
         let cwd = cwd.clone();
         let range = range.clone();
         let change = change.clone();
+        let files = files.clone();
         cx.jobs.callback(async move {
             let call = move |editor: &mut Editor, compositor: &mut Compositor| {
                 if let Err(err) = diff_view::open_commit(
@@ -683,6 +685,8 @@ fn commit_files_picker(
                     &range.oldest,
                     &range.newest,
                     &change,
+                    std::rc::Rc::new(move || files.as_ref().clone()),
+                    std::rc::Rc::new(changes::select_in_commit_files),
                 ) {
                     editor.set_error(err.to_string());
                 }

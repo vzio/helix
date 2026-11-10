@@ -68,6 +68,7 @@ const text = await readFile(path, "utf8");
 '''
 # language = "rust"                     # optional language id, for tree-sitter features and indentation
 # before = ["older text"]               # optional: texts the buffer had before `start` (its undo history)
+# base = '''...'''                       # optional: the diff base, as if it were the file in HEAD (`<space>=`, the gutter)
 hints = [
   "Every line is missing the same thing at its very end.",
   "`A` jumps to the end of the line and starts insert mode, from anywhere in the line.",
