@@ -1,132 +1,169 @@
 use std::path::{Path, PathBuf};
+use std::rc::Rc;
 
 use vortex_vcs::{CommitInfo, FileChange};
-use vortex_view::Editor;
+use vortex_view::{DocumentId, Editor};
 
 use crate::compositor::Compositor;
 use crate::live::Live;
-use crate::ui::diff_view::{DiffView, Side};
+use crate::ui::diff_view::{
+    Actions, DiffView, FileNav, ListFiles, SelectFile, Side, Snapshot, Staging, Target,
+};
 use crate::ui::picker;
 
-/// The two sides of the diff between the HEAD version of `base_path` and the current contents
-/// of `path` (they only differ for renamed files), the file to open from the diff, and the tab
-/// width to show it with.
-fn head_sides(
-    editor: &Editor,
-    base_path: &Path,
-    path: &Path,
-) -> anyhow::Result<(Side, Side, Option<PathBuf>, usize)> {
-    let relative = |path: &Path| {
-        vortex_stdx::path::get_relative_path(path)
-            .display()
-            .to_string()
-    };
-
+/// Whether the git configuration of the repository `path` is in can be trusted.
+fn trust_full(editor: &Editor, path: &Path) -> bool {
     let workspace = vortex_loader::find_workspace_in(path.parent().unwrap_or(path)).0;
-    let trust_full = editor
+    editor
         .workspace_trust
         .query(&workspace, vortex_loader::workspace_trust::TrustQuery::Git)
-        .is_trusted();
-    let base = editor.diff_providers.get_diff_base(base_path, trust_full);
+        .is_trusted()
+}
+
+fn relative(path: &Path) -> String {
+    vortex_stdx::path::get_relative_path(path)
+        .display()
+        .to_string()
+}
+
+/// The diff between the HEAD version of a changed file (its old path, for a rename) and its
+/// current contents, with the index version for staging (`None` outside of a git working
+/// tree), and the tab width to show it with.
+fn head_snapshot(editor: &Editor, change: &FileChange) -> anyhow::Result<(Snapshot, usize)> {
+    let (base_path, path) = paths_of(change);
+    let trust_full = trust_full(editor, &path);
+    // once a rename is committed, the new path is the one in HEAD
+    let base_path = if base_path != path
+        && editor
+            .diff_providers
+            .get_diff_base(&path, trust_full)
+            .is_some()
+    {
+        path.clone()
+    } else {
+        base_path
+    };
+    let base = editor.diff_providers.get_diff_base(&base_path, trust_full);
     let left_title = match &base {
-        Some(_) => format!("HEAD: {}", relative(base_path)),
+        Some(_) => format!("HEAD: {}", relative(&base_path)),
         None => "HEAD: (new file)".to_string(),
     };
+    let in_head = base.is_some();
     let base = String::from_utf8(base.unwrap_or_default())
-        .map_err(|_| anyhow::anyhow!("{} is a binary file", relative(base_path)))?;
+        .map_err(|_| anyhow::anyhow!("{} is a binary file", relative(&base_path)))?;
 
     // an open buffer may have unsaved changes: show those
-    let (current, right_title, tab_width, exists) = match editor.document_by_path(path) {
+    let (current, right_title, tab_width, exists) = match editor.document_by_path(&path) {
         Some(doc) => {
             let modified = if doc.is_modified() { " [modified]" } else { "" };
             (
                 doc.text().to_string(),
-                format!("Buffer: {}{modified}", relative(path)),
+                format!("Buffer: {}{modified}", relative(&path)),
                 doc.tab_width(),
                 true,
             )
         }
-        None => match std::fs::read(path) {
+        None => match std::fs::read(&path) {
             Ok(bytes) => (
                 String::from_utf8(bytes)
-                    .map_err(|_| anyhow::anyhow!("{} is a binary file", relative(path)))?,
-                format!("Working tree: {}", relative(path)),
+                    .map_err(|_| anyhow::anyhow!("{} is a binary file", relative(&path)))?,
+                format!("Working tree: {}", relative(&path)),
                 4,
                 true,
             ),
             Err(err) if err.kind() == std::io::ErrorKind::NotFound => (
                 String::new(),
-                format!("Working tree: {} (deleted)", relative(path)),
+                format!("Working tree: {} (deleted)", relative(&path)),
                 4,
                 false,
             ),
-            Err(err) => anyhow::bail!("failed to read {}: {err}", relative(path)),
+            Err(err) => anyhow::bail!("failed to read {}: {err}", relative(&path)),
         },
     };
 
-    let left = Side::new(left_title, base, base_path, editor);
-    let right = Side::new(right_title, current, path, editor);
-    Ok((left, right, exists.then(|| path.to_path_buf()), tab_width))
+    // no index: not a git working tree, nothing to stage
+    let staging = match editor.diff_providers.index_file(&path, trust_full) {
+        Ok(index) => Some(Staging {
+            change: change.clone(),
+            index: index.map(|bytes| String::from_utf8_lossy(&bytes).into_owned()),
+            in_head,
+        }),
+        Err(err) => {
+            log::debug!("no index for {}: {err}", path.display());
+            None
+        }
+    };
+
+    let snapshot = Snapshot {
+        left: Side::new(left_title, base, &base_path, editor),
+        right: Side::new(right_title, current, &path, editor),
+        path: exists.then(|| path.clone()),
+        staging,
+    };
+    Ok((snapshot, tab_width))
 }
 
-/// A side by side diff between the HEAD version of `base_path` and the current contents of
-/// `path`, or `None` if they are the same.
-fn head_diff(
-    editor: &mut Editor,
-    base_path: &Path,
-    path: &Path,
-) -> anyhow::Result<Option<DiffView>> {
-    let (left, right, open, tab_width) = head_sides(editor, base_path, path)?;
-    let view = DiffView::new(left, right, open, tab_width).with_soft_wrap(soft_wrap(editor, path));
-    if !view.has_changes() {
-        let path = vortex_stdx::path::get_relative_path(path);
-        editor.set_status(format!("No changes in {}", path.display()));
-        return Ok(None);
-    }
-    Ok(Some(view))
+/// The diff of a changed file of the working tree: HEAD against the working tree (or the buffer,
+/// with its unsaved changes). Its hunks can be staged, unstaged and reverted in a git working
+/// tree. It may have no changes.
+fn head_view(editor: &Editor, change: &FileChange) -> anyhow::Result<DiffView> {
+    let (snapshot, tab_width) = head_snapshot(editor, change)?;
+    let path = change.path().to_path_buf();
+    let staging = snapshot.staging.clone();
+    let view = DiffView::new(snapshot.left, snapshot.right, snapshot.path, tab_width)
+        .with_soft_wrap(soft_wrap(editor, &path));
+    let Some(staging) = staging else {
+        return Ok(view);
+    };
+    let change = change.clone();
+    Ok(view
+        .with_actions(Actions {
+            target: Target::File(path),
+            staging: Some(staging),
+        })
+        .with_rebuild(move |editor| Ok(head_snapshot(editor, &change)?.0)))
 }
 
-/// Opens the diff of an uncommitted change on top of the pickers of the commit log: HEAD against
-/// the working tree (or the buffer, with its unsaved changes). With `live`, it follows the
-/// working tree, and stays open when the file has no changes left.
+/// The diff of an uncommitted change, on top of the pickers of the commit log. With `live`, it
+/// follows the working tree, and stays open when the file has no changes left.
+fn uncommitted_view(
+    editor: &Editor,
+    change: &FileChange,
+    live: Option<Live>,
+) -> anyhow::Result<DiffView> {
+    let view = head_view(editor, change)?.with_on_open(|compositor| {
+        // the uncommitted files picker and the commit log below it
+        compositor.remove(picker::ID);
+        compositor.remove(picker::ID);
+    });
+    Ok(match live {
+        Some(live) => view.with_live(live),
+        None => view,
+    })
+}
+
+/// Opens the diff of an uncommitted change on top of the pickers of the commit log, see
+/// [`uncommitted_view`]. `n`/`N` go through the other files of `files`.
 pub(crate) fn open_uncommitted(
     editor: &mut Editor,
     compositor: &mut Compositor,
     change: &FileChange,
     live: Option<Live>,
+    files: ListFiles,
+    select: SelectFile,
 ) {
-    let (base_path, path) = paths_of(change);
-    let view = match head_diff(editor, &base_path, &path) {
-        Ok(Some(view)) => view,
-        Ok(None) => return,
+    let view = match uncommitted_view(editor, change, live.clone()) {
+        Ok(view) if view.has_changes() => view,
+        Ok(_) => return editor.set_status(format!("No changes in {}", relative(change.path()))),
         Err(err) => return editor.set_error(err.to_string()),
     };
-    let view = view.with_on_open(|compositor| {
-        // the uncommitted files picker and the commit log below it
-        compositor.remove(picker::ID);
-        compositor.remove(picker::ID);
-    });
-    let view = match live {
-        Some(live) => view.with_live(live, move |editor| {
-            // once a rename is committed, the new path is the one in HEAD
-            let committed = base_path != path && {
-                let workspace = vortex_loader::find_workspace_in(path.parent().unwrap_or(&path)).0;
-                let trust_full = editor
-                    .workspace_trust
-                    .query(&workspace, vortex_loader::workspace_trust::TrustQuery::Git)
-                    .is_trusted();
-                editor
-                    .diff_providers
-                    .get_diff_base(&path, trust_full)
-                    .is_some()
-            };
-            let base_path = if committed { &path } else { &base_path };
-            let (left, right, open, _) = head_sides(editor, base_path, &path)?;
-            Ok((left, right, open))
-        }),
-        None => view,
+    let nav = FileNav {
+        files,
+        current: change.clone(),
+        open: Rc::new(move |editor, change| uncommitted_view(editor, change, live.clone())),
+        select,
     };
-    compositor.push(Box::new(view));
+    compositor.push(Box::new(view.with_nav(nav)));
 }
 
 /// The HEAD path and the current path to diff for an entry of the changed files picker.
@@ -140,50 +177,100 @@ pub(crate) fn paths_of(change: &FileChange) -> (PathBuf, PathBuf) {
 /// Opens the diff for an entry of the changed files picker, on top of the picker. Opening the
 /// file from the diff closes the picker too.
 pub(crate) fn open_from_picker(cx: &mut crate::compositor::Context, change: &FileChange) {
-    let (base_path, path) = paths_of(change);
+    let change = change.clone();
     cx.jobs.callback(async move {
-        let call = move |editor: &mut Editor, compositor: &mut Compositor| match head_diff(
-            editor, &base_path, &path,
+        let call = move |editor: &mut Editor, compositor: &mut Compositor| match head_view(
+            editor, &change,
         ) {
-            Ok(Some(view)) => compositor.push(Box::new(view.with_on_open(|compositor| {
-                compositor.remove(picker::ID);
-            }))),
-            Ok(None) => {}
+            Ok(view) if view.has_changes() => {
+                compositor.push(Box::new(view.with_on_open(|compositor| {
+                    compositor.remove(picker::ID);
+                })))
+            }
+            Ok(_) => editor.set_status(format!("No changes in {}", relative(change.path()))),
             Err(err) => editor.set_error(err.to_string()),
         };
         Ok(crate::job::Callback::EditorCompositor(Box::new(call)))
     });
 }
 
-/// Opens the diff for the file of the current buffer.
+/// Opens the diff for the file of the current buffer, or, for a buffer without a file, the diff
+/// against its diff base (a `:practice` buffer).
 pub(crate) fn open_current(editor: &mut Editor, compositor: &mut Compositor) {
-    let Some(path) = vortex_view::doc!(editor).path().map(Path::to_path_buf) else {
-        editor.set_error("The current buffer has no file");
-        return;
+    let doc = vortex_view::doc!(editor);
+    let view = match doc.path() {
+        Some(path) => head_view(
+            editor,
+            &FileChange::Modified {
+                path: path.to_path_buf(),
+            },
+        ),
+        None => match doc.diff_handle() {
+            Some(_) => Ok(buffer_view(editor, doc.id())),
+            None => return editor.set_error("The current buffer has no file"),
+        },
     };
-    match head_diff(editor, &path, &path) {
-        Ok(Some(view)) => compositor.push(Box::new(view)),
-        Ok(None) => {}
+    match view {
+        Ok(view) if view.has_changes() => compositor.push(Box::new(view)),
+        Ok(_) => editor.set_status(format!("No changes in {}", doc_name(editor))),
         Err(err) => editor.set_error(err.to_string()),
     }
 }
 
-/// Opens the diff of `change` in the commits from `oldest` to `newest` (the same commit for one):
-/// from the first parent of `oldest` to `newest`. It's on top of the commit pickers, and opening
-/// the file from the diff closes those pickers too.
-pub(crate) fn open_commit(
-    editor: &mut Editor,
-    compositor: &mut Compositor,
+fn doc_name(editor: &Editor) -> String {
+    let doc = vortex_view::doc!(editor);
+    match doc.path() {
+        Some(path) => relative(path),
+        None => doc.display_name().into_owned(),
+    }
+}
+
+/// The sides of the diff of a buffer without a file: its diff base against its text.
+fn buffer_snapshot(editor: &Editor, doc: DocumentId) -> anyhow::Result<Snapshot> {
+    let doc = editor
+        .document(doc)
+        .ok_or_else(|| anyhow::anyhow!("the buffer is closed"))?;
+    let base = doc
+        .diff_handle()
+        .map(|diff| diff.load().diff_base().to_string())
+        .unwrap_or_default();
+    let name = doc.display_name();
+    let path = Path::new(name.as_ref());
+    Ok(Snapshot {
+        left: Side::new("Diff base".into(), base, path, editor),
+        right: Side::new(
+            format!("Buffer: {name}"),
+            doc.text().to_string(),
+            path,
+            editor,
+        ),
+        path: None,
+        staging: None,
+    })
+}
+
+/// The diff of a buffer without a file against its diff base: its hunks can be reverted.
+fn buffer_view(editor: &Editor, doc: DocumentId) -> DiffView {
+    let snapshot = buffer_snapshot(editor, doc).expect("the buffer is open");
+    let tab_width = editor.document(doc).map_or(4, |doc| doc.tab_width());
+    DiffView::new(snapshot.left, snapshot.right, None, tab_width)
+        .with_actions(Actions {
+            target: Target::Buffer(doc),
+            staging: None,
+        })
+        .with_rebuild(move |editor| buffer_snapshot(editor, doc))
+}
+
+/// The diff of `change` in the commits from `oldest` to `newest` (the same commit for one): from
+/// the first parent of `oldest` to `newest`. Opening the file from it closes the commit pickers
+/// below it. It may have no changes.
+fn commit_view(
+    editor: &Editor,
     cwd: &Path,
     oldest: &CommitInfo,
     newest: &CommitInfo,
     change: &FileChange,
-) -> anyhow::Result<()> {
-    let relative = |path: &Path| {
-        vortex_stdx::path::get_relative_path(path)
-            .display()
-            .to_string()
-    };
+) -> anyhow::Result<DiffView> {
     let trust_full = editor
         .workspace_trust
         .query(
@@ -221,7 +308,7 @@ pub(crate) fn open_commit(
 
     let left = Side::new(left_title, base, &base_path, editor);
     let right = Side::new(right_title, current, &path, editor);
-    let view = DiffView::new(
+    Ok(DiffView::new(
         left,
         right,
         path.exists().then_some(path.clone()),
@@ -232,12 +319,35 @@ pub(crate) fn open_commit(
     .with_on_open(|compositor| {
         compositor.remove(picker::ID);
         compositor.remove(picker::ID);
-    });
+    }))
+}
+
+/// Opens the diff of `change` in the commits from `oldest` to `newest` on top of the commit
+/// pickers, see [`commit_view`]. `n`/`N` go through the other files of `files`.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn open_commit(
+    editor: &mut Editor,
+    compositor: &mut Compositor,
+    cwd: &Path,
+    oldest: &CommitInfo,
+    newest: &CommitInfo,
+    change: &FileChange,
+    files: ListFiles,
+    select: SelectFile,
+) -> anyhow::Result<()> {
+    let view = commit_view(editor, cwd, oldest, newest, change)?;
     if !view.has_changes() {
-        editor.set_status(format!("No changes in {}", relative(&path)));
+        editor.set_status(format!("No changes in {}", relative(change.path())));
         return Ok(());
     }
-    compositor.push(Box::new(view));
+    let (cwd, oldest, newest) = (cwd.to_path_buf(), oldest.clone(), newest.clone());
+    let nav = FileNav {
+        files,
+        current: change.clone(),
+        open: Rc::new(move |editor, change| commit_view(editor, &cwd, &oldest, &newest, change)),
+        select,
+    };
+    compositor.push(Box::new(view.with_nav(nav)));
     Ok(())
 }
 

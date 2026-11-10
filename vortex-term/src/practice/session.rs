@@ -158,6 +158,9 @@ pub fn start_index(editor: &mut Editor, index: usize) -> anyhow::Result<()> {
     doc.detect_indent_and_line_ending();
     // The text has `\n`, whatever line ending is the default.
     doc.line_ending = vortex_core::line_ending::LineEnding::LF;
+    if let Some(base) = &exercise.base {
+        doc.set_diff_base(base.clone().into_bytes());
+    }
 
     let doc_id = editor.new_file_from_document(Action::Replace, doc);
     let (view, doc) = current!(editor);

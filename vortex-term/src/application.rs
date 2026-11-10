@@ -653,10 +653,17 @@ impl Application {
         // `HEAD` changed)
         crate::handlers::blame::request(&mut self.editor, doc_save_event.doc_id);
         // TODO: fix being overwritten by lsp
-        self.editor.set_status(format!(
-            "'{}' written, {lines}L {size}",
-            get_relative_path(&doc_save_event.path).to_string_lossy(),
-        ));
+        let message = self
+            .editor
+            .save_messages
+            .remove(&doc_save_event.doc_id)
+            .unwrap_or_else(|| {
+                format!(
+                    "'{}' written, {lines}L {size}",
+                    get_relative_path(&doc_save_event.path).to_string_lossy(),
+                )
+            });
+        self.editor.set_status(message);
     }
 
     #[inline(always)]

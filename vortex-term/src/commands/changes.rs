@@ -2,19 +2,24 @@
 //! changes, which update while the working tree changes. Lockfiles are collapsed to one quiet
 //! row with their line counts, after the other files; Enter still opens their diff.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
+use std::rc::Rc;
 use std::sync::Arc;
 
 use vortex_vcs::{DiffProviderRegistry, FileChange};
 use vortex_view::{editor::ChangesConfig, graphics::Style, Editor};
 use imara_diff::{Algorithm, Diff, InternedInput};
+use parking_lot::Mutex;
 use tui::text::Span;
 
 use super::{diff_view, FileChangeData};
 use crate::compositor::{self, Component, Compositor, Context, Event, EventResult};
 use crate::job::Callback;
 use crate::live::{Live, Pending, RepoWatch};
-use crate::ui::{overlay::overlaid, picker, Picker, PickerColumn};
+use crate::ui::{
+    overlay::{overlaid, Overlay},
+    picker, Picker, PickerColumn,
+};
 use crate::{ctrl, key};
 
 /// A row of a list of changed files.
@@ -22,6 +27,36 @@ pub(crate) struct FileRow {
     pub(crate) change: FileChange,
     /// The lines a lockfile adds and removes; `None` for the other files.
     lockfile: Option<LockfileLines>,
+}
+
+/// The files of a list for `n`/`N` in their diffs: each with whether they skip it (lockfiles).
+pub(crate) type NavFiles = Vec<(FileChange, bool)>;
+
+/// The files of `rows` for `n`/`N`.
+pub(crate) fn nav_files(rows: &[FileRow]) -> NavFiles {
+    rows.iter()
+        .map(|row| (row.change.clone(), row.lockfile.is_some()))
+        .collect()
+}
+
+/// Puts the cursor of `picker` on the row of `path`, if it is matched.
+pub(crate) fn select_path(picker: &mut Picker<FileRow, FileRowData>, path: &Path) {
+    // the matched rows are ready (unless there are many)
+    let mut i = 0;
+    while let Some(row) = picker.matched_item(i) {
+        if row.change.path() == path {
+            picker.set_cursor_index(i);
+            return;
+        }
+        i += 1;
+    }
+}
+
+/// Puts the cursor of the topmost list of files of a commit or range on `change`.
+pub(crate) fn select_in_commit_files(compositor: &mut Compositor, change: &FileChange) {
+    if let Some(overlay) = compositor.find::<Overlay<Picker<FileRow, FileRowData>>>() {
+        select_path(&mut overlay.content, change.path());
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -177,6 +212,8 @@ pub(crate) struct UncommittedFiles {
     source: Source,
     live: Option<Live>,
     pending: Pending<anyhow::Result<Vec<FileRow>>>,
+    /// The files listed, for `n`/`N` in the diffs opened from the list.
+    files: Arc<Mutex<NavFiles>>,
 }
 
 impl UncommittedFiles {
@@ -198,18 +235,10 @@ impl UncommittedFiles {
             .selection()
             .map(|row| row.change.path().to_path_buf());
         let index = self.picker.cursor_index();
+        *self.files.lock() = nav_files(&rows);
         self.picker.replace_items(rows, index);
-        let Some(selected) = selected else {
-            return;
-        };
-        // the matched rows are ready (unless there are many): find the file that was selected
-        let mut i = 0;
-        while let Some(row) = self.picker.matched_item(i) {
-            if row.change.path() == selected {
-                self.picker.set_cursor_index(i);
-                return;
-            }
-            i += 1;
+        if let Some(selected) = selected {
+            select_path(&mut self.picker, &selected);
         }
     }
 }
@@ -271,13 +300,29 @@ pub(crate) fn open_uncommitted(
                 1 => "Uncommitted changes: 1 file".to_string(),
                 files => format!("Uncommitted changes: {files} files"),
             });
+            let files = Arc::new(Mutex::new(nav_files(&rows)));
             let diff_watch = watch.clone();
+            let diff_files = files.clone();
             let show_diff = move |cx: &mut Context, change: &FileChange| {
                 let change = change.clone();
                 let live = diff_watch.clone().map(Live::new);
+                let files = diff_files.clone();
                 cx.jobs.callback(async move {
                     let call = move |editor: &mut Editor, compositor: &mut Compositor| {
-                        diff_view::open_uncommitted(editor, compositor, &change, live)
+                        diff_view::open_uncommitted(
+                            editor,
+                            compositor,
+                            &change,
+                            live,
+                            Rc::new(move || files.lock().clone()),
+                            Rc::new(|compositor, change| {
+                                if let Some(overlay) =
+                                    compositor.find::<Overlay<UncommittedFiles>>()
+                                {
+                                    select_path(&mut overlay.content.picker, change.path());
+                                }
+                            }),
+                        )
                     };
                     Ok(Callback::EditorCompositor(Box::new(call)))
                 });
@@ -288,6 +333,7 @@ pub(crate) fn open_uncommitted(
                 source,
                 live: watch.map(Live::new),
                 pending: Pending::new(),
+                files,
             };
             compositor.push(Box::new(overlaid(files)));
         };

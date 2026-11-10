@@ -1408,6 +1408,9 @@ pub struct Editor {
     pub mode: Mode,
     /// The terminal panel below the splits (fork feature).
     pub terminal: crate::terminal::Panel,
+    /// Messages shown instead of `'file' written` when the save of these documents completes
+    /// (fork feature: a hunk revert says how to undo it).
+    pub save_messages: HashMap<DocumentId, String>,
     pub tree: Tree,
     pub next_document_id: DocumentId,
     pub documents: BTreeMap<DocumentId, Document>,
@@ -1563,6 +1566,7 @@ impl Editor {
         Self {
             mode: Mode::Normal,
             terminal: crate::terminal::Panel::default(),
+            save_messages: HashMap::new(),
             tree: Tree::new(area),
             next_document_id: DocumentId::default(),
             documents: BTreeMap::new(),

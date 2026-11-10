@@ -24,6 +24,8 @@ pub use blame_stub::{head_commit_id, BlameCommit, BlameError, CommitId, FileBlam
 
 mod diff;
 
+pub mod staging;
+
 pub use diff::{DiffHandle, Hunk};
 
 mod status;
@@ -235,6 +237,44 @@ impl DiffProviderRegistry {
         }
         Err(first_err.unwrap_or_else(|| anyhow!("no diff provider returns success")))
     }
+
+    /// Runs `f` with each provider until one succeeds. Reports the error of the first provider,
+    /// not the fallback's "no diff support".
+    fn first_ok<T>(&self, f: impl Fn(&DiffProvider) -> Result<T>) -> Result<T> {
+        let mut first_err = None;
+        for provider in &self.providers {
+            match f(provider) {
+                Ok(res) => return Ok(res),
+                Err(err) => {
+                    first_err.get_or_insert(err);
+                }
+            }
+        }
+        Err(first_err.unwrap_or_else(|| anyhow!("no diff provider returns success")))
+    }
+
+    /// The version of `file` in the index (as it would be checked out), `None` when the file
+    /// isn't in the index.
+    pub fn index_file(&self, file: &Path, trust_full: bool) -> Result<Option<Vec<u8>>> {
+        self.first_ok(|provider| provider.index_file(file, trust_full))
+    }
+
+    /// Sets the index version of `file` to `contents` (working-tree form), or removes `file`
+    /// from the index with `None`.
+    pub fn set_index_file(
+        &self,
+        file: &Path,
+        contents: Option<&[u8]>,
+        trust_full: bool,
+    ) -> Result<()> {
+        self.first_ok(|provider| provider.set_index_file(file, contents, trust_full))
+    }
+
+    /// Sets the index version of `file` to its HEAD version, or removes it from the index when
+    /// HEAD doesn't have it.
+    pub fn reset_index_file(&self, file: &Path, trust_full: bool) -> Result<()> {
+        self.first_ok(|provider| provider.reset_index_file(file, trust_full))
+    }
 }
 
 impl Default for DiffProviderRegistry {
@@ -341,6 +381,30 @@ impl DiffProvider {
             #[cfg(feature = "git")]
             Self::Git => git::file_at_commit(cwd, trust_full, id, file),
             Self::None => bail!("No diff support compiled in"),
+        }
+    }
+
+    fn index_file(&self, file: &Path, trust_full: bool) -> Result<Option<Vec<u8>>> {
+        match self {
+            #[cfg(feature = "git")]
+            Self::Git => git::stage::index_file(file, trust_full),
+            Self::None => bail!("no git support"),
+        }
+    }
+
+    fn set_index_file(&self, file: &Path, contents: Option<&[u8]>, trust_full: bool) -> Result<()> {
+        match self {
+            #[cfg(feature = "git")]
+            Self::Git => git::stage::set_index_file(file, contents, trust_full),
+            Self::None => bail!("no git support"),
+        }
+    }
+
+    fn reset_index_file(&self, file: &Path, trust_full: bool) -> Result<()> {
+        match self {
+            #[cfg(feature = "git")]
+            Self::Git => git::stage::reset_index_file(file, trust_full),
+            Self::None => bail!("no git support"),
         }
     }
 }
