@@ -40,7 +40,7 @@ pub fn line_hunks(before: &str, after: &str) -> Vec<LineHunk> {
 
 /// Whether two line ranges touch: they overlap, or one is empty and lies at or in the other (the
 /// ends included). Two empty ranges touch if they are at the same position.
-fn touches(a: &Range<u32>, b: &Range<u32>) -> bool {
+pub fn touches(a: &Range<u32>, b: &Range<u32>) -> bool {
     match (a.is_empty(), b.is_empty()) {
         (true, true) => a.start == b.start,
         (true, false) => b.start <= a.start && a.start <= b.end,
