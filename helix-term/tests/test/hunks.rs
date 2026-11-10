@@ -509,8 +509,6 @@ async fn reverting_refuses_when_the_buffer_has_unsaved_changes() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-#[ignore = "bug: the 'Reverted ...: u in its buffer brings it back' message is replaced by \
-            the \"'a.txt' written\" message of the save that follows it"]
 async fn the_revert_message_stays_on_the_statusline() {
     let Some(_) = enter("the_revert_message_stays_on_the_statusline") else {
         return;
@@ -525,6 +523,6 @@ async fn the_revert_message_stays_on_the_statusline() {
     session.run_for(std::time::Duration::from_millis(500)).await;
     assert_eq!(
         status(&session.app),
-        "Reverted the hunk: u in its buffer brings it back"
+        "Reverted the hunk and wrote a.txt: u in its buffer brings it back"
     );
 }

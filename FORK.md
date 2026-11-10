@@ -106,6 +106,10 @@ instead of the modification time) in `helix-view/src/document.rs`; the checks be
 terminal panel (`terminal/panel.rs`); the `notify` watcher in `helix-view`; `[editor.changes]` in
 `helix-view/src/editor.rs`.
 
+The hunk actions add `Editor::save_messages` (`helix-view/src/editor.rs`), a message shown
+instead of `'file' written` when a document's save completes (`handle_document_write` in
+`application.rs`), so that a revert says how to undo it.
+
 To build: `cargo install --path helix-term --locked`.
 
 ## Side by side git diff
@@ -389,7 +393,6 @@ skipped.
   working tree has no hunk (`U` unstages it).
 - Reverting a renamed file reverts its new path only.
 - Symlinks and submodules can't be staged.
-- The saved message (`'file' written`) replaces the message of the revert.
 
 ## Files changed on disk
 

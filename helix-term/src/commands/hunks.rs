@@ -163,11 +163,18 @@ pub(crate) fn run(
                 None => editor.open(&path, Action::Load)?,
             };
             edit(editor, doc, &reverted);
-            editor.save::<PathBuf>(doc, None, false)?;
-            Ok(Outcome::Done(format!(
-                "Reverted {}: u in its buffer brings it back",
-                what(&scope)
-            )))
+            // shown once it is written, instead of `'file' written`
+            let message = format!(
+                "Reverted {} and wrote {}: u in its buffer brings it back",
+                what(&scope),
+                relative(&path)
+            );
+            editor.save_messages.insert(doc, message.clone());
+            if let Err(err) = editor.save::<PathBuf>(doc, None, false) {
+                editor.save_messages.remove(&doc);
+                return Err(err);
+            }
+            Ok(Outcome::Done(message))
         }
     }
 }
