@@ -260,6 +260,9 @@ pub struct Document {
     pub(crate) modified_since_accessed: bool,
 
     pub(crate) diagnostics: Vec<Diagnostic>,
+    /// Whether git reports the file as unmerged (this fork): its conflict blocks are then
+    /// diagnostics, found again on every edit.
+    conflicted: bool,
     pub(crate) language_servers: HashMap<LanguageServerName, Arc<Client>>,
 
     diff_handle: Option<DiffHandle>,
@@ -810,6 +813,7 @@ impl Document {
             changes,
             old_state,
             diagnostics: Vec::new(),
+            conflicted: false,
             version: 0,
             history: Cell::new(History::default()),
             savepoints: Vec::new(),
@@ -2381,6 +2385,53 @@ impl Document {
         &self.diagnostics
     }
 
+    /// Whether git reports the file as unmerged, see [`Document::set_conflicted`].
+    pub fn is_conflicted(&self) -> bool {
+        self.conflicted
+    }
+
+    /// Marks the file as unmerged or not, and replaces its conflict diagnostics with the
+    /// conflict blocks of its text (none when it isn't unmerged).
+    pub fn set_conflicted(&mut self, conflicted: bool) {
+        self.conflicted = conflicted;
+        self.update_conflict_diagnostics();
+    }
+
+    /// Finds the conflict blocks of the text again, when the file is unmerged (on every edit).
+    pub fn update_conflict_diagnostics(&mut self) {
+        let provider = DiagnosticProvider::Conflict;
+        if !self.conflicted {
+            if self.diagnostics.iter().any(|d| d.provider == provider) {
+                self.replace_diagnostics([], &[], Some(&provider));
+            }
+            return;
+        }
+        let text = self.text.clone();
+        let text = text.slice(..);
+        let blocks = vortex_vcs::conflict::conflict_blocks(text.lines().map(std::borrow::Cow::from));
+        let diagnostics = blocks.into_iter().map(|block| {
+            let start = text.line_to_char(*block.lines.start());
+            // to the end of the `>>>>>>>` line, without its line ending
+            let end = vortex_core::line_ending::line_end_char_index(&text, *block.lines.end());
+            Diagnostic {
+                range: vortex_core::diagnostic::Range { start, end },
+                ends_at_word: false,
+                starts_at_word: false,
+                zero_width: false,
+                line: *block.lines.start(),
+                message: block.message(),
+                severity: Some(vortex_core::diagnostic::Severity::Conflict),
+                code: None,
+                provider: provider.clone(),
+                tags: Vec::new(),
+                source: Some("git".to_string()),
+                data: None,
+            }
+        });
+        let diagnostics: Vec<_> = diagnostics.collect();
+        self.replace_diagnostics(diagnostics, &[], Some(&provider));
+    }
+
     pub fn replace_diagnostics(
         &mut self,
         diagnostics: impl IntoIterator<Item = Diagnostic>,
@@ -2392,7 +2443,9 @@ impl Document {
                 self.diagnostics
                     .retain(|diagnostic| &diagnostic.provider != provider);
             } else {
-                self.diagnostics.clear();
+                // all the language servers' diagnostics: the editor's own (conflicts) stay
+                self.diagnostics
+                    .retain(|diagnostic| diagnostic.provider.language_server_id().is_none());
             }
         } else {
             self.diagnostics.retain(|d| {

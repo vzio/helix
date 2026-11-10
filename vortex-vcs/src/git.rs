@@ -239,6 +239,29 @@ pub fn repo_state(cwd: &Path, trust_full: bool) -> Result<crate::RepoState> {
     })
 }
 
+/// The working tree of the repository `cwd` is in, and its unmerged files (absolute, sorted):
+/// those with conflict stages in the index, as `git diff --name-only --diff-filter=U` lists them.
+pub fn conflicted_files(cwd: &Path, trust_full: bool) -> Result<(PathBuf, Vec<PathBuf>)> {
+    let repo = open_repo(cwd, trust_full)?.to_thread_local();
+    let work_dir = repo
+        .workdir()
+        .ok_or_else(|| anyhow::anyhow!("working tree not found"))?
+        .to_path_buf();
+    let index = repo.index_or_empty()?;
+    let mut files: Vec<PathBuf> = Vec::new();
+    // the entries are sorted by path, then stage: the stages of a file are next to each other
+    for entry in index.entries() {
+        if entry.stage() == gix::index::entry::Stage::Unconflicted {
+            continue;
+        }
+        let path = work_dir.join(gix::path::from_bstr(entry.path(&index)));
+        if files.last() != Some(&path) {
+            files.push(path);
+        }
+    }
+    Ok((work_dir, files))
+}
+
 fn open_repo(path: &Path, trust_full: bool) -> Result<ThreadSafeRepository> {
     // `trust_full` is the workspace-trust decision made by the caller, and it must be the
     // authority on the gix trust level. gix's own discovery (`discover_*`) ignores a

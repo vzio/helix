@@ -45,6 +45,7 @@ bug-fixed version of it in omentic's [helix-ext](https://github.com/omentic/heli
 - [Uncommitted changes, live](#uncommitted-changes-live)
 - [Stage, unstage and revert hunks](#stage-unstage-and-revert-hunks)
 - [Files changed on disk](#files-changed-on-disk)
+- [Conflict diagnostics](#conflict-diagnostics)
 - [Staged files in the changed files picker](#staged-files-in-the-changed-files-picker)
 - [File tree overlay](#file-tree-overlay)
 - [Inline git blame](#inline-git-blame)
@@ -65,6 +66,7 @@ Each feature lives in its own modules, to keep rebasing on upstream cheap:
 | Commit log | `vortex-term/src/commands/git_log.rs`, `vortex-vcs/src/commit.rs`, `vortex-vcs/src/git/log.rs` |
 | Uncommitted changes, live views | `vortex-term/src/commands/uncommitted.rs` (the list of uncommitted hunks, their marks, unsaved edits), `vortex-term/src/commands/changes.rs` (the files of a commit, lockfiles), `with_drawn_preview` in `vortex-term/src/ui/picker.rs` (a preview drawn by its owner), `vortex-term/src/live.rs` (the shared watch, background refreshes), `vortex-view/src/watcher.rs` (the reusable watcher), `RepoState` and `log_entries` in `vortex-vcs/src/lib.rs`, `[editor.changes]` in `vortex-view/src/editor.rs`, `vortex-term/tests/test/uncommitted.rs` |
 | Files changed on disk | `vortex-term/src/handlers/disk.rs`, the disk state of `Document` in `vortex-view/src/document.rs`, `vortex-term/tests/test/stale_buffers.rs` |
+| Conflict diagnostics | `vortex-vcs/src/conflict.rs` (finding the blocks), `conflicted_files` in `vortex-vcs/src/git.rs` (the unmerged files), `vortex-term/src/handlers/conflicts.rs` (when to look, the documents' state), `vortex-term/tests/test/conflicts.rs` |
 | Staged files, commit diffs | `vortex-vcs/src/git.rs`, `vortex-vcs/src/lib.rs`, `vortex-vcs/src/status.rs` |
 | File tree | `vortex-term/src/ui/explorer.rs`, `vortex-term/src/ui/explorer/`, `vortex-term/benches/explorer.rs` |
 | Inline blame | `vortex-vcs/src/git/blame.rs`, `vortex-vcs/src/blame_stub.rs`, `vortex-vcs/benches/blame.rs`, `vortex-stdx/src/time.rs`, `vortex-view/src/blame.rs`, `vortex-term/src/handlers/blame.rs`, `vortex-term/src/commands/blame.rs`, `vortex-term/src/ui/text_decorations/blame.rs` |
@@ -105,6 +107,15 @@ instead of the modification time) in `vortex-view/src/document.rs`; the checks b
 `write_impl` and `write_all_impl` (`typed.rs`), on focus (`ui/editor.rs`) and when leaving the
 terminal panel (`terminal/panel.rs`); the `notify` watcher in `vortex-view`; `[editor.changes]` in
 `vortex-view/src/editor.rs`.
+
+The conflict diagnostics change core files: `Severity::Conflict` and `DiagnosticProvider::Conflict`
+in `vortex-core/src/diagnostic.rs`, and every match on them (gutter, statusline, the inline and popup
+diagnostics in `ui/editor.rs` and `ui/text_decorations/diagnostics.rs`, the pickers in
+`commands/lsp.rs`, `DiagnosticFilter`); `Document::set_conflicted` and
+`update_conflict_diagnostics`, and `replace_diagnostics` without a provider keeping the editor's own
+diagnostics, in `vortex-view/src/document.rs`; `Editor::conflicts` and `workspace_conflict_count` in
+`vortex-view/src/editor.rs`; `Theme::get_or`; refresh calls in `disk::check_all`, `live.rs` and
+`Application::new`.
 
 The hunk actions add `Editor::save_messages` (`vortex-view/src/editor.rs`), a message shown
 instead of `'file' written` when a document's save completes (`handle_document_write` in
@@ -463,6 +474,82 @@ whose file didn't exist when it was opened.
 - Terminals that don't report focus (or tmux without `focus-events on`) only get the checks on
   switching and writing.
 - Writing a buffer to another path (`:w other.txt`) doesn't check that path.
+
+## Conflict diagnostics
+
+The conflict blocks git writes into a file it couldn't merge are diagnostics, of their own
+severity, `conflict`:
+
+```
+fn main() {
+◆   <<<<<<< HEAD                  └─ Conflict: HEAD vs feature-x
+        let a = 100;
+    ||||||| 1a2b3c4               (with merge.conflictStyle diff3 or zdiff3)
+        let a = 1;
+    =======
+        let a = 10;
+    >>>>>>> feature-x
+}
+```
+
+- **Only in unmerged files**: those git reports as unmerged (with conflict stages in the index,
+  as `git status` lists them under "Unmerged paths"). Docs and test fixtures with marker-like
+  lines aren't flagged, and neither is a file once it is `git add`ed.
+- **One diagnostic per block**, from the `<<<<<<<` line to the `>>>>>>>` line, with the labels of
+  the markers: `Conflict: HEAD vs feature-x` in a merge, `Conflict: HEAD vs 1a2b3c4 (Add the
+  cache)` in a rebase or cherry-pick (`ours`/`theirs` when a marker has no label). Markers are at
+  the start of a line, at least 7 characters long (longer with the `conflict-marker-size`
+  attribute), and only complete blocks count.
+- **Above errors**:
+  - The gutter shows `◆` on the block's first line.
+  - `space d` and `space D` list conflicts first (severity `CONFLICT`, source `git`).
+  - `]d` and `[d` go to them, selecting the whole block.
+  - The diagnostic shows inline like the others, and `conflict` passes every minimum-severity
+    filter (`[editor.inline-diagnostics]`, `end-of-line-diagnostics`).
+- **`space D` also lists the conflicts of the unmerged files that aren't open**, read from the
+  file on disk. Enter opens the file with the block selected.
+- **Statusline**: `conflict` is a severity of the `diagnostics` and `workspace-diagnostics`
+  elements (`◆ 2`), and is in their default lists: `["warning", "error", "conflict"]`. The
+  workspace count includes the unmerged files that aren't open.
+
+### Live
+
+- **On every edit** of an unmerged file, its blocks are found again in the text, so deleting the
+  markers of a block clears its diagnostic at once (and `u` brings it back).
+- **Which files are unmerged** is read from git's index:
+  - when a file is opened, and after switching buffers;
+  - when the terminal regains focus, and when going back to the editor from the
+    [terminal panel](#terminal-panel), with the [disk checks](#files-changed-on-disk);
+  - while the [uncommitted changes](#uncommitted-changes-live) are watched (the commit log or a
+    diff view is open), on every change of the repository: a merge, rebase or cherry-pick that
+    starts or ends shows up at once;
+  - when `space D` opens.
+
+The repositories looked at are those of the working directory and of the open files. There are
+no commands to take one side: a block is resolved by editing it (`:practice multi-cursor` has an
+exercise).
+
+### Theme
+
+| Scope | Falls back to | Used for |
+| --- | --- | --- |
+| `conflict` | `error` | the gutter symbol, the statusline count, the pickers' severity column, the popup at the cursor |
+| `diagnostic.conflict` | `diagnostic.error` | the text of the block |
+| `conflict.diagnostic.inline` | `error.diagnostic.inline` | the inline message |
+
+No bundled theme sets them, so conflicts look like errors with their own gutter symbol.
+
+### Limitations
+
+- A block missing a marker (half resolved, with the `=======` or a `>>>>>>>` line left) isn't
+  reported: only complete blocks are.
+- A conflict without markers (binary files, a file modified on one side and deleted on the
+  other) has no diagnostic and no row in `space D`.
+- While Helix is focused and idle, with no live view open, a merge started from another terminal
+  shows up with the next buffer switch or focus. A merge run in the [terminal panel](#terminal-panel)
+  shows up when going back to the editor.
+- Nested repositories (a submodule inside the working directory) are only looked at for the files
+  open in them, when no file of the outer repository is.
 
 ## Staged files in the changed files picker
 
@@ -891,7 +978,7 @@ one. Solve it again (`:practice reset`) to beat your best.
 
 ### Chapters
 
-85 exercises in 12 chapters, from the first keystroke to shell commands, described in
+86 exercises in 12 chapters, from the first keystroke to shell commands, described in
 [runtime/practice/CURRICULUM.md](runtime/practice/CURRICULUM.md):
 
 | # | Chapter | Exercises |

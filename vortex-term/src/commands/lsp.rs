@@ -14,8 +14,10 @@ use tui::{text::Span, widgets::Row};
 use super::{align_view, push_jump, Align, Context, Editor};
 
 use vortex_core::{
-    diagnostic::DiagnosticProvider, syntax::config::LanguageServerFeature,
-    text_annotations::InlineAnnotation, Selection, Uri,
+    diagnostic::{DiagnosticProvider, Severity},
+    syntax::config::LanguageServerFeature,
+    text_annotations::InlineAnnotation,
+    Selection, Uri,
 };
 use vortex_stdx::path;
 use vortex_view::{
@@ -99,11 +101,84 @@ struct DiagnosticStyles {
     info: Style,
     warning: Style,
     error: Style,
+    conflict: Style,
 }
 
 struct PickerDiagnostic {
     location: Location,
     diag: lsp::Diagnostic,
+    /// The severity, which a conflict (this fork) can't have in `diag`.
+    severity: Option<Severity>,
+}
+
+fn lsp_severity(severity: Option<DiagnosticSeverity>) -> Option<Severity> {
+    match severity? {
+        DiagnosticSeverity::ERROR => Some(Severity::Error),
+        DiagnosticSeverity::WARNING => Some(Severity::Warning),
+        DiagnosticSeverity::INFORMATION => Some(Severity::Info),
+        DiagnosticSeverity::HINT => Some(Severity::Hint),
+        _ => None,
+    }
+}
+
+/// A git merge conflict block (this fork) as a picker row, from `start` to `end` in `uri`.
+fn conflict_row(
+    uri: Uri,
+    start: lsp::Position,
+    end: lsp::Position,
+    message: String,
+) -> PickerDiagnostic {
+    let range = lsp::Range { start, end };
+    PickerDiagnostic {
+        location: Location {
+            uri,
+            range,
+            offset_encoding: OffsetEncoding::Utf32,
+        },
+        diag: lsp::Diagnostic {
+            range,
+            source: Some("git".to_string()),
+            message,
+            ..Default::default()
+        },
+        severity: Some(Severity::Conflict),
+    }
+}
+
+/// The conflict blocks of a document, as they are now.
+fn doc_conflict_rows(doc: &Document) -> Vec<PickerDiagnostic> {
+    let Some(uri) = doc.uri() else {
+        return Vec::new();
+    };
+    doc.diagnostics()
+        .iter()
+        .filter(|diag| diag.provider == DiagnosticProvider::Conflict)
+        .map(|diag| {
+            let range = vortex_core::Range::new(diag.range.start, diag.range.end);
+            let range = range_to_lsp_range(doc.text(), range, OffsetEncoding::Utf32);
+            conflict_row(uri.clone(), range.start, range.end, diag.message.clone())
+        })
+        .collect()
+}
+
+/// The conflict blocks of all the unmerged files: as the document is now for an open file, as
+/// on disk for the others.
+fn workspace_conflict_rows(editor: &Editor) -> Vec<PickerDiagnostic> {
+    let mut rows = Vec::new();
+    for (path, blocks) in &editor.conflicts.files {
+        if let Some(doc) = editor.document_by_path(path) {
+            rows.extend(doc_conflict_rows(doc));
+            continue;
+        }
+        let uri = Uri::from(path.clone());
+        rows.extend(blocks.iter().map(|block| {
+            let start = lsp::Position::new(*block.lines.start() as u32, 0);
+            // to the end of the `>>>>>>>` line: the character is capped to the line's length
+            let end = lsp::Position::new(*block.lines.end() as u32, u32::MAX);
+            conflict_row(uri.clone(), start, end, block.message())
+        }));
+    }
+    rows
 }
 
 fn location_to_file_location(location: &Location) -> Option<FileLocation<'_>> {
@@ -211,12 +286,13 @@ type DiagnosticsPicker = Picker<PickerDiagnostic, DiagnosticStyles>;
 fn diag_picker(
     cx: &Context,
     diagnostics: impl IntoIterator<Item = (Uri, Vec<(lsp::Diagnostic, DiagnosticProvider)>)>,
+    conflicts: Vec<PickerDiagnostic>,
     format: DiagnosticsFormat,
 ) -> DiagnosticsPicker {
     // TODO: drop current_path comparison and instead use workspace: bool flag?
 
     // flatten the map to a vec of (url, diag) pairs
-    let mut flat_diag = Vec::new();
+    let mut flat_diag = conflicts;
     for (uri, diags) in diagnostics {
         flat_diag.reserve(diags.len());
 
@@ -231,36 +307,35 @@ fn diag_picker(
                         range: diag.range,
                         offset_encoding: ls.offset_encoding(),
                     },
+                    severity: lsp_severity(diag.severity),
                     diag,
                 });
             }
         }
     }
 
-    flat_diag.sort_by(|a, b| {
-        a.diag
-            .severity
-            .unwrap_or(lsp::DiagnosticSeverity::HINT)
-            .cmp(&b.diag.severity.unwrap_or(lsp::DiagnosticSeverity::HINT))
-    });
+    // the most severe first: conflicts, then errors (a stable sort keeps the files' order)
+    flat_diag.sort_by_key(|item| std::cmp::Reverse(item.severity.unwrap_or(Severity::Hint)));
 
     let styles = DiagnosticStyles {
         hint: cx.editor.theme.get("hint"),
         info: cx.editor.theme.get("info"),
         warning: cx.editor.theme.get("warning"),
         error: cx.editor.theme.get("error"),
+        conflict: cx.editor.theme.get_or("conflict", "error"),
     };
 
     let mut columns = vec![
         ui::PickerColumn::new(
             "severity",
             |item: &PickerDiagnostic, styles: &DiagnosticStyles| {
-                match item.diag.severity {
-                    Some(DiagnosticSeverity::HINT) => Span::styled("HINT", styles.hint),
-                    Some(DiagnosticSeverity::INFORMATION) => Span::styled("INFO", styles.info),
-                    Some(DiagnosticSeverity::WARNING) => Span::styled("WARN", styles.warning),
-                    Some(DiagnosticSeverity::ERROR) => Span::styled("ERROR", styles.error),
-                    _ => Span::raw(""),
+                match item.severity {
+                    Some(Severity::Hint) => Span::styled("HINT", styles.hint),
+                    Some(Severity::Info) => Span::styled("INFO", styles.info),
+                    Some(Severity::Warning) => Span::styled("WARN", styles.warning),
+                    Some(Severity::Error) => Span::styled("ERROR", styles.error),
+                    Some(Severity::Conflict) => Span::styled("CONFLICT", styles.conflict),
+                    None => Span::raw(""),
                 }
                 .into()
             },
@@ -576,7 +651,13 @@ pub fn diagnostics_picker(cx: &mut Context) {
     let doc = doc!(cx.editor);
     if let Some(uri) = doc.uri() {
         let diagnostics = cx.editor.diagnostics.get(&uri).cloned().unwrap_or_default();
-        let picker = diag_picker(cx, [(uri, diagnostics)], DiagnosticsFormat::HideSourcePath);
+        let conflicts = doc_conflict_rows(doc);
+        let picker = diag_picker(
+            cx,
+            [(uri, diagnostics)],
+            conflicts,
+            DiagnosticsFormat::HideSourcePath,
+        );
         cx.push_layer(Box::new(overlaid(picker)));
     }
 }
@@ -584,7 +665,15 @@ pub fn diagnostics_picker(cx: &mut Context) {
 pub fn workspace_diagnostics_picker(cx: &mut Context) {
     // TODO not yet filtered by LanguageServerFeature, need to do something similar as Document::shown_diagnostics here for all open documents
     let diagnostics = cx.editor.diagnostics.clone();
-    let picker = diag_picker(cx, diagnostics, DiagnosticsFormat::ShowSourcePath);
+    // with the conflicts of the unmerged files that aren't open, as git reports them now
+    crate::handlers::conflicts::refresh_now(cx.editor);
+    let conflicts = workspace_conflict_rows(cx.editor);
+    let picker = diag_picker(
+        cx,
+        diagnostics,
+        conflicts,
+        DiagnosticsFormat::ShowSourcePath,
+    );
     cx.push_layer(Box::new(overlaid(picker)));
 }
 
@@ -695,7 +784,10 @@ pub(crate) fn code_actions_for_range(
                     .diagnostics()
                     .iter()
                     .filter(|&diag| {
-                        range.overlaps(&vortex_core::Range::new(diag.range.start, diag.range.end))
+                        // conflicts (this fork) are the editor's own, no server knows them
+                        diag.provider != DiagnosticProvider::Conflict
+                            && range
+                                .overlaps(&vortex_core::Range::new(diag.range.start, diag.range.end))
                     })
                     .map(|diag| diagnostic_to_lsp_diagnostic(doc.text(), diag, offset_encoding))
                     .collect(),

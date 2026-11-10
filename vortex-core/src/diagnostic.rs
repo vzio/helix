@@ -5,6 +5,9 @@ pub use vortex_stdx::range::Range;
 use serde::{Deserialize, Serialize};
 
 /// Describes the severity level of a [`Diagnostic`].
+///
+/// Ordered from the least to the most severe. `Conflict` (this fork) is a git merge conflict in
+/// the text, above `Error`: nothing builds until it is resolved.
 #[derive(Debug, Clone, Copy, Eq, PartialEq, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 #[derive(Default)]
@@ -14,6 +17,7 @@ pub enum Severity {
     Info,
     Warning,
     Error,
+    Conflict,
 }
 
 #[derive(Debug, Eq, Hash, PartialEq, Clone, Deserialize, Serialize)]
@@ -64,14 +68,16 @@ pub enum DiagnosticProvider {
         /// not clear the pull diagnostics and vice-versa.
         identifier: Option<Arc<str>>,
     },
-    // Future internal features can go here...
+    /// A git merge conflict block (this fork), found by the editor itself, see
+    /// `vortex_vcs::conflict`.
+    Conflict,
 }
 
 impl DiagnosticProvider {
     pub fn language_server_id(&self) -> Option<LanguageServerId> {
         match self {
             Self::Lsp { server_id, .. } => Some(*server_id),
-            // _ => None,
+            Self::Conflict => None,
         }
     }
 }

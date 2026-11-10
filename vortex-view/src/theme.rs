@@ -435,6 +435,13 @@ impl Theme {
             .find_map(|s| self.styles.get(s).copied())
     }
 
+    /// The style of `scope` (or of a broader scope, as with [`Theme::try_get`]), or else the
+    /// style of `fallback`. For scopes a theme may not have yet, like `conflict` (this fork),
+    /// which falls back to `error`.
+    pub fn get_or(&self, scope: &str, fallback: &str) -> Style {
+        self.try_get(scope).unwrap_or_else(|| self.get(fallback))
+    }
+
     /// Get the style of a scope, without falling back to dot separated broader
     /// scopes. For example if `ui.text.focus` is not defined in the theme, it
     /// will return `None`, even if `ui.text` is.
@@ -755,6 +762,47 @@ mod tests {
             Theme::default().highlight(Theme::rgb_highlight(r, g, b)),
             Style::new().fg(Color::Rgb(r, g, b))
         );
+    }
+
+    fn theme_of(toml: &str) -> Theme {
+        Theme::from(toml::from_str::<Value>(toml).unwrap())
+    }
+
+    #[test]
+    fn conflict_scopes_fall_back_to_error() {
+        let theme = theme_of(
+            r##"
+"error" = { fg = "#ff0000" }
+"diagnostic.error" = { underline = { style = "curl" } }
+"##,
+        );
+        assert!(theme.try_get("conflict").is_none());
+        assert_eq!(theme.get_or("conflict", "error"), theme.get("error"));
+        assert_eq!(
+            theme.get_or("diagnostic.conflict", "diagnostic.error"),
+            theme.get("diagnostic.error")
+        );
+        assert_ne!(theme.get_or("conflict", "error"), Style::default());
+    }
+
+    #[test]
+    fn conflict_scopes_of_the_theme_are_used() {
+        let theme = theme_of(
+            r##"
+"error" = { fg = "#ff0000" }
+"conflict" = { fg = "#00ff00" }
+"diagnostic.conflict" = { fg = "#0000ff" }
+"##,
+        );
+        let green = Style::new().fg(Color::Rgb(0, 255, 0));
+        assert_eq!(theme.get_or("conflict", "error"), green);
+        assert_ne!(theme.get_or("conflict", "error"), theme.get("error"));
+        assert_eq!(
+            theme.get_or("diagnostic.conflict", "diagnostic.error"),
+            Style::new().fg(Color::Rgb(0, 0, 255))
+        );
+        // a narrower scope falls back to the broader one, before the fallback scope
+        assert_eq!(theme.get_or("conflict.diagnostic.inline", "error"), green);
     }
 
     #[test]

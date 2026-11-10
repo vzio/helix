@@ -99,7 +99,8 @@ pub mod util {
             Hint => lsp::DiagnosticSeverity::HINT,
             Info => lsp::DiagnosticSeverity::INFORMATION,
             Warning => lsp::DiagnosticSeverity::WARNING,
-            Error => lsp::DiagnosticSeverity::ERROR,
+            // only the editor makes conflict diagnostics, servers aren't given them
+            Error | Conflict => lsp::DiagnosticSeverity::ERROR,
         });
 
         let code = match diag.code.clone() {

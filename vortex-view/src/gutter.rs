@@ -47,6 +47,9 @@ impl GutterType {
     }
 }
 
+/// The symbol of a git merge conflict (this fork) in the diagnostics gutter and the statusline.
+pub const CONFLICT_SYMBOL: &str = "◆";
+
 pub fn diagnostic<'doc>(
     _editor: &'doc Editor,
     doc: &'doc Document,
@@ -58,6 +61,7 @@ pub fn diagnostic<'doc>(
     let error = theme.get("error");
     let info = theme.get("info");
     let hint = theme.get("hint");
+    let conflict = theme.get_or("conflict", "error");
     let diagnostics = &doc.diagnostics;
 
     Box::new(
@@ -77,8 +81,13 @@ pub fn diagnostic<'doc>(
                         })
                 });
             diagnostics_on_line.max_by_key(|d| d.severity).map(|d| {
-                write!(out, "●").ok();
+                if d.severity == Some(Severity::Conflict) {
+                    write!(out, "{CONFLICT_SYMBOL}").ok();
+                } else {
+                    write!(out, "●").ok();
+                }
                 match d.severity {
+                    Some(Severity::Conflict) => conflict,
                     Some(Severity::Error) => error,
                     Some(Severity::Warning) | None => warning,
                     Some(Severity::Info) => info,

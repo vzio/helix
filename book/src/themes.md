@@ -389,11 +389,14 @@ These scopes are used for theming the editor interface:
 | `info.diagnostic.inline`          | The inline diagnostic for the warning severity                                                 |
 | `hint`                            | Diagnostics hint (gutter)                                                                      |
 | `hint.diagnostic.inline`          | The inline diagnostic for the hint severity                                                    |
+| `conflict`                        | Git merge conflict (gutter, statusline, pickers), falls back to `error` (this fork)            |
+| `conflict.diagnostic.inline`      | The inline diagnostic of a merge conflict, falls back to `error.diagnostic.inline`             |
 | `diagnostic`                      | Diagnostics fallback style (editing area)                                                      |
 | `diagnostic.hint`                 | Diagnostics hint (editing area)                                                                |
 | `diagnostic.info`                 | Diagnostics info (editing area)                                                                |
 | `diagnostic.warning`              | Diagnostics warning (editing area)                                                             |
 | `diagnostic.error`                | Diagnostics error (editing area)                                                               |
+| `diagnostic.conflict`             | A git merge conflict block (editing area), falls back to `diagnostic.error` (this fork)        |
 | `diagnostic.unnecessary`          | Diagnostics with unnecessary tag (editing area)                                                |
 | `diagnostic.deprecated`           | Diagnostics with deprecated tag (editing area)                                                 |
 | `tabstop`                         | Snippet placeholder                                                                            |

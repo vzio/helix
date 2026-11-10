@@ -26,6 +26,8 @@ mod diff;
 
 pub mod staging;
 
+pub mod conflict;
+
 pub use diff::{DiffHandle, Hunk};
 
 mod status;
@@ -253,6 +255,15 @@ impl DiffProviderRegistry {
         Err(first_err.unwrap_or_else(|| anyhow!("no diff provider returns success")))
     }
 
+    /// The working tree of the repository `cwd` is in, and its unmerged files (absolute, sorted).
+    pub fn conflicted_files(
+        &self,
+        cwd: &Path,
+        trust_full: bool,
+    ) -> Result<(PathBuf, Vec<PathBuf>)> {
+        self.first_ok(|provider| provider.conflicted_files(cwd, trust_full))
+    }
+
     /// The version of `file` in the index (as it would be checked out), `None` when the file
     /// isn't in the index.
     pub fn index_file(&self, file: &Path, trust_full: bool) -> Result<Option<Vec<u8>>> {
@@ -380,6 +391,14 @@ impl DiffProvider {
         match self {
             #[cfg(feature = "git")]
             Self::Git => git::file_at_commit(cwd, trust_full, id, file),
+            Self::None => bail!("No diff support compiled in"),
+        }
+    }
+
+    fn conflicted_files(&self, cwd: &Path, trust_full: bool) -> Result<(PathBuf, Vec<PathBuf>)> {
+        match self {
+            #[cfg(feature = "git")]
+            Self::Git => git::conflicted_files(cwd, trust_full),
             Self::None => bail!("No diff support compiled in"),
         }
     }

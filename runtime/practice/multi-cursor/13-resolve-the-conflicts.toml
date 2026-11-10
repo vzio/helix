@@ -1,0 +1,48 @@
+title = "Keep both sides of the conflicts"
+chapter = "multi-cursor"
+kind = "combine"
+feature = "Resolving git merge conflicts by deleting their marker lines"
+lesson = """
+After a merge, git marks what it couldn't merge between `<<<<<<<`, `=======`
+and `>>>>>>>` lines, and this fork shows each block as a conflict diagnostic
+(`]d` goes to the next). When both sides are wanted, a conflict is resolved by
+deleting its three marker lines: select them all with `%s`, then `xd`.
+"""
+language = "toml"
+start = '''
+[dependencies]
+<<<<<<< HEAD
+serde = "1.0"
+toml = "0.8"
+=======
+tokio = "1.38"
+clap = "4.5"
+>>>>>>> feature-x
+anyhow = "1.0"
+
+[dev-dependencies]
+<<<<<<< HEAD
+insta = "1.39"
+=======
+proptest = "1.4"
+>>>>>>> feature-x
+'''
+goal = '''
+[dependencies]
+serde = "1.0"
+toml = "0.8"
+tokio = "1.38"
+clap = "4.5"
+anyhow = "1.0"
+
+[dev-dependencies]
+insta = "1.39"
+proptest = "1.4"
+'''
+hints = [
+  "Both branches added dependencies and all of them stay: only the six marker lines go.",
+  "`%s` selects every match of a regex: a marker is the only line that starts with `<`, `=` or `>`, which `^[<=>]` matches. `x` then grows each selection to its line.",
+  "`%s^[<=>]<ret>` puts a cursor on each marker, `xd` deletes their lines.",
+]
+teach = "%s^[<lt>=<gt>]<ret>xd"
+naive = "jxdjjxdjjxdjjjxdjxdjxd"

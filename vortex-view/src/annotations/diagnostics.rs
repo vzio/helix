@@ -24,9 +24,10 @@ impl<'de> Deserialize<'de> for DiagnosticFilter {
             "info" => Ok(DiagnosticFilter::Enable(Severity::Info)),
             "warning" => Ok(DiagnosticFilter::Enable(Severity::Warning)),
             "error" => Ok(DiagnosticFilter::Enable(Severity::Error)),
+            "conflict" => Ok(DiagnosticFilter::Enable(Severity::Conflict)),
             variant => Err(serde::de::Error::unknown_variant(
                 variant,
-                &["disable", "hint", "info", "warning", "error"],
+                &["disable", "hint", "info", "warning", "error", "conflict"],
             )),
         }
     }
@@ -43,6 +44,7 @@ impl Serialize for DiagnosticFilter {
             DiagnosticFilter::Enable(Severity::Info) => "info",
             DiagnosticFilter::Enable(Severity::Warning) => "warning",
             DiagnosticFilter::Enable(Severity::Error) => "error",
+            DiagnosticFilter::Enable(Severity::Conflict) => "conflict",
         };
         filter.serialize(serializer)
     }

@@ -37,10 +37,12 @@ pub fn check_paths(editor: &mut Editor, paths: &[PathBuf]) {
     check_docs(editor, docs);
 }
 
-/// Checks all open documents.
+/// Checks all open documents. Called when the editor regains focus, so it also looks at which
+/// files git reports as unmerged: a merge may have started or ended in the meantime.
 pub fn check_all(editor: &mut Editor) {
     let docs: Vec<_> = editor.documents().map(|doc| doc.id()).collect();
     check_docs(editor, docs);
+    super::conflicts::refresh(editor);
 }
 
 fn check_doc(editor: &mut Editor, doc_id: DocumentId) {
