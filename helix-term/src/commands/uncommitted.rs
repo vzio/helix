@@ -203,11 +203,18 @@ pub(crate) fn file_rows(change: &FileChange, versions: Versions, lockfile: bool)
         disk,
         buffer,
     } = versions;
-    let file_marks = Marks {
-        staged: index != head,
-        unstaged: disk != index,
+    // a rename is a change even without a change of contents: staged when the index has the new
+    // path, else only on disk
+    let renamed = matches!(change, FileChange::Renamed { .. });
+    let mut file_marks = Marks {
+        staged: index != head || (renamed && index.is_some()),
+        unstaged: disk != index || (renamed && index.is_none()),
         unsaved: buffer.is_some_and(|buffer| Some(buffer.as_bytes()) != disk),
     };
+    if file_marks == Marks::default() {
+        // listed by git all the same (a change of mode): on disk
+        file_marks.unstaged = true;
+    }
     let row = |what| {
         vec![ChangeRow {
             change: change.clone(),
@@ -962,6 +969,16 @@ mod tests {
         let undone = rows_of(&modified("/r/u.txt"), "a\n", "b\n", "a\n");
         assert_eq!(undone[0].what, What::File);
         assert_eq!(summary(&undone), [row("u.txt", "SM ")]);
+    }
+
+    #[test]
+    fn a_staged_rename_without_changes() {
+        let renamed = FileChange::Renamed {
+            from_path: "/r/a.txt".into(),
+            to_path: "/r/b.txt".into(),
+        };
+        let rows = rows_of(&renamed, "x\n", "x\n", "x\n");
+        assert_eq!(summary(&rows), [row("b.txt (renamed from a.txt)", "S  ")]);
     }
 
     fn rows_of(change: &FileChange, head: &str, index: &str, disk: &str) -> Vec<ChangeRow> {
