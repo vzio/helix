@@ -16,6 +16,7 @@ mod test {
     }
 
     mod auto_pairs;
+    mod change_lists;
     mod command_line;
     mod commands;
     mod conflicts;
