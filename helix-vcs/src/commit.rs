@@ -3,6 +3,8 @@
 pub struct CommitInfo {
     /// Full hex id.
     pub id: String,
+    /// The id abbreviated as git does (`core.abbrev`, 7 characters at least), unique in the
+    /// repository.
     pub short_id: String,
     /// First line of the message.
     pub summary: String,
