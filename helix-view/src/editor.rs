@@ -366,7 +366,7 @@ pub struct InlineBlameConfig {
     pub enable: bool,
     /// Which lines show blame. Defaults to `cursor-line`.
     pub show: InlineBlameShow,
-    /// What the blame text looks like. Defaults to `"{author}, {time-ago} • {title}"`.
+    /// What the blame text looks like. Defaults to `"{commit} {author}, {time-ago} • {title}"`.
     pub format: String,
     /// Milliseconds the cursor has to stay on a line before its blame shows, for
     /// `show = "cursor-line"`. 0 shows it immediately. Defaults to 300.
@@ -378,7 +378,7 @@ impl Default for InlineBlameConfig {
         Self {
             enable: false,
             show: InlineBlameShow::default(),
-            format: "{author}, {time-ago} • {title}".to_owned(),
+            format: "{commit} {author}, {time-ago} • {title}".to_owned(),
             delay: 300,
         }
     }

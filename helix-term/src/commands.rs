@@ -619,6 +619,7 @@ impl MappableCommand {
         move_lines_down, "Move selected lines down",
         blame_line, "Show the git blame of the current line",
         toggle_inline_blame, "Toggle inline git blame",
+        yank_diagnostic, "Yank the diagnostic under the cursor, or else the line's commit hash, to the clipboard",
         commit_picker, "Open the git commit log picker",
         toggle_explorer, "Open the file tree at the workspace root, revealing the current file",
         toggle_explorer_root, "Open the file tree at the workspace root",
@@ -4193,6 +4194,14 @@ fn select_mode(cx: &mut Context) {
 fn exit_select_mode(cx: &mut Context) {
     if cx.editor.mode == Mode::Select {
         cx.editor.mode = Mode::Normal;
+    }
+}
+
+/// `:yank-diagnostic` on a key (this fork): to the clipboard, or to the register typed before.
+fn yank_diagnostic(cx: &mut Context) {
+    let reg = cx.register.unwrap_or('+');
+    if let Err(err) = typed::yank_diagnostic_impl(cx.editor, reg) {
+        cx.editor.set_error(err.to_string());
     }
 }
 

@@ -14,6 +14,7 @@
 use std::borrow::Cow;
 use std::collections::HashMap;
 use std::fmt;
+use std::ops::Range;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
@@ -409,6 +410,13 @@ impl LineBlame {
     /// `{commit}` and `{email}`. `{time-ago}` is relative to the time of this call.
     #[inline]
     pub fn parse_format(&self, format: &str) -> String {
+        self.parse_format_with_commit(format).0
+    }
+
+    /// Like [`LineBlame::parse_format`], with where the `{commit}` variable is in the text (a
+    /// byte range), for it to be styled on its own.
+    pub fn parse_format_with_commit(&self, format: &str) -> (String, Option<Range<usize>>) {
+        let mut commit_range = None;
         let mut line_blame = String::new();
         let mut content_before_variable = String::with_capacity(format.len());
 
@@ -452,7 +460,11 @@ impl LineBlame {
                         } else {
                             line_blame.push_str(&content_before_variable);
                         }
+                        let start = line_blame.len();
                         line_blame.push_str(&value);
+                        if variable == "commit" {
+                            commit_range = Some(start..line_blame.len());
+                        }
                     }
                     Variable::Empty => {
                         if line_blame.is_empty() {
@@ -474,7 +486,7 @@ impl LineBlame {
             }
         }
 
-        line_blame
+        (line_blame, commit_range)
     }
 }
 

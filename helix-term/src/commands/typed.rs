@@ -2989,7 +2989,13 @@ fn yank_diagnostic(
         None => '+',
     };
 
-    let (view, doc) = current_ref!(cx.editor);
+    yank_diagnostic_impl(cx.editor, reg)
+}
+
+/// Yanks the messages of the diagnostics under the primary selection to `reg`. With none and
+/// inline blame on (this fork), yanks the full hash of the commit of the cursor's line instead.
+pub(super) fn yank_diagnostic_impl(editor: &mut Editor, reg: char) -> anyhow::Result<()> {
+    let (view, doc) = current_ref!(editor);
     let primary = doc.selection(view.id).primary();
 
     // Look only for diagnostics that intersect with the primary selection
@@ -3001,11 +3007,20 @@ fn yank_diagnostic(
         .collect();
     let n = diag.len();
     if n == 0 {
-        bail!("No diagnostics under primary selection");
+        let line = primary.cursor_line(doc.text().slice(..));
+        let hash = super::blame::line_commit(editor, doc, line)
+            .map_err(|why| anyhow!("No diagnostics under primary selection{why}"))?;
+        let short = hash.get(..12).unwrap_or(&hash).to_string();
+        editor.registers.write(reg, vec![hash])?;
+        editor.set_status(format!(
+            "No diagnostic here: yanked the commit {short}… of line {} to register {reg}",
+            line + 1
+        ));
+        return Ok(());
     }
 
-    cx.editor.registers.write(reg, diag)?;
-    cx.editor.set_status(format!(
+    editor.registers.write(reg, diag)?;
+    editor.set_status(format!(
         "Yanked {n} diagnostic{} to register {reg}",
         if n == 1 { "" } else { "s" }
     ));
@@ -4201,7 +4216,7 @@ pub const TYPABLE_COMMAND_LIST: &[TypableCommand] = &[
     TypableCommand {
         name: "yank-diagnostic",
         aliases: &[],
-        doc: "Yank diagnostic(s) under primary cursor to register, or clipboard by default",
+        doc: "Yank diagnostic(s) under primary cursor to register, or clipboard by default. Without one, and with inline blame on, yank the full hash of the line's commit",
         fun: yank_diagnostic,
         completer: CommandCompleter::all(completers::register),
         signature: Signature {
