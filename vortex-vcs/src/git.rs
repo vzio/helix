@@ -105,7 +105,11 @@ fn commit_info(commit: &Commit) -> Result<CommitInfo> {
     let author = commit.author()?;
     Ok(CommitInfo {
         id: commit.id.to_string(),
-        short_id: commit.id.to_hex_with_len(9).to_string(),
+        // as short as git abbreviates it (`core.abbrev`), unique in the repository
+        short_id: commit.short_id().map_or_else(
+            |_| commit.id.to_hex_with_len(7).to_string(),
+            |id| id.to_string(),
+        ),
         summary: commit.message()?.summary().to_string(),
         author: author.name.to_string(),
         date: author

@@ -686,12 +686,19 @@ async fn the_cursor_line_is_drawn_after_its_text() {
 
     // a few columns after the end of the text, drawn like an inlay hint
     let text_end = rows[0].find("one").unwrap() + "one".len();
-    let start = rows[0].find("Jane Doe").unwrap();
+    // (it starts with the short hash of the commit)
+    let short = git_output(dir.path(), &["rev-parse", "--short", "HEAD"]);
+    let start = rows[0].find(&format!("{short} Jane Doe")).unwrap();
     assert!((2..=6).contains(&(start - text_end)), "{:?}", rows[0]);
     let screen = session.app.screen();
     let cell = |x: usize| screen.get(x as u16, 0).unwrap();
+    // (the hash has no style of its own in this theme)
     assert_eq!(cell(start).fg, HINT_COLOR);
-    assert_eq!(cell(start + "Jane Doe, Add".len()).fg, HINT_COLOR);
+    assert_eq!(cell(start + short.len() - 1).fg, HINT_COLOR);
+    assert_eq!(
+        cell(start + short.len() + 1 + "Jane Doe, Add".len()).fg,
+        HINT_COLOR
+    );
     assert_ne!(cell(text_end - 1).fg, HINT_COLOR);
 
     // moving hides it until the delay is over, then it follows the cursor
@@ -806,4 +813,462 @@ async fn all_lines_are_drawn() {
 fn commit_more(dir: &Path, file: &Path) {
     std::fs::write(file, "one\ntwo\nthree\nfour\n\nlast\n").unwrap();
     commit(dir, "Bob Smith", "Add last line");
+}
+
+// Commit hashes in the blame, and `space i` yanking them.
+
+/// What `git <args>` prints in `dir`.
+fn git_output(dir: &Path, args: &[&str]) -> String {
+    let output = Command::new("git")
+        .current_dir(dir)
+        .env("GIT_CONFIG_GLOBAL", "/dev/null")
+        .env("GIT_CONFIG_SYSTEM", "/dev/null")
+        .args(args)
+        .output()
+        .expect("git can be run");
+    assert!(
+        output.status.success(),
+        "git {args:?} failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    String::from_utf8(output.stdout).unwrap().trim().to_owned()
+}
+
+/// The full id of `rev` and the abbreviation git makes of it.
+fn ids(dir: &Path, rev: &str) -> (String, String) {
+    (
+        git_output(dir, &["rev-parse", rev]),
+        git_output(dir, &["rev-parse", "--short", rev]),
+    )
+}
+
+/// `numbers.txt` with three commits (Jane Doe: "one", "two" and "three", Bob Smith: "TWO"), and
+/// a fourth line that is not committed. Returns the repository, the file and the ids (full and
+/// short) of the commit of Jane (lines 0 and 2) and of Bob (line 1).
+fn hash_repo() -> (
+    tempfile::TempDir,
+    PathBuf,
+    (String, String),
+    (String, String),
+) {
+    let (dir, file) = repo();
+    std::fs::write(&file, "one\nTWO\nthree\n").unwrap();
+    commit(dir.path(), "Bob Smith", "Shout two");
+    let jane = ids(dir.path(), "HEAD~1");
+    let bob = ids(dir.path(), "HEAD");
+    std::fs::write(&file, "one\nTWO\nthree\nfresh\n").unwrap();
+    (dir, file, jane, bob)
+}
+
+const HASH_FORMAT: &str = "{commit} {author}|{title}";
+
+fn hash_config(enable: bool) -> Config {
+    let mut config = config(enable, InlineBlameShow::AllLines, 0);
+    config.editor.inline_blame.format = HASH_FORMAT.to_owned();
+    config
+}
+
+/// The values of a register, if it has any.
+fn register(app: &Application, name: char) -> Option<Vec<String>> {
+    app.editor
+        .registers
+        .read(name, &app.editor)
+        .map(|values| values.map(|value| value.into_owned()).collect())
+}
+
+impl Session {
+    /// Waits for the blame of every line of the document, of the diff too.
+    async fn wait_until_lines_blamed(&mut self) {
+        self.wait_until_ready().await;
+        self.wait_for("the blame of the lines", |app| {
+            doc(app).line_blame(0) != LineBlameResult::Nothing
+                && doc(app).line_blame(3) != LineBlameResult::Nothing
+        })
+        .await;
+    }
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn the_blame_of_a_committed_line_starts_with_its_short_hash() {
+    let (_dir, file, jane, bob) = hash_repo();
+    let mut session = Session::new(app_with(&file, hash_config(true)));
+    session.wait_until_lines_blamed().await;
+    let app = &session.app;
+
+    // git's abbreviation (7 digits at least), a prefix of the whole id
+    for short in [&jane.1, &bob.1] {
+        assert!(short.len() >= 7);
+    }
+    assert!(jane.0.starts_with(&jane.1) && bob.0.starts_with(&bob.1));
+    assert_ne!(jane.1, bob.1);
+
+    let expect = |line: usize, (_, short): &(String, String), rest: &str| {
+        let (text, range) = doc(app)
+            .line_blame(line)
+            .display_with_commit(HASH_FORMAT)
+            .unwrap_or_else(|| panic!("no blame for line {line}"));
+        assert_eq!(text, format!("{short} {rest}"), "line {line}");
+        assert_eq!(range, Some(0..short.len()), "line {line}");
+        // `display` is the same text
+        assert_eq!(shown_with(app, line).as_deref(), Some(text.as_str()));
+    };
+    expect(0, &jane, "Jane Doe|Add numbers");
+    expect(1, &bob, "Bob Smith|Shout two");
+    expect(2, &jane, "Jane Doe|Add numbers");
+
+    // the default format has the hash first
+    let (text, range) = doc(app)
+        .line_blame(1)
+        .display_with_commit(&InlineBlameConfig::default().format)
+        .unwrap();
+    assert!(
+        text.starts_with(&format!("{} Bob Smith, ", bob.1)),
+        "{text}"
+    );
+    assert!(text.ends_with(" • Shout two"), "{text}");
+    assert_eq!(range, Some(0..bob.1.len()));
+
+    // a line that is not committed has none
+    assert_eq!(
+        doc(app).line_blame(3),
+        LineBlameResult::NotCommittedYet,
+        "the fourth line"
+    );
+    assert_eq!(
+        doc(app).line_blame(3).display_with_commit(HASH_FORMAT),
+        Some(("Not committed yet".to_owned(), None))
+    );
+    // and neither has a format without the variable
+    assert_eq!(
+        doc(app).line_blame(0).display_with_commit(FORMAT),
+        Some(("Jane Doe|Add numbers".to_owned(), None))
+    );
+    session.close().await;
+}
+
+fn shown_with(app: &Application, line: usize) -> Option<String> {
+    doc(app).line_blame(line).display(HASH_FORMAT)
+}
+
+const BLAME_COLOR: vortex_view::graphics::Color = vortex_view::graphics::Color::Rgb(0, 255, 0);
+const HASH_COLOR: vortex_view::graphics::Color = vortex_view::graphics::Color::Rgb(255, 0, 0);
+
+fn theme_of(toml: &str) -> vortex_view::Theme {
+    vortex_view::Theme::from(toml::from_str::<toml::Value>(toml).unwrap())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn the_hash_is_drawn_with_its_own_style() {
+    let (_dir, file, jane, _bob) = hash_repo();
+    let mut config = hash_config(true);
+    config.editor.inline_blame.format = InlineBlameConfig::default().format;
+    let mut session = Session::new(app_with(&file, config));
+    session.app.editor.theme = theme_of(
+        r##"
+"ui.virtual.inline-blame" = { fg = "#00ff00" }
+"ui.virtual.inline-blame.hash" = { fg = "#ff0000" }
+"ui.selection" = { bg = "#333333" }
+"##,
+    );
+    session
+        .wait_for_screen("the blame", |rows| on_screen(rows, &jane.1))
+        .await;
+
+    // the colors of the cells of `text` on the row of the line `line`
+    let colors = |app: &Application, line: usize, text: &str| {
+        let rows = screen_rows(app);
+        let row = &rows[line];
+        let byte = row
+            .find(text)
+            .unwrap_or_else(|| panic!("no {text:?} in {row:?}"));
+        // (a column, not a byte: the blame has a bullet)
+        let x = row[..byte].chars().count();
+        let screen = app.screen();
+        (x..x + text.chars().count())
+            .map(|x| screen.get(x as u16, line as u16).unwrap().fg)
+            .collect::<Vec<_>>()
+    };
+    let rest = "Jane Doe, ";
+    // the hash only, the rest has the blame's
+    let hash_cells = colors(&session.app, 0, &jane.1);
+    assert_eq!(hash_cells.len(), jane.1.len());
+    assert!(
+        hash_cells.iter().all(|fg| *fg == HASH_COLOR),
+        "{hash_cells:?}"
+    );
+    let rest_cells = colors(&session.app, 0, rest);
+    assert!(
+        rest_cells.iter().all(|fg| *fg == BLAME_COLOR),
+        "{rest_cells:?}"
+    );
+    let title = colors(&session.app, 0, "Add numbers");
+    assert!(title.iter().all(|fg| *fg == BLAME_COLOR), "{title:?}");
+    // the space between them is not the hash
+    let row = screen_rows(&session.app)[0].clone();
+    let after_hash = row.find(&jane.1).unwrap() + jane.1.len();
+    assert_eq!(
+        session.app.screen().get(after_hash as u16, 0).unwrap().fg,
+        BLAME_COLOR
+    );
+    // the text of the line itself is neither
+    let code = colors(&session.app, 0, "one");
+    assert!(code
+        .iter()
+        .all(|fg| *fg != BLAME_COLOR && *fg != HASH_COLOR));
+
+    // the line that is not committed has no hash: all of it is drawn the same
+    let rows = screen_rows(&session.app);
+    assert!(rows[3].contains("fresh"), "{:?}", rows[3]);
+    let nothing = colors(&session.app, 3, "Not committed yet");
+    assert!(nothing.iter().all(|fg| *fg == BLAME_COLOR), "{nothing:?}");
+
+    // the scope patches the style of the blame: without a color of its own, the hash is
+    // drawn in the color of the blame, and still gets the modifier
+    session.app.editor.theme = theme_of(
+        r##"
+"ui.virtual.inline-blame" = { fg = "#00ff00" }
+"ui.virtual.inline-blame.hash" = { modifiers = ["bold"] }
+"ui.selection" = { bg = "#333333" }
+"##,
+    );
+    // (a movement is a reason to draw again)
+    session.keys("jk").await;
+    let hash_cells = colors(&session.app, 0, &jane.1);
+    assert!(
+        hash_cells.iter().all(|fg| *fg == BLAME_COLOR),
+        "{hash_cells:?}"
+    );
+    let row = screen_rows(&session.app)[0].clone();
+    let x = row.find(&jane.1).unwrap() as u16;
+    let screen = session.app.screen();
+    assert!(screen
+        .get(x, 0)
+        .unwrap()
+        .modifier
+        .contains(vortex_view::graphics::Modifier::BOLD));
+    let y = row.find("Jane Doe").unwrap() as u16;
+    assert!(!screen
+        .get(y, 0)
+        .unwrap()
+        .modifier
+        .contains(vortex_view::graphics::Modifier::BOLD));
+
+    // a theme with no scope for the hash: the style of the blame
+    session.app.editor.theme = theme_of(
+        "\"ui.virtual.inline-blame\" = { fg = \"#00ff00\" }\n\"ui.selection\" = { bg = \"#333333\" }",
+    );
+    session.keys("jk").await;
+    let hash_cells = colors(&session.app, 0, &jane.1);
+    assert!(
+        hash_cells.iter().all(|fg| *fg == BLAME_COLOR),
+        "{hash_cells:?}"
+    );
+    session.close().await;
+}
+
+/// The status line as `(message, is an error)`.
+fn status_line(app: &Application) -> (String, bool) {
+    let (message, severity) = app.editor.get_status().expect("a status message");
+    (
+        message.to_string(),
+        *severity == vortex_view::editor::Severity::Error,
+    )
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn space_i_yanks_the_hash_of_the_line_of_the_cursor() {
+    let (dir, file, jane, bob) = hash_repo();
+    let mut session = Session::new(app_with(&file, hash_config(true)));
+    session.wait_until_lines_blamed().await;
+
+    // the whole id, not the abbreviation of the blame, in the register typed before
+    session.keys("\"a<space>i").await;
+    assert_eq!(register(&session.app, 'a'), Some(vec![jane.0.clone()]));
+    assert_eq!(jane.0.len(), 40);
+    assert_eq!(jane.0, git_output(dir.path(), &["rev-parse", "HEAD~1"]));
+    assert_eq!(
+        status_line(&session.app),
+        (
+            format!(
+                "No diagnostic here: yanked the commit {}… of line 1 to register a",
+                &jane.0[..12]
+            ),
+            false
+        )
+    );
+
+    // the commit of the line it is on
+    session.keys("j\"b<space>i").await;
+    assert_eq!(register(&session.app, 'b'), Some(vec![bob.0.clone()]));
+    assert_eq!(bob.0, git_output(dir.path(), &["rev-parse", "HEAD"]));
+    assert_eq!(
+        status_line(&session.app),
+        (
+            format!(
+                "No diagnostic here: yanked the commit {}… of line 2 to register b",
+                &bob.0[..12]
+            ),
+            false
+        )
+    );
+    // (the other register stays as it was)
+    assert_eq!(register(&session.app, 'a'), Some(vec![jane.0.clone()]));
+
+    // the typable command is the same, with its register
+    session.keys("j:yank-diagnostic c<ret>").await;
+    assert_eq!(register(&session.app, 'c'), Some(vec![jane.0.clone()]));
+    assert_eq!(
+        status_line(&session.app),
+        (
+            format!(
+                "No diagnostic here: yanked the commit {}… of line 3 to register c",
+                &jane.0[..12]
+            ),
+            false
+        )
+    );
+
+    // without a register: the clipboard, which tests may not have: if it is there, it has it
+    session.keys("k<space>i").await;
+    let (message, is_error) = status_line(&session.app);
+    if is_error {
+        assert!(message.to_lowercase().contains("clipboard"), "{message}");
+    } else {
+        assert!(message.ends_with("of line 2 to register +"), "{message}");
+        assert_eq!(register(&session.app, '+'), Some(vec![bob.0.clone()]));
+    }
+    session.close().await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn space_i_on_a_line_that_is_not_committed_yanks_nothing() {
+    let (_dir, file, jane, _bob) = hash_repo();
+    let mut session = Session::new(app_with(&file, hash_config(true)));
+    session.wait_until_lines_blamed().await;
+
+    // something in the register to keep
+    session.keys("\"a<space>i").await;
+    assert_eq!(register(&session.app, 'a'), Some(vec![jane.0.clone()]));
+
+    session.keys("jjj\"a<space>i").await;
+    assert_eq!(
+        status_line(&session.app),
+        (
+            "No diagnostics under primary selection, and the line isn't committed yet".to_owned(),
+            true
+        )
+    );
+    assert_eq!(register(&session.app, 'a'), Some(vec![jane.0.clone()]));
+    // a register that is empty stays so
+    session.keys(":yank-diagnostic d<ret>").await;
+    assert!(status_line(&session.app).1);
+    assert_eq!(register(&session.app, 'd'), None);
+    session.close().await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_diagnostic_is_yanked_before_the_hash() {
+    use vortex_core::diagnostic::{Diagnostic, DiagnosticProvider, Range as DiagnosticRange};
+
+    let (_dir, file, _jane, bob) = hash_repo();
+    let mut session = Session::new(app_with(&file, hash_config(true)));
+    session.wait_until_lines_blamed().await;
+
+    // a diagnostic on the first word of the second line ("TWO")
+    let start = "one\n".len();
+    let diagnostic = Diagnostic {
+        range: DiagnosticRange {
+            start,
+            end: start + "TWO".len(),
+        },
+        ends_at_word: true,
+        starts_at_word: true,
+        zero_width: false,
+        line: 1,
+        message: "unused thing".to_owned(),
+        severity: None,
+        code: None,
+        provider: DiagnosticProvider::Lsp {
+            server_id: Default::default(),
+            identifier: None,
+        },
+        tags: Vec::new(),
+        source: None,
+        data: None,
+    };
+    vortex_view::doc_mut!(session.app.editor).replace_diagnostics([diagnostic], &[], None);
+
+    // on it: the message
+    session.keys("j\"a<space>i").await;
+    assert_eq!(
+        register(&session.app, 'a'),
+        Some(vec!["unused thing".to_owned()])
+    );
+    assert_eq!(
+        status_line(&session.app),
+        ("Yanked 1 diagnostic to register a".to_owned(), false)
+    );
+    session.keys(":yank-diagnostic b<ret>").await;
+    assert_eq!(
+        register(&session.app, 'b'),
+        Some(vec!["unused thing".to_owned()])
+    );
+
+    // off it, on the line above: the hash
+    session.keys("k\"c<space>i").await;
+    let (_, is_error) = status_line(&session.app);
+    assert!(!is_error);
+    let jane = git_output(_dir.path(), &["rev-parse", "HEAD~1"]);
+    assert_eq!(register(&session.app, 'c'), Some(vec![jane]));
+    // (and the diagnostic has its commit, Bob's, for when it is gone)
+    vortex_view::doc_mut!(session.app.editor).replace_diagnostics([], &[], None);
+    session.keys("j\"e<space>i").await;
+    assert_eq!(register(&session.app, 'e'), Some(vec![bob.0]));
+    session.close().await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn space_i_without_inline_blame_keeps_its_error() {
+    let (_dir, file, _jane, _bob) = hash_repo();
+    let mut session = Session::new(app_with(&file, hash_config(false)));
+    session.keys("\"a<space>i").await;
+    assert_eq!(
+        status_line(&session.app),
+        ("No diagnostics under primary selection".to_owned(), true)
+    );
+    assert_eq!(register(&session.app, 'a'), None);
+    // no blame was asked for either
+    assert!(matches!(
+        doc(&session.app).blame.state(),
+        BlameState::Unknown
+    ));
+
+    session.keys(":yank-diagnostic b<ret>").await;
+    assert_eq!(
+        status_line(&session.app),
+        (
+            "'yank-diagnostic': No diagnostics under primary selection".to_owned(),
+            true
+        )
+    );
+    assert_eq!(register(&session.app, 'b'), None);
+
+    // turned on (and the blame there), it yanks
+    session.keys(":toggle-inline-blame<ret>").await;
+    session.wait_until_lines_blamed().await;
+    session.keys("\"a<space>i").await;
+    assert_eq!(
+        register(&session.app, 'a').map(|values| values[0].len()),
+        Some(40)
+    );
+    // and off again: back to the error
+    session.keys(":toggle-inline-blame<ret>").await;
+    assert!(!enabled(&session.app));
+    session.keys("\"f<space>i").await;
+    assert_eq!(
+        status_line(&session.app),
+        ("No diagnostics under primary selection".to_owned(), true)
+    );
+    assert_eq!(register(&session.app, 'f'), None);
+    session.close().await;
 }

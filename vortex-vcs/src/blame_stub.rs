@@ -98,4 +98,11 @@ impl LineBlame {
     pub fn parse_format(&self, _format: &str) -> String {
         String::new()
     }
+
+    pub fn parse_format_with_commit(
+        &self,
+        _format: &str,
+    ) -> (String, Option<std::ops::Range<usize>>) {
+        (String::new(), None)
+    }
 }

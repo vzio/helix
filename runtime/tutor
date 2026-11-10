@@ -269,8 +269,12 @@
                  marked S staged, M not staged, • not saved yet.
                  It follows your edits while it's open, even
                  from another program. In its diffs, n N go on
-                 to the next file
-  space B        who changed each line, and when (fork)
+                 to the next file. In its filter, a hash (4 hex
+                 digits or more) finds the commit
+  space B        who changed each line, when, and in which
+                 commit (fork)
+  space i        yank the diagnostic under the cursor; with
+                 none, and blame on, the line's commit hash
 
  A file another program changed is reloaded when you come back
  to it, unless you changed it too: then :reload takes the new

@@ -1,7 +1,7 @@
 //! Commands of inline git blame (fork feature).
 
 use vortex_view::{
-    blame::BlameState,
+    blame::{BlameState, LineBlameResult},
     editor::{Config, ConfigEvent},
     DocumentId, Editor,
 };
@@ -61,4 +61,25 @@ pub(crate) fn toggle(editor: &mut Editor) -> anyhow::Result<()> {
         if enabled { "enabled" } else { "disabled" }
     ));
     Ok(())
+}
+
+/// The full hash of the commit that last changed `line` of `doc`, for `:yank-diagnostic` when
+/// there is no diagnostic to yank, or why there is none (to append to "No diagnostics...").
+pub(crate) fn line_commit(
+    editor: &Editor,
+    doc: &vortex_view::Document,
+    line: usize,
+) -> Result<String, &'static str> {
+    if !editor.config().inline_blame.enable {
+        return Err("");
+    }
+    match doc.blame.state() {
+        BlameState::Unknown | BlameState::Pending => Err(", and the blame isn't ready yet"),
+        BlameState::Unavailable => Err(", and no blame for this file"),
+        BlameState::NotCommitted | BlameState::Ready(_) => match doc.line_blame(line) {
+            LineBlameResult::Blame(blame) => Ok(blame.commit().id.to_string()),
+            LineBlameResult::NotCommittedYet => Err(", and the line isn't committed yet"),
+            LineBlameResult::Nothing => Err(", and no blame for this line"),
+        },
+    }
 }

@@ -67,7 +67,11 @@ pub(crate) fn commit_picker(editor: &mut Editor) -> Option<CommitLog> {
     ];
     let uncommitted = Arc::new(UncommittedCount::default());
     let style = CommitStyle {
-        id: editor.theme.get("constant"),
+        // the hash is there to be found and copied, not read: subtle
+        id: editor
+            .theme
+            .try_get_exact("ui.text.inactive")
+            .unwrap_or_else(|| editor.theme.get("comment")),
         date: editor.theme.get("comment"),
         author: editor.theme.get("variable"),
         uncommitted_style: editor.theme.get("diff.delta"),
@@ -96,6 +100,7 @@ pub(crate) fn commit_picker(editor: &mut Editor) -> Option<CommitLog> {
         move |cx, row, _action| open(cx, row)
     })
     .with_stacked_key_handler(key!(Enter), open)
+    .with_preferred(is_hash_query, LogRow::hash_starts_with)
     .with_modes()
     .with_dividers(|row, _| match &row.kind {
         RowKind::Divider(title) => Some(title.as_str().into()),
@@ -236,6 +241,12 @@ impl Source {
 
 /// A row of the commit picker: the uncommitted changes, a commit, or the divider of a section of
 /// the log.
+/// Whether a query looks like the start of a commit hash: 4 hexadecimal digits or more. The commits
+/// whose hash starts with it are listed first, before the ones whose summary matches it.
+fn is_hash_query(query: &str) -> bool {
+    query.len() >= 4 && query.chars().all(|c| c.is_ascii_hexdigit())
+}
+
 pub(crate) struct LogRow {
     /// The position among the rows, dividers included; the uncommitted changes are at 0.
     pos: usize,
@@ -257,6 +268,15 @@ impl LogRow {
             LogEntry::Commit(commit) => RowKind::Commit(commit),
         };
         Self { pos, kind }
+    }
+
+    /// Whether the row is a commit whose id starts with `prefix` (a hash query, see
+    /// [`is_hash_query`]).
+    fn hash_starts_with(&self, prefix: &str) -> bool {
+        self.commit().is_some_and(|commit| {
+            commit.id.len() >= prefix.len()
+                && commit.id[..prefix.len()].eq_ignore_ascii_case(prefix)
+        })
     }
 
     fn commit(&self) -> Option<&CommitInfo> {

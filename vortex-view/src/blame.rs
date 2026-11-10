@@ -8,6 +8,7 @@
 
 use std::borrow::Borrow;
 use std::collections::HashMap;
+use std::ops::Range;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
@@ -189,9 +190,17 @@ pub enum LineBlameResult<T = LineBlame> {
 impl LineBlameResult {
     /// The text to show, with the blame formatted with `format`.
     pub fn display(&self, format: &str) -> Option<String> {
+        self.display_with_commit(format).map(|(text, _)| text)
+    }
+
+    /// Like [`LineBlameResult::display`], with where the commit hash is in the text (a byte
+    /// range): lines that aren't committed have none.
+    pub fn display_with_commit(&self, format: &str) -> Option<(String, Option<Range<usize>>)> {
         match self {
-            Self::Blame(blame) => Some(blame.parse_format(format)).filter(|text| !text.is_empty()),
-            Self::NotCommittedYet => Some(NOT_COMMITTED_YET.to_owned()),
+            Self::Blame(blame) => {
+                Some(blame.parse_format_with_commit(format)).filter(|(text, _)| !text.is_empty())
+            }
+            Self::NotCommittedYet => Some((NOT_COMMITTED_YET.to_owned(), None)),
             Self::Nothing => None,
         }
     }
@@ -457,7 +466,7 @@ mod test {
         let config = Config::default().inline_blame;
         assert!(!config.enable);
         assert_eq!(config.show, InlineBlameShow::CursorLine);
-        assert_eq!(config.format, "{author}, {time-ago} • {title}");
+        assert_eq!(config.format, "{commit} {author}, {time-ago} • {title}");
         assert_eq!(config.delay, 300);
         assert_eq!(toml::from_str::<Config>("").unwrap().inline_blame, config);
     }

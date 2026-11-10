@@ -178,7 +178,7 @@ can be read whole. `w` switches between wrapping and horizontal scrolling.
 
 ## Git commit log
 
-A picker of the commits reachable from HEAD, with their short id, date, author and summary. The
+A picker of the commits reachable from HEAD, with their short hash, date, author and summary. The
 commits are in sections by branch, newest first in each, each section under a divider with the
 name of the branch. Choosing a commit lists the files it changed, and choosing a file opens the
 [side by side diff](#side-by-side-git-diff) of that file in the commit: its version in the
@@ -212,6 +212,10 @@ The sections are made of the commits reachable from HEAD (`B` is the current bra
 - Sections 1 and 2 are found first, with the commits of the current branch only, then the rest of
   the history streams into section 3 as before.
 
+The short hash is abbreviated as git abbreviates it (`core.abbrev`, 7 characters or more, unique
+in the repository, the same as `git log --oneline`), and drawn subtly, with the style of
+`ui.text.inactive` (else `comment`): it is there to be found, not read.
+
 Dividers are not entries: the cursor skips them (`j`, `k`, `Up`, `Down`, `Tab`, `C-n`, `C-p`,
 `PageUp`, `PageDown`, `Home`, `End`, wrapping around the ends), they are not counted in the numbers
 above the list, and a query hides them. They are drawn as a line across the picker, with the style of the
@@ -222,7 +226,7 @@ theme scope `ui.picker.divider` if the theme has it, else `ui.text.inactive`, el
 | Keys | Action |
 | --- | --- |
 | `space l`, `:git-log` | Open the commit picker, in normal mode, with the cursor on its first row, the [uncommitted changes](#uncommitted-changes-live). The status line shows `s filter, v extend, w/b section, enter files`. |
-| `s` | Filter mode: typing filters by summary; `%commit`, `%author`, `%date` filter by the other columns. `Esc` goes back to normal mode and keeps the query. |
+| `s` | Filter mode: typing filters by summary, and by hash: a query of 4 hex digits or more (`a1b2c3`) lists the commits whose hash starts with it first, then the commits whose summary matches it. `%commit`, `%author`, `%date` filter by the other columns. `Esc` goes back to normal mode and keeps the query. |
 | `j`/`k`, `Down`/`Up`, `C-n`/`C-p`, `Tab`/`S-Tab`, `C-d`/`C-u`/`PageDown`/`PageUp`, `gg`/`ge`/`G`, `Home`/`End` | Move. The keys that aren't letters work in filter mode too. |
 | `Enter` in the commit picker | List the files changed by the commit, or by the selected commits, or the uncommitted changes (one row per hunk), on top of the commit picker. The status line shows the commit or the range. |
 | `v`, `A-v` | Toggle extend mode: while it's on, every movement extends the selection from the commit where it started to the commit under the cursor. `A-v` works in filter mode too. |
@@ -695,9 +699,12 @@ of the file picker for the rest (`ui.text.focus` for the selected row, `ui.backg
 Greyed-out text at the end of a line about the commit that last changed it, GitLens style:
 
 ```
-  5  line 5 changed by bob    Bob Smith, 3 days ago • Change line five
+  5  line 5 changed by bob    a1b2c3d Bob Smith, 3 days ago • Change line five
  27  brand new line    Not committed yet
 ```
+
+The commit's short hash comes first, abbreviated as git does (`core.abbrev`, unique in the
+repository); lines that aren't committed have none.
 
 Off by default. Full reference: the
 [`[editor.inline-blame]` section](book/src/editor.md#editorinline-blame-section) of the book.
@@ -708,6 +715,7 @@ Off by default. Full reference: the
 | --- | --- |
 | `space B`, `:toggle-inline-blame` | Turn inline blame on or off |
 | `blame_line` (command palette, unbound) | Show the current line's blame in the statusline, also when inline blame is off |
+| `space i`, `:yank-diagnostic` | Yank the diagnostic under the cursor to the clipboard; with none, and inline blame on, yank the full hash of the line's commit instead (see below) |
 
 ### Configuration
 
@@ -715,12 +723,25 @@ Off by default. Full reference: the
 [editor.inline-blame]
 enable = true              # default false
 show = "cursor-line"       # or "all-lines" (every visible line)
-format = "{author}, {time-ago} • {title}"   # also {date} {commit} {email} {body}
+format = "{commit} {author}, {time-ago} • {title}"   # also {date} {email} {body}
 delay = 300                # ms the cursor rests on a line before it shows; 0 = at once
 ```
 
 Theme scope `ui.virtual.inline-blame`; themes that don't define it use `ui.virtual.inlay-hint`,
-so it looks like inlay hints everywhere.
+so it looks like inlay hints everywhere. The hash (`{commit}`) has its own scope,
+`ui.virtual.inline-blame.hash`, patched over the blame's style (so without it, it looks like the
+rest of the blame).
+
+### Yanking the commit hash
+
+`:yank-diagnostic` (upstream's, unbound there) is on `space i` in this fork, "the info under the
+cursor". It yanks the messages of the diagnostics under the primary selection, to the clipboard
+(`+`) by default, to a register given as its argument (`:yank-diagnostic a`) or typed before the
+key (`"a space i`). When there is no diagnostic there and inline blame is on, it yanks the full
+hash of the commit of the cursor's line instead, and says so:
+`No diagnostic here: yanked the commit a1b2c3d4e5f6… of line 12 to register +`. Diagnostics
+(git [conflicts](#conflict-diagnostics) included) always win. On a line that isn't committed,
+with blame off or not computed yet, it yanks nothing and the error says why.
 
 ### Behaviour
 

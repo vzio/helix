@@ -12,6 +12,8 @@ use crate::ui::text_decorations::Decoration;
 /// The scope of inline blame. Themes that don't define it get the style of inlay hints.
 const SCOPE: &str = "ui.virtual.inline-blame";
 const FALLBACK_SCOPE: &str = "ui.virtual.inlay-hint";
+/// The scope of the commit hash in the blame. Themes that don't define it get the blame's style.
+const HASH_SCOPE: &str = "ui.virtual.inline-blame.hash";
 
 /// Columns between the last character of the line and the blame.
 const GAP: usize = 4;
@@ -28,6 +30,7 @@ pub struct InlineBlame<'a> {
     format: String,
     lines: Lines,
     style: Style,
+    hash_style: Style,
 }
 
 impl<'a> InlineBlame<'a> {
@@ -80,11 +83,15 @@ impl<'a> InlineBlame<'a> {
         let style = theme
             .try_get_exact(SCOPE)
             .unwrap_or_else(|| theme.get(FALLBACK_SCOPE));
+        let hash_style = theme
+            .try_get_exact(HASH_SCOPE)
+            .map_or(style, |hash| style.patch(hash));
         Some(Self {
             doc,
             format: config.format.clone(),
             lines,
             style,
+            hash_style,
         })
     }
 }
@@ -111,7 +118,11 @@ impl Decoration for InlineBlame<'_> {
         if line.chars().all(char::is_whitespace) {
             return none;
         }
-        let Some(text) = self.doc.line_blame(pos.doc_line).display(&self.format) else {
+        let Some((text, hash)) = self
+            .doc
+            .line_blame(pos.doc_line)
+            .display_with_commit(&self.format)
+        else {
             return none;
         };
 
@@ -128,18 +139,32 @@ impl Decoration for InlineBlame<'_> {
         if available == 0 {
             return none;
         }
-        // newlines in a commit message must not mess up the line
+        // newlines in a commit message must not mess up the line (spaces of the same length keep
+        // the hash where it is)
         let text: String = text
             .chars()
-            .map(|c| if c.is_control() { ' ' } else { c })
+            .flat_map(|c| {
+                let len = if c.is_control() { c.len_utf8() } else { 0 };
+                (len == 0)
+                    .then_some(c)
+                    .into_iter()
+                    .chain(std::iter::repeat_n(' ', len))
+            })
             .collect();
+        let hash = hash.unwrap_or_default();
         let x = renderer.viewport.x + start_in_view as u16;
         let (end_x, _) = renderer.set_string_truncated(
             x,
             pos.visual_line,
             &text,
             available,
-            |_| self.style,
+            |offset| {
+                if hash.contains(&offset) {
+                    self.hash_style
+                } else {
+                    self.style
+                }
+            },
             true,
             false,
         );
@@ -190,6 +215,7 @@ mod test {
             format: String::new(),
             lines,
             style: Style::default(),
+            hash_style: Style::default(),
         });
         render_document(
             &mut surface,
@@ -285,6 +311,41 @@ mod test {
         assert!(rows[1].starts_with("cccc    "), "{rows:?}");
         assert!(rows[1].ends_with('…'), "{rows:?}");
         assert!(rows[2].starts_with("z    "), "{rows:?}");
+    }
+
+    #[test]
+    fn lines_that_are_not_committed_have_no_hash_style() {
+        use vortex_view::graphics::Color;
+
+        let doc = document("hello\n", Config::default());
+        let area = Rect::new(0, 0, 40, 2);
+        let mut surface = Buffer::empty(area);
+        let mut decorations = DecorationManager::default();
+        decorations.add_decoration(InlineBlame {
+            doc: &doc,
+            format: "{commit} {author}".to_owned(),
+            lines: Lines::All,
+            style: Style::default().fg(Color::Green),
+            hash_style: Style::default().fg(Color::Red),
+        });
+        render_document(
+            &mut surface,
+            area,
+            &doc,
+            ViewPosition::default(),
+            &TextAnnotations::default(),
+            None,
+            Vec::new(),
+            &Theme::default(),
+            decorations,
+        );
+        let row: String = (0..area.width)
+            .map(|x| surface[(x, 0)].symbol.as_str())
+            .collect();
+        let start = row.find("Not committed yet").expect("the blame");
+        for x in start..start + "Not committed yet".len() {
+            assert_eq!(surface[(x as u16, 0)].fg, Color::Green, "column {x}");
+        }
     }
 
     #[test]

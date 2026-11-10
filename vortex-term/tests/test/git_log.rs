@@ -146,12 +146,22 @@ impl Repo {
     /// [`Repo::enter`] for a test of another module of the tests: `module` is its
     /// `module_path!()`.
     pub(super) fn enter_in(module: &str, test: &str) -> Option<PathBuf> {
+        Self::enter_with(module, test, Repo::make)
+    }
+
+    /// [`Repo::enter_in`] with a repository of its own: `make` makes it in a directory and
+    /// returns the working directory.
+    pub(super) fn enter_with(
+        module: &str,
+        test: &str,
+        make: fn(&Path) -> PathBuf,
+    ) -> Option<PathBuf> {
         if std::env::var_os(IN_REPO).is_some() {
             return Some(vortex_stdx::env::current_working_dir());
         }
         let dir = tempfile::tempdir().unwrap();
         // (not through a symlinked temp dir: paths are compared)
-        let work = Repo::make(&std::fs::canonicalize(dir.path()).unwrap());
+        let work = make(&std::fs::canonicalize(dir.path()).unwrap());
         // the name of the test as libtest knows it, without the name of the crate
         let name = format!("{}::{test}", module.split_once("::").unwrap().1);
         let output = Command::new(std::env::current_exe().unwrap())
@@ -178,19 +188,31 @@ impl Repo {
     }
 }
 
-/// The ids (first 9 hexadecimal digits, as the picker shows them) of the commits by summary.
-pub(super) fn id(summary: &str) -> String {
+/// The whole id of the commit with this summary.
+pub(super) fn full_id(summary: &str) -> String {
     let log = git(
         &vortex_stdx::env::current_working_dir(),
         "",
-        &["log", "--format=%H %s"],
+        &["log", "--all", "--format=%H %s"],
     );
     let (id, _) = log
         .lines()
         .filter_map(|line| line.split_once(' '))
         .find(|(_, message)| *message == summary)
         .unwrap_or_else(|| panic!("no commit {summary:?} in {log}"));
-    id[..9].to_string()
+    id.to_string()
+}
+
+/// The id of the commit by summary, abbreviated as git does (`git rev-parse --short`), as the
+/// picker shows it.
+pub(super) fn id(summary: &str) -> String {
+    git(
+        &vortex_stdx::env::current_working_dir(),
+        "",
+        &["rev-parse", "--short", &full_id(summary)],
+    )
+    .trim()
+    .to_string()
 }
 
 /// The theme of the tests: only what they look at, with colors that are easy to tell apart.
@@ -1236,4 +1258,281 @@ async fn the_alt_keys_work_in_filter_mode() {
     session.keys("<S-down>").await;
     assert_eq!(status(&session.app), range(COMMITS[2], COMMITS[1], 2));
     assert_eq!(prompt(&session).split_whitespace().next(), Some("9/9"));
+}
+
+// Commit hashes in the log: the abbreviation git makes of them, and the search by hash.
+
+/// What `git rev-parse --short <id>` prints in the repository of the test.
+fn git_short(id: &str) -> String {
+    git(
+        &vortex_stdx::env::current_working_dir(),
+        "",
+        &["rev-parse", "--short", id],
+    )
+    .trim()
+    .to_string()
+}
+
+/// The row of the log with `summary`, from the start of the commit column.
+fn commit_row(session: &Session, summary: &str) -> String {
+    let log = session.log();
+    let row = log
+        .iter()
+        .find(|row| row.contains(summary))
+        .unwrap_or_else(|| panic!("no row with {summary:?}: {log:#?}"));
+    row.trim_start_matches(" > ").trim_start().to_string()
+}
+
+fn theme_with(toml: &str) -> vortex_view::Theme {
+    vortex_view::Theme::from(toml::from_str::<toml::Value>(toml).unwrap())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn the_commit_column_has_the_abbreviation_git_makes() {
+    let Some(_) = Repo::enter("the_commit_column_has_the_abbreviation_git_makes") else {
+        return;
+    };
+    let session = Session::open_log_on_uncommitted().await;
+
+    for summary in COMMITS {
+        let full = full_id(summary);
+        let short = git_short(&full);
+        assert!(short.len() >= 7 && full.starts_with(&short));
+        let row = commit_row(&session, summary);
+        // the abbreviation of git, then the date: the column is no wider than that
+        assert!(row.starts_with(&format!("{short} ")), "{row:?}");
+        // not longer than git abbreviates it: the next characters are not the ones of the id
+        assert!(
+            !row.contains(&full[..short.len() + 1]),
+            "{row:?} has more than {short}"
+        );
+        assert_eq!(id(summary), short);
+    }
+
+    // the dividers and the uncommitted changes are what they were
+    let log = session.log();
+    let dividers: Vec<_> = log.iter().filter(|row| row.contains('─')).collect();
+    assert_eq!(dividers.len(), 3, "{log:#?}");
+    for (divider, title) in dividers
+        .iter()
+        .zip(["feature (unpushed)", "feature", "origin/main"])
+    {
+        assert!(divider.starts_with(&format!("── {title} ─")), "{divider:?}");
+        assert!(divider.ends_with('─'));
+        // (no hash in them)
+        assert!(!COMMITS
+            .iter()
+            .any(|summary| divider.contains(&git_short(&full_id(summary)))));
+    }
+    assert!(log[0].contains(UNCOMMITTED) && !log[0].contains('─'));
+    assert_eq!(log.len(), 12);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn the_hash_is_drawn_subtly() {
+    let Some(_) = Repo::enter("the_hash_is_drawn_subtly") else {
+        return;
+    };
+    // the fg of the first cell of the hash of "Feature: tests", and of the cell of its summary
+    async fn hash_fg(theme: &str) -> (vortex_view::graphics::Color, vortex_view::graphics::Color) {
+        let mut session = Session::new();
+        session.app.editor.theme = theme_with(theme);
+        let session = Session::open_log_with(session).await;
+        let row = session.row_of("Feature: tests");
+        let text = &session.rows()[row];
+        let short = git_short(&full_id("Feature: tests"));
+        let x = text[..text.find(&short).unwrap()].chars().count() as u16;
+        let screen = session.app.screen();
+        let cell = |x: u16| screen.get(x, row as u16).unwrap().fg;
+        // all of the hash is the same
+        for i in 0..short.len() as u16 {
+            assert_eq!(cell(x + i), cell(x));
+        }
+        let summary = text[..text.find("Feature: tests").unwrap()].chars().count() as u16;
+        (cell(x), cell(summary))
+    }
+    use vortex_view::graphics::Color::Rgb;
+    // the scope for text that is not the focus, when the theme has it
+    let (hash, summary) =
+        hash_fg("\"ui.text.inactive\" = { fg = \"#112233\" }\n\"comment\" = { fg = \"#445566\" }\n\"constant\" = { fg = \"#778899\" }\n\"ui.selection\" = { bg = \"#333333\" }")
+            .await;
+    assert_eq!(hash, Rgb(0x11, 0x22, 0x33));
+    assert_ne!(summary, hash);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn the_hash_falls_back_to_the_comment_style() {
+    let Some(_) = Repo::enter("the_hash_falls_back_to_the_comment_style") else {
+        return;
+    };
+    let mut session = Session::new();
+    session.app.editor.theme = theme_with(
+        "\"comment\" = { fg = \"#445566\" }\n\"constant\" = { fg = \"#778899\" }\n\"ui.selection\" = { bg = \"#333333\" }",
+    );
+    let session = Session::open_log_with(session).await;
+    let row = session.row_of("Feature: tests");
+    let text = &session.rows()[row];
+    let short = git_short(&full_id("Feature: tests"));
+    let x = text[..text.find(&short).unwrap()].chars().count() as u16;
+    let fg = session.app.screen().get(x, row as u16).unwrap().fg;
+    // (not the color of constants, which the hash had)
+    assert_eq!(fg, vortex_view::graphics::Color::Rgb(0x44, 0x55, 0x66));
+}
+
+/// A repository whose log has hash-looking words in a summary, with no letter of a hash in the
+/// other summaries (for a hex query not to match them by chance): a commit whose summary has
+/// the first 4 digits of the hash of an older one.
+///
+/// ```text
+/// * add <4 digits> cafe     <- fuzzy matches the 4 digits
+/// * Sling stump
+/// * Print only              <- the 4 digits are the start of its hash
+/// * Mount sump
+/// ```
+fn make_hash_repo(parent: &Path) -> PathBuf {
+    let work = parent.join("work");
+    std::fs::create_dir_all(&work).unwrap();
+    git(&work, "", &["init", "-q"]);
+    let mut repo = Repo { work, minute: 0 };
+    repo.commit("a.txt", "Mount sump");
+    repo.commit("b.txt", "Print only");
+    repo.commit("c.txt", "Sling stump");
+    let work = repo.work.clone();
+    let id = git(&work, "", &["rev-parse", "HEAD~1"]);
+    repo.commit("d.txt", &format!("add {} cafe", &id.trim()[..4]));
+    work
+}
+
+/// The summaries of the commits on the screen, in order.
+fn listed(session: &Session) -> Vec<String> {
+    session
+        .log()
+        .iter()
+        .map(|row| match row.split_once("Jane Doe") {
+            Some((_, summary)) => summary.trim().to_string(),
+            None => row.clone(),
+        })
+        .collect()
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_query_that_is_a_hash_prefix_lists_that_commit_first() {
+    let Some(work) = Repo::enter_with(
+        module_path!(),
+        "a_query_that_is_a_hash_prefix_lists_that_commit_first",
+        make_hash_repo,
+    ) else {
+        return;
+    };
+    let print = full_id("Print only");
+    let p4 = print[..4].to_string();
+    let with_p4 = format!("add {p4} cafe");
+    // (the others don't have it, or the test would not tell anything)
+    for other in ["Mount sump", "Sling stump", &with_p4] {
+        assert!(!full_id(other).starts_with(&p4), "{other} starts with {p4}");
+    }
+    assert!(!git(&work, "", &["log", "--format=%H %s"]).is_empty());
+
+    // (the log of this repository has no "Initial commit")
+    let mut session = Session::new();
+    session.keys("<space>l").await;
+    session
+        .wait_for_screen("the log", |rows| on_screen(rows, "Mount sump"))
+        .await;
+    session.keys("j").await;
+
+    // the 4 digits: the commit whose hash starts with them, then the one whose summary has them
+    session.keys(&format!("s{p4}")).await;
+    session
+        .wait_for_screen("the matches", |rows| !on_screen(rows, "Mount sump"))
+        .await;
+    assert_eq!(listed(&session), ["Print only", &with_p4]);
+    // the cursor is on the first, which is the one the hash is of
+    assert_eq!(session.cursor(), "Print only");
+    assert!(
+        session.frame()[0].ends_with("2/5"),
+        "{:?}",
+        session.frame()[0]
+    );
+    // no divider
+    assert!(session.log().iter().all(|row| !row.contains('─')));
+
+    // more of the hash (the abbreviation git makes, and more): only the commit has it
+    let mut typed = p4.len();
+    for len in [7, 12, 40] {
+        session.keys(&"<backspace>".repeat(typed)).await;
+        session.keys(&print[..len]).await;
+        typed = len;
+        session
+            .wait_for_screen("the commit", |rows| {
+                on_screen(rows, "Print only") && !on_screen(rows, &with_p4)
+            })
+            .await;
+        assert_eq!(listed(&session), ["Print only"], "{len}");
+        assert_eq!(session.cursor(), "Print only");
+    }
+
+    // 3 digits are not a hash: the commit is not looked for, only summaries are
+    session.keys(&"<backspace>".repeat(typed)).await;
+    session.keys(&p4[..3]).await;
+    session
+        .wait_for_screen("the match", |rows| on_screen(rows, &with_p4))
+        .await;
+    assert_eq!(listed(&session), [with_p4.as_str()]);
+    assert_eq!(session.cursor(), with_p4);
+
+    // 4 characters that are not the start of a hash: the summaries, as before
+    assert!(!full_id("Mount sump").starts_with("cafe"));
+    assert!(!print.starts_with("cafe") && !full_id(&with_p4).starts_with("cafe"));
+    session.keys("<backspace><backspace><backspace>cafe").await;
+    session
+        .wait_for_screen("cafe", |rows| !on_screen(rows, "Print only"))
+        .await;
+    assert_eq!(listed(&session), [with_p4.as_str()]);
+
+    // clearing the query is the whole log again
+    session
+        .keys("<backspace><backspace><backspace><backspace>")
+        .await;
+    session
+        .wait_for_screen("the whole log", |rows| on_screen(rows, "Mount sump"))
+        .await;
+    assert_eq!(session.cursor(), UNCOMMITTED);
+    assert_eq!(listed(&session).len(), 6, "{:#?}", listed(&session));
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn the_commit_of_the_hash_is_listed_first_and_opens() {
+    let Some(_) = Repo::enter("the_commit_of_the_hash_is_listed_first_and_opens") else {
+        return;
+    };
+    let mut session = Session::open_log().await;
+    // the oldest commit is the last row of the log, and the log of the others has dividers
+    let oldest = COMMITS[7];
+    let prefix = full_id(oldest)[..5].to_string();
+
+    session.keys(&format!("s{prefix}")).await;
+    session
+        .wait_for_screen("the matches", |rows| on_screen(rows, oldest))
+        .await;
+    // (the others are listed if their summaries match the digits, which they might)
+    let log = listed(&session);
+    assert_eq!(log[0], oldest, "{log:#?}");
+    assert_eq!(session.cursor(), oldest);
+    // once each, and no divider
+    assert_eq!(log.iter().filter(|row| row.as_str() == oldest).count(), 1);
+    assert!(session.log().iter().all(|row| !row.contains('─')));
+    let count = log.len();
+    assert!(
+        session.frame()[0].ends_with(&format!("{count}/9")),
+        "{:?}",
+        session.frame()[0]
+    );
+
+    // Enter opens it, as it does for a commit that was found by its summary
+    session.keys("<ret>").await;
+    session
+        .wait_for_screen("the commit", |rows| on_screen(rows, "m1.txt"))
+        .await;
+    assert_eq!(status(&session.app), format!("{} {oldest}", id(oldest)));
 }

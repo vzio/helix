@@ -34,7 +34,7 @@ use vortex_core::unicode::width::UnicodeWidthStr;
 
 use std::{
     borrow::Cow,
-    collections::HashMap,
+    collections::{HashMap, HashSet},
     io::Read,
     path::Path,
     sync::{
@@ -318,6 +318,72 @@ pub struct Picker<T: 'static + Send + Sync, D: 'static> {
     mode: Option<PickerMode>,
     /// `g` was typed in normal mode, the next key completes the command (`gg`, `ge`).
     goto: bool,
+    /// Items listed before the others for some queries, see [`Picker::with_preferred`].
+    preferred: Option<Preferred<T>>,
+}
+
+/// Items listed first for some queries (this fork): the commits whose hash starts with a
+/// hash-looking query, in the commit log.
+struct Preferred<T> {
+    /// Whether the primary query is one that prefers items.
+    applies: fn(&str) -> bool,
+    /// Whether an item is preferred for the primary query.
+    prefer: fn(&T, &str) -> bool,
+    /// The rows while some items are preferred: the preferred items, then the others that
+    /// match the query in the matcher's order.
+    order: Option<Vec<ListedRow>>,
+}
+
+/// A row while some items are preferred.
+#[derive(Clone, Copy)]
+enum ListedRow {
+    /// The item at this index among all the items.
+    Item(u32),
+    /// The item at this position among the items the matcher matched.
+    Matched(u32),
+}
+
+/// The rows of a picker with these fields (borrowed alone, so that the rest of the picker can be
+/// borrowed mutably meanwhile).
+fn rows_of<'a, T: Send + Sync + 'static>(
+    matcher: &'a Nucleo<T>,
+    preferred: &'a Option<Preferred<T>>,
+) -> Rows<'a, T> {
+    Rows {
+        snapshot: matcher.snapshot(),
+        order: preferred
+            .as_ref()
+            .and_then(|preferred| preferred.order.as_deref()),
+    }
+}
+
+/// The rows of a picker: the items that match the query, in the order they are listed in.
+struct Rows<'a, T: Send + Sync + 'static> {
+    snapshot: &'a nucleo::Snapshot<T>,
+    order: Option<&'a [ListedRow]>,
+}
+
+impl<'a, T: Send + Sync + 'static> Rows<'a, T> {
+    fn count(&self) -> u32 {
+        match self.order {
+            Some(order) => order.len() as u32,
+            None => self.snapshot.matched_item_count(),
+        }
+    }
+
+    fn get(&self, row: u32) -> Option<nucleo::Item<'a, T>> {
+        match self.order {
+            Some(order) => match *order.get(row as usize)? {
+                ListedRow::Item(index) => self.snapshot.get_item(index),
+                ListedRow::Matched(position) => self.snapshot.get_matched_item(position),
+            },
+            None => self.snapshot.get_matched_item(row),
+        }
+    }
+
+    fn range(&self, rows: std::ops::Range<u32>) -> impl Iterator<Item = nucleo::Item<'a, T>> + '_ {
+        rows.filter_map(|row| self.get(row))
+    }
 }
 
 impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
@@ -440,6 +506,7 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
             marked: None,
             mode: None,
             goto: false,
+            preferred: None,
         }
     }
 
@@ -509,6 +576,67 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
     pub fn with_default_action(mut self, action: Action) -> Self {
         self.default_action = action;
         self
+    }
+
+    /// Lists the items for which `prefer` is true first, for the primary queries for which
+    /// `applies` is true, even when they don't match the query otherwise; the other items that
+    /// match follow in the usual order. The commit log uses it to list the commits whose hash
+    /// starts with the query first.
+    pub fn with_preferred(
+        mut self,
+        applies: fn(&str) -> bool,
+        prefer: fn(&T, &str) -> bool,
+    ) -> Self {
+        self.preferred = Some(Preferred {
+            applies,
+            prefer,
+            order: None,
+        });
+        self
+    }
+
+    /// The rows, as they are listed.
+    fn rows(&self) -> Rows<'_, T> {
+        rows_of(&self.matcher, &self.preferred)
+    }
+
+    /// Finds the preferred items again, for the query and the items there are now.
+    fn update_preferred(&mut self) {
+        let query = self.primary_query();
+        let Some(preferred) = &mut self.preferred else {
+            return;
+        };
+        preferred.order = None;
+        if !(preferred.applies)(&query) {
+            return;
+        }
+        let snapshot = self.matcher.snapshot();
+        let first: Vec<u32> = (0..snapshot.item_count())
+            .filter(|&index| {
+                snapshot
+                    .get_item(index)
+                    .is_some_and(|item| (preferred.prefer)(item.data, &query))
+            })
+            .collect();
+        if first.is_empty() {
+            return;
+        }
+        // the preferred items that the matcher matched too are only listed once, first
+        let first_items: HashSet<*const T> = first
+            .iter()
+            .filter_map(|&index| snapshot.get_item(index))
+            .map(|item| item.data as *const T)
+            .collect();
+        let mut order: Vec<ListedRow> = first.into_iter().map(ListedRow::Item).collect();
+        order.extend(
+            snapshot
+                .matched_items(..)
+                .enumerate()
+                .filter(|(_, item)| !first_items.contains(&(item.data as *const T)))
+                .map(|(position, _)| ListedRow::Matched(position as u32)),
+        );
+        preferred.order = Some(order);
+        self.cursor = self.cursor.min(self.rows().count().saturating_sub(1));
     }
 
     /// The owner of the picker filters and orders the items itself: editing the prompt doesn't
@@ -646,7 +774,7 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
     /// Puts the cursor on the `cursor`th item that matches the query, or on the last one if there
     /// are fewer. The cursor moves on to the next entry if that's a divider.
     pub fn set_cursor_index(&mut self, cursor: u32) {
-        let len = self.matcher.snapshot().matched_item_count();
+        let len = self.rows().count();
         self.cursor = cursor.min(len.saturating_sub(1));
         self.skip_dividers(Direction::Forward);
     }
@@ -662,10 +790,7 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
 
     /// The `index`th item that matches the query, in the order they are listed in.
     pub fn matched_item(&self, index: u32) -> Option<&T> {
-        self.matcher
-            .snapshot()
-            .get_matched_item(index)
-            .map(|item| item.data)
+        self.rows().get(index).map(|item| item.data)
     }
 
     /// Whether `item` is a divider, see [`Picker::with_dividers`].
@@ -681,11 +806,10 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
         if self.dividers.is_none() {
             return;
         }
-        let snapshot = self.matcher.snapshot();
-        let len = snapshot.matched_item_count();
+        let rows = self.rows();
+        let len = rows.count();
         let is_entry = |at: u32| {
-            snapshot
-                .get_matched_item(at)
+            rows.get(at)
                 .is_some_and(|item| !self.is_divider_item(item.data))
         };
         let mut cursor = self.cursor;
@@ -721,27 +845,27 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
     /// The number of items that match the query and the number of items, without the dividers.
     fn counts(&self) -> (u32, u32) {
         let snapshot = self.matcher.snapshot();
+        let rows = self.rows();
         let Some(dividers) = &self.dividers else {
-            return (snapshot.matched_item_count(), snapshot.item_count());
+            return (rows.count(), snapshot.item_count());
         };
         // dividers have no text, so they only match while there's no query (or a negated one)
         let matching = if snapshot.pattern().is_empty() {
             dividers.count
         } else {
-            snapshot
-                .matched_items(..)
+            rows.range(0..rows.count())
                 .filter(|item| dividers.title(item.data, &self.editor_data).is_some())
                 .count() as u32
         };
         (
-            snapshot.matched_item_count().saturating_sub(matching),
+            rows.count().saturating_sub(matching),
             snapshot.item_count().saturating_sub(dividers.count),
         )
     }
 
     /// Move the cursor by a number of lines, either down (`Forward`) or up (`Backward`)
     pub fn move_by(&mut self, amount: u32, direction: Direction) {
-        let len = self.matcher.snapshot().matched_item_count();
+        let len = self.rows().count();
 
         if len == 0 {
             // No results, can't move.
@@ -777,18 +901,13 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
 
     /// Move the cursor to the last entry
     pub fn to_end(&mut self) {
-        self.cursor = self
-            .matcher
-            .snapshot()
-            .matched_item_count()
-            .saturating_sub(1);
+        self.cursor = self.rows().count().saturating_sub(1);
         self.skip_dividers(Direction::Backward);
     }
 
     pub fn selection(&self) -> Option<&T> {
-        self.matcher
-            .snapshot()
-            .get_matched_item(self.cursor)
+        self.rows()
+            .get(self.cursor)
             .map(|item| item.data)
             .filter(|item| !self.is_divider_item(item))
     }
@@ -984,9 +1103,11 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
                     .saturating_sub(1),
             )
         }
+        self.update_preferred();
         self.update_dividers();
         let (matched_count, item_count) = self.counts();
         let snapshot = self.matcher.snapshot();
+        let rows_of_items = rows_of(&self.matcher, &self.preferred);
 
         let text_style = cx.editor.theme.get("ui.text");
         let selected = cx.editor.theme.get("ui.text.focus");
@@ -1046,9 +1167,7 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
         let rows = inner.height.saturating_sub(self.header_height()) as u32;
         let offset = self.cursor - (self.cursor % std::cmp::max(1, rows));
         let cursor = self.cursor.saturating_sub(offset);
-        let end = offset
-            .saturating_add(rows)
-            .min(snapshot.matched_item_count());
+        let end = offset.saturating_add(rows).min(rows_of_items.count());
         let mut indices = Vec::new();
         let mut matcher = MATCHER.lock();
         matcher.config = Config::DEFAULT;
@@ -1056,7 +1175,7 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
             matcher.config.set_match_paths()
         }
 
-        let options = snapshot.matched_items(offset..end).map(|item| {
+        let options = rows_of_items.range(offset..end).map(|item| {
             let is_divider = self
                 .dividers
                 .as_ref()
@@ -1077,11 +1196,15 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
                 };
                 let mut cell = column.format(item.data, &self.editor_data);
                 let width = if column.filter {
-                    snapshot.pattern().column_pattern(matcher_index).indices(
+                    let matched = snapshot.pattern().column_pattern(matcher_index).indices(
                         item.matcher_columns[matcher_index].slice(..),
                         &mut matcher,
                         &mut indices,
                     );
+                    // a preferred item may not match the query
+                    if matched.is_none() {
+                        indices.clear();
+                    }
                     indices.sort_unstable();
                     indices.dedup();
                     let mut indices = indices.drain(..);
@@ -1194,7 +1317,7 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
                 .or_else(|| cx.editor.theme.try_get_exact("ui.text.inactive"))
                 .unwrap_or_else(|| cx.editor.theme.get("comment"));
             let first_row = inner.y + self.header_height();
-            for (i, item) in snapshot.matched_items(offset..end).enumerate() {
+            for (i, item) in rows_of_items.range(offset..end).enumerate() {
                 let row = Rect::new(inner.x, first_row + i as u16, inner.width, 1);
                 if row.bottom() > inner.bottom() {
                     break;
