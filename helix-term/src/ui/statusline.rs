@@ -222,23 +222,25 @@ where
     F: Fn(&mut RenderContext<'a>, Span<'a>) + Copy,
 {
     use helix_core::diagnostic::Severity;
-    let (hints, info, warnings, errors) =
+    let (hints, info, warnings, errors, conflicts) =
         context
             .doc
             .diagnostics()
             .iter()
-            .fold((0, 0, 0, 0), |mut counts, diag| {
+            .fold((0, 0, 0, 0, 0), |mut counts, diag| {
                 match diag.severity {
                     Some(Severity::Hint) | None => counts.0 += 1,
                     Some(Severity::Info) => counts.1 += 1,
                     Some(Severity::Warning) => counts.2 += 1,
                     Some(Severity::Error) => counts.3 += 1,
+                    Some(Severity::Conflict) => counts.4 += 1,
                 }
                 counts
             });
 
     for sev in &context.editor.config().statusline.diagnostics {
         match sev {
+            Severity::Conflict if conflicts > 0 => write_conflicts(context, write, conflicts),
             Severity::Hint if hints > 0 => {
                 write(context, Span::styled("●", context.editor.theme.get("hint")));
                 write(context, format!(" {} ", hints).into());
@@ -271,6 +273,7 @@ where
     F: Fn(&mut RenderContext<'a>, Span<'a>) + Copy,
 {
     use helix_core::diagnostic::Severity;
+    let conflicts = context.editor.workspace_conflict_count();
     let (hints, info, warnings, errors) = context.editor.diagnostics.values().flatten().fold(
         (0u32, 0u32, 0u32, 0u32),
         |mut counts, (diag, _)| {
@@ -298,6 +301,7 @@ where
         Severity::Info => info != 0,
         Severity::Warning => warnings != 0,
         Severity::Error => errors != 0,
+        Severity::Conflict => conflicts != 0,
     }) {
         return;
     }
@@ -306,6 +310,7 @@ where
 
     for sev in sevs_to_show {
         match sev {
+            Severity::Conflict if conflicts > 0 => write_conflicts(context, write, conflicts),
             Severity::Hint if hints > 0 => {
                 write(context, Span::styled("●", context.editor.theme.get("hint")));
                 write(context, format!(" {} ", hints).into());
@@ -331,6 +336,19 @@ where
             _ => {}
         }
     }
+}
+
+/// The count of git merge conflicts (this fork), with their gutter symbol.
+fn write_conflicts<'a, F>(context: &mut RenderContext<'a>, write: F, count: usize)
+where
+    F: Fn(&mut RenderContext<'a>, Span<'a>) + Copy,
+{
+    let style = context.editor.theme.get_or("conflict", "error");
+    write(
+        context,
+        Span::styled(helix_view::gutter::CONFLICT_SYMBOL, style),
+    );
+    write(context, format!(" {count} ").into());
 }
 
 fn render_selections<'a, F>(context: &mut RenderContext<'a>, write: F)

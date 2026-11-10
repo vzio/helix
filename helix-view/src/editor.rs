@@ -832,8 +832,8 @@ impl Default for StatusLineConfig {
             ],
             separator: String::from("│"),
             mode: ModeConfig::default(),
-            diagnostics: vec![Severity::Warning, Severity::Error],
-            workspace_diagnostics: vec![Severity::Warning, Severity::Error],
+            diagnostics: vec![Severity::Warning, Severity::Error, Severity::Conflict],
+            workspace_diagnostics: vec![Severity::Warning, Severity::Error, Severity::Conflict],
         }
     }
 }
@@ -1403,6 +1403,19 @@ use futures_util::stream::{Flatten, Once};
 
 type Diagnostics = BTreeMap<Uri, Vec<(lsp::Diagnostic, DiagnosticProvider)>>;
 
+/// Git merge conflicts (this fork), kept by `helix_term::handlers::conflicts`.
+#[derive(Debug, Default)]
+pub struct Conflicts {
+    /// The unmerged files of the repositories of the working directory and of the open
+    /// documents, canonical, with their conflict blocks as read from disk. An open document has
+    /// its own, live, as diagnostics.
+    pub files: BTreeMap<PathBuf, Vec<helix_vcs::conflict::ConflictBlock>>,
+    /// The number of the latest refresh started.
+    pub started: u64,
+    /// The number of the latest refresh applied: one that finishes after a newer one is dropped.
+    pub applied: u64,
+}
+
 pub struct Editor {
     /// Current editing mode.
     pub mode: Mode,
@@ -1428,6 +1441,8 @@ pub struct Editor {
     pub macro_replaying: Vec<char>,
     pub language_servers: helix_lsp::Registry,
     pub diagnostics: Diagnostics,
+    /// Git merge conflicts (this fork).
+    pub conflicts: Conflicts,
     pub diff_providers: DiffProviderRegistry,
 
     pub debug_adapters: dap::registry::Registry,
@@ -1580,6 +1595,7 @@ impl Editor {
             theme: theme_loader.default(),
             language_servers,
             diagnostics: Diagnostics::new(),
+            conflicts: Conflicts::default(),
             diff_providers: DiffProviderRegistry::default(),
             debug_adapters: dap::registry::Registry::new(),
             breakpoints: HashMap::new(),
@@ -2499,6 +2515,23 @@ impl Editor {
     #[inline]
     pub fn documents_mut(&mut self) -> impl Iterator<Item = &mut Document> {
         self.documents.values_mut()
+    }
+
+    /// The number of conflict blocks in the unmerged files: as the document is now for an open
+    /// file, as on disk for the others.
+    pub fn workspace_conflict_count(&self) -> usize {
+        self.conflicts
+            .files
+            .iter()
+            .map(|(path, blocks)| match self.document_by_path(path) {
+                Some(doc) => doc
+                    .diagnostics()
+                    .iter()
+                    .filter(|d| d.provider == DiagnosticProvider::Conflict)
+                    .count(),
+                None => blocks.len(),
+            })
+            .sum()
     }
 
     pub fn document_by_path<P: AsRef<Path>>(&self, path: P) -> Option<&Document> {

@@ -435,6 +435,13 @@ impl Theme {
             .find_map(|s| self.styles.get(s).copied())
     }
 
+    /// The style of `scope` (or of a broader scope, as with [`Theme::try_get`]), or else the
+    /// style of `fallback`. For scopes a theme may not have yet, like `conflict` (this fork),
+    /// which falls back to `error`.
+    pub fn get_or(&self, scope: &str, fallback: &str) -> Style {
+        self.try_get(scope).unwrap_or_else(|| self.get(fallback))
+    }
+
     /// Get the style of a scope, without falling back to dot separated broader
     /// scopes. For example if `ui.text.focus` is not defined in the theme, it
     /// will return `None`, even if `ui.text` is.
