@@ -20,6 +20,7 @@ mod test {
     mod commands;
     mod explorer;
     mod git_log;
+    mod hunks;
     mod inline_blame;
     mod move_lines;
     mod movement;
