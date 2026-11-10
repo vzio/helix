@@ -15,7 +15,7 @@ use vortex_view::{
 };
 use tui::{buffer::Buffer as Surface, text::Span};
 
-use super::{changes, diff_view};
+use super::{changes, diff_view, uncommitted};
 use crate::compositor::{self, Component, Compositor, Event, EventResult};
 use crate::job::Callback;
 use crate::live::{Live, Pending, RepoWatch};
@@ -80,7 +80,7 @@ pub(crate) fn commit_picker(editor: &mut Editor) -> Option<CommitLog> {
         let cwd = cwd.clone();
         let watch = watch.clone();
         move |cx: &mut compositor::Context, row: &LogRow| match &row.kind {
-            RowKind::Uncommitted => changes::open_uncommitted(cx, cwd.clone(), watch.clone()),
+            RowKind::Uncommitted => uncommitted::open(cx, cwd.clone(), watch.clone()),
             RowKind::Commit(commit) => {
                 open_commit_files(cx, cwd.clone(), CommitRange::single(commit))
             }
@@ -130,6 +130,7 @@ pub(crate) fn commit_picker(editor: &mut Editor) -> Option<CommitLog> {
             }
         });
     editor.set_status(HINT);
+    let work_dir = uncommitted::work_dir(editor, &cwd, trust_full);
     let log = CommitLog {
         picker,
         source: Source {
@@ -143,6 +144,7 @@ pub(crate) fn commit_picker(editor: &mut Editor) -> Option<CommitLog> {
         live: watch.map(Live::new),
         refresh: Pending::new(),
         uncommitted,
+        work_dir,
         head: None,
     };
     // the number of uncommitted files, and the HEAD the log is read from
@@ -151,11 +153,14 @@ pub(crate) fn commit_picker(editor: &mut Editor) -> Option<CommitLog> {
     Some(log)
 }
 
-/// The number of uncommitted files the commit log shows, updated while it is open.
+/// The number of uncommitted files the commit log shows, and of modified buffers, updated while
+/// it is open.
 #[derive(Default)]
 pub(crate) struct UncommittedCount {
     /// The number of files, plus one; 0 while it isn't known yet.
     files: AtomicUsize,
+    /// The number of modified buffers of the working tree.
+    unsaved: AtomicUsize,
 }
 
 impl UncommittedCount {
@@ -163,13 +168,27 @@ impl UncommittedCount {
         self.files.store(files + 1, Ordering::Relaxed);
     }
 
-    /// `Uncommitted changes (3 files)`.
+    fn set_unsaved(&self, buffers: usize) {
+        self.unsaved.store(buffers, Ordering::Relaxed);
+    }
+
+    /// `Uncommitted changes (3 files, 1 unsaved)`.
     fn label(&self) -> String {
-        match self.files.load(Ordering::Relaxed) {
-            0 => "Uncommitted changes".to_string(),
-            1 => "Uncommitted changes (none)".to_string(),
-            2 => "Uncommitted changes (1 file)".to_string(),
-            files => format!("Uncommitted changes ({} files)", files - 1),
+        let files = self.files.load(Ordering::Relaxed);
+        let unsaved = self.unsaved.load(Ordering::Relaxed);
+        let mut counts = Vec::new();
+        match files {
+            0 | 1 => {}
+            2 => counts.push("1 file".to_string()),
+            files => counts.push(format!("{} files", files - 1)),
+        }
+        if unsaved > 0 {
+            counts.push(format!("{unsaved} unsaved"));
+        }
+        match (files, counts.is_empty()) {
+            (1, true) => "Uncommitted changes (none)".to_string(),
+            (_, true) => "Uncommitted changes".to_string(),
+            (_, false) => format!("Uncommitted changes ({})", counts.join(", ")),
         }
     }
 }
@@ -320,6 +339,8 @@ pub(crate) struct CommitLog {
     live: Option<Live>,
     refresh: Pending<Refresh>,
     uncommitted: Arc<UncommittedCount>,
+    /// The root of the working tree, whose modified buffers are counted.
+    work_dir: PathBuf,
     /// The commit HEAD pointed to when the log was read, once known.
     head: Option<Option<String>>,
 }
@@ -551,6 +572,8 @@ impl CommitLog {
 impl Component for CommitLog {
     fn render(&mut self, area: Rect, surface: &mut Surface, cx: &mut compositor::Context) {
         self.refresh();
+        self.uncommitted
+            .set_unsaved(uncommitted::modified_buffers(cx.editor, &self.work_dir).count());
         self.picker.render(area, surface, cx);
         // the first commit gets the cursor when it arrives
         self.follow_cursor();

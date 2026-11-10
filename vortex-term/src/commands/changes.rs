@@ -3,23 +3,16 @@
 //! row with their line counts, after the other files; Enter still opens their diff.
 
 use std::path::{Path, PathBuf};
-use std::rc::Rc;
-use std::sync::Arc;
 
-use vortex_vcs::{DiffProviderRegistry, FileChange};
+use vortex_vcs::FileChange;
 use vortex_view::{editor::ChangesConfig, graphics::Style, Editor};
 use imara_diff::{Algorithm, Diff, InternedInput};
-use parking_lot::Mutex;
 use tui::text::Span;
 
-use super::{diff_view, FileChangeData};
-use crate::compositor::{self, Component, Compositor, Context, Event, EventResult};
+use super::FileChangeData;
+use crate::compositor::{Compositor, Context};
 use crate::job::Callback;
-use crate::live::{Live, Pending, RepoWatch};
-use crate::ui::{
-    overlay::{overlaid, Overlay},
-    picker, Picker, PickerColumn,
-};
+use crate::ui::{overlay::Overlay, picker, Picker, PickerColumn};
 use crate::{ctrl, key};
 
 /// A row of a list of changed files.
@@ -60,7 +53,7 @@ pub(crate) fn select_in_commit_files(compositor: &mut Compositor, change: &FileC
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum LockfileLines {
+pub(crate) enum LockfileLines {
     Counts { added: u32, removed: u32 },
     Binary,
 }
@@ -96,7 +89,7 @@ pub(crate) fn rows(
 }
 
 /// The lines added and removed between `before` and `after`, as the diff view counts them.
-fn line_counts(before: &[u8], after: &[u8]) -> LockfileLines {
+pub(crate) fn line_counts(before: &[u8], after: &[u8]) -> LockfileLines {
     // `bun.lockb`, or a lockfile that git stores as binary
     if before.contains(&0) || after.contains(&0) {
         return LockfileLines::Binary;
@@ -168,177 +161,6 @@ pub(crate) fn files_picker(
     })
     .with_stacked_key_handler(key!(Enter), diff.clone())
     .with_stacked_key_handler(ctrl!('g'), diff)
-}
-
-/// What the uncommitted changes need from the editor, for listing them off the main thread.
-#[derive(Clone)]
-struct Source {
-    cwd: PathBuf,
-    providers: DiffProviderRegistry,
-    trust_full: bool,
-    config: ChangesConfig,
-}
-
-impl Source {
-    fn new(editor: &Editor, cwd: PathBuf) -> Self {
-        Self {
-            trust_full: super::git_log::trust_full(editor, &cwd),
-            providers: editor.diff_providers.clone(),
-            config: editor.config().changes.clone(),
-            cwd,
-        }
-    }
-
-    /// The changes of the working tree (and of the index) since HEAD, untracked files included.
-    fn list(&self) -> anyhow::Result<Vec<FileRow>> {
-        let changes = self.providers.changed_files(&self.cwd, self.trust_full)?;
-        Ok(rows(changes, &self.config, |change| {
-            let (base_path, path) = diff_view::paths_of(change);
-            let before = self
-                .providers
-                .get_diff_base(&base_path, self.trust_full)
-                .unwrap_or_default();
-            let after = std::fs::read(path).unwrap_or_default();
-            Some((before, after))
-        }))
-    }
-}
-
-/// The picker of the uncommitted changes, which follows the working tree while `live` sees it
-/// change: the list is read again and the cursor stays on the same file (or at the same place
-/// when that file is gone).
-pub(crate) struct UncommittedFiles {
-    picker: Picker<FileRow, FileRowData>,
-    source: Source,
-    live: Option<Live>,
-    pending: Pending<anyhow::Result<Vec<FileRow>>>,
-    /// The files listed, for `n`/`N` in the diffs opened from the list.
-    files: Arc<Mutex<NavFiles>>,
-}
-
-impl UncommittedFiles {
-    fn refresh(&mut self) {
-        if self.live.as_mut().is_some_and(Live::changed) {
-            let source = self.source.clone();
-            self.pending.run(move || source.list());
-        }
-        match self.pending.take() {
-            Some(Ok(rows)) => self.replace(rows),
-            Some(Err(err)) => log::debug!("uncommitted changes: {err}"),
-            None => {}
-        }
-    }
-
-    fn replace(&mut self, rows: Vec<FileRow>) {
-        let selected = self
-            .picker
-            .selection()
-            .map(|row| row.change.path().to_path_buf());
-        let index = self.picker.cursor_index();
-        *self.files.lock() = nav_files(&rows);
-        self.picker.replace_items(rows, index);
-        if let Some(selected) = selected {
-            select_path(&mut self.picker, &selected);
-        }
-    }
-}
-
-impl Component for UncommittedFiles {
-    fn render(
-        &mut self,
-        area: vortex_view::graphics::Rect,
-        surface: &mut tui::buffer::Buffer,
-        cx: &mut Context,
-    ) {
-        self.refresh();
-        self.picker.render(area, surface, cx);
-    }
-
-    fn handle_event(&mut self, event: &Event, cx: &mut Context) -> EventResult {
-        self.picker.handle_event(event, cx)
-    }
-
-    fn cursor(
-        &self,
-        area: vortex_view::graphics::Rect,
-        editor: &Editor,
-    ) -> (
-        Option<vortex_core::Position>,
-        vortex_view::graphics::CursorKind,
-    ) {
-        self.picker.cursor(area, editor)
-    }
-
-    fn required_size(&mut self, viewport: (u16, u16)) -> Option<(u16, u16)> {
-        self.picker.required_size(viewport)
-    }
-
-    fn id(&self) -> Option<&'static str> {
-        self.picker.id()
-    }
-}
-
-/// Pushes the picker of the uncommitted changes on top of the commit log. With a `watch`, it and
-/// the diffs opened from it update while the working tree changes.
-pub(crate) fn open_uncommitted(
-    cx: &mut compositor::Context,
-    cwd: PathBuf,
-    watch: Option<Arc<RepoWatch>>,
-) {
-    cx.jobs.callback(async move {
-        let call = move |editor: &mut Editor, compositor: &mut Compositor| {
-            let source = Source::new(editor, cwd.clone());
-            let rows = match source.list() {
-                Ok(rows) => rows,
-                Err(err) => {
-                    editor.set_error(format!("{err}"));
-                    return;
-                }
-            };
-            editor.set_status(match rows.len() {
-                0 => "No uncommitted changes".to_string(),
-                1 => "Uncommitted changes: 1 file".to_string(),
-                files => format!("Uncommitted changes: {files} files"),
-            });
-            let files = Arc::new(Mutex::new(nav_files(&rows)));
-            let diff_watch = watch.clone();
-            let diff_files = files.clone();
-            let show_diff = move |cx: &mut Context, change: &FileChange| {
-                let change = change.clone();
-                let live = diff_watch.clone().map(Live::new);
-                let files = diff_files.clone();
-                cx.jobs.callback(async move {
-                    let call = move |editor: &mut Editor, compositor: &mut Compositor| {
-                        diff_view::open_uncommitted(
-                            editor,
-                            compositor,
-                            &change,
-                            live,
-                            Rc::new(move || files.lock().clone()),
-                            Rc::new(|compositor, change| {
-                                if let Some(overlay) =
-                                    compositor.find::<Overlay<UncommittedFiles>>()
-                                {
-                                    select_path(&mut overlay.content.picker, change.path());
-                                }
-                            }),
-                        )
-                    };
-                    Ok(Callback::EditorCompositor(Box::new(call)))
-                });
-            };
-            let picker = files_picker(editor, cwd, rows, show_diff);
-            let files = UncommittedFiles {
-                picker,
-                source,
-                live: watch.map(Live::new),
-                pending: Pending::new(),
-                files,
-            };
-            compositor.push(Box::new(overlaid(files)));
-        };
-        Ok(Callback::EditorCompositor(Box::new(call)))
-    });
 }
 
 #[cfg(test)]

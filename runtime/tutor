@@ -265,10 +265,11 @@
   space l        the commit log (fork): Enter lists the files of
                  a commit, Enter on a file shows its diff; v
                  selects several commits. Its first row is what
-                 you haven't committed, and it follows your
-                 edits while it's open, even from another
-                 program. In its diffs, n N go on to the next
-                 file
+                 you haven't committed: one row per change,
+                 marked S staged, M not staged, • not saved yet.
+                 It follows your edits while it's open, even
+                 from another program. In its diffs, n N go on
+                 to the next file
   space B        who changed each line, and when (fork)
 
  A file another program changed is reloaded when you come back

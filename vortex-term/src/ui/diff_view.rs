@@ -783,6 +783,17 @@ impl DiffView {
         }
     }
 
+    /// Makes the hunk at `line` of the right side (from 0) the current one, or the first hunk
+    /// after it, or the last hunk.
+    pub fn go_to_line(&mut self, line: u32) {
+        let index = self
+            .line_hunks
+            .iter()
+            .position(|hunk| hunk.after.end > line || hunk.after.start >= line)
+            .unwrap_or(usize::MAX);
+        self.go_to_hunk(index);
+    }
+
     /// `n`/`N`: the next or previous hunk. Past the last or first one, the first hunk of the next
     /// file of the entry or the last hunk of the previous one, around the ends of the entry.
     fn step_hunk(&mut self, forward: bool, editor: &mut Editor) -> EventResult {

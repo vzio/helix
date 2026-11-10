@@ -143,16 +143,18 @@ fn uncommitted_view(
 }
 
 /// Opens the diff of an uncommitted change on top of the pickers of the commit log, see
-/// [`uncommitted_view`]. `n`/`N` go through the other files of `files`.
+/// [`uncommitted_view`], at the hunk at `line` of its right side (from 0), or at its first hunk.
+/// `n`/`N` go through the other files of `files`.
 pub(crate) fn open_uncommitted(
     editor: &mut Editor,
     compositor: &mut Compositor,
     change: &FileChange,
+    line: Option<u32>,
     live: Option<Live>,
     files: ListFiles,
     select: SelectFile,
 ) {
-    let view = match uncommitted_view(editor, change, live.clone()) {
+    let mut view = match uncommitted_view(editor, change, live.clone()) {
         Ok(view) if view.has_changes() => view,
         Ok(_) => return editor.set_status(format!("No changes in {}", relative(change.path()))),
         Err(err) => return editor.set_error(err.to_string()),
@@ -163,6 +165,9 @@ pub(crate) fn open_uncommitted(
         open: Rc::new(move |editor, change| uncommitted_view(editor, change, live.clone())),
         select,
     };
+    if let Some(line) = line {
+        view.go_to_line(line);
+    }
     compositor.push(Box::new(view.with_nav(nav)));
 }
 

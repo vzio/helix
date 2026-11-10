@@ -76,10 +76,10 @@ impl Session {
         session
     }
 
-    /// From a picker of files: opens the diff of the file `index` (from 0).
+    /// From the log: opens the list of hunks, then the diff of the hunk of the row `index` (from 0).
     async fn open_diff(&mut self, index: usize) {
         self.keys("<ret>").await;
-        self.wait_for_screen("the files", |rows| on_screen(rows, "path"))
+        self.wait_for_screen("the hunks", |rows| on_screen(rows, "marks"))
             .await;
         if index > 0 {
             self.keys(&"<down>".repeat(index)).await;
@@ -397,14 +397,11 @@ async fn n_and_n_visit_the_hunks_of_all_the_files_and_wrap_around() {
 }
 
 impl Session {
-    /// The path of the row under the cursor of the picker of files.
+    /// The path of the row under the cursor of the picker of hunks.
     fn selected_file_in_picker(&self) -> String {
-        let frame = self.frame();
-        let row = frame[3..]
-            .iter()
-            .find(|row| row.starts_with(" > "))
-            .unwrap_or_else(|| panic!("no cursor: {frame:#?}"));
-        row.split_whitespace().nth(3).unwrap().to_string()
+        let row = self.selected_hunk();
+        let change = row.split_whitespace().next_back().unwrap();
+        change.split(':').next().unwrap().to_string()
     }
 }
 
@@ -491,12 +488,13 @@ async fn reverting_refuses_when_the_buffer_has_unsaved_changes() {
     commit_all("Add a.txt");
     write("a.txt", &edited);
 
+    // (an edit inside the first hunk: its row has the diff, not only the buffer)
     let mut session = Session::new();
-    session.keys(":open a.txt<ret>ihello <esc>").await;
-    assert!(buffer(&session, "a.txt").starts_with("hello "));
+    session.keys(":open a.txt<ret>3ggihello <esc>").await;
+    assert!(buffer(&session, "a.txt").contains("hello three"));
     let mut session = Session::open_log_with(session).await;
     session
-        .wait_for_screen("the count", |rows| on_screen(rows, "(1 file)"))
+        .wait_for_screen("the count", |rows| on_screen(rows, "1 unsaved)"))
         .await;
     session.open_diff(0).await;
     session.keys("r").await;
@@ -505,7 +503,7 @@ async fn reverting_refuses_when_the_buffer_has_unsaved_changes() {
         "a.txt has unsaved changes: write it first"
     );
     assert_eq!(read("a.txt"), edited);
-    assert!(buffer(&session, "a.txt").starts_with("hello "));
+    assert!(buffer(&session, "a.txt").contains("hello three"));
 }
 
 #[tokio::test(flavor = "multi_thread")]

@@ -63,7 +63,7 @@ Each feature lives in its own modules, to keep rebasing on upstream cheap:
 | Diff view | `vortex-term/src/ui/diff_view.rs`, `vortex-term/src/commands/diff_view.rs` |
 | Hunk actions, `n`/`N` across files | `vortex-term/src/commands/hunks.rs` (stage, unstage, revert), `vortex-vcs/src/staging.rs` (the texts of the index and of the working tree after an action), `vortex-vcs/src/git/stage.rs` (reading and writing one entry of the index), the `Actions` and `FileNav` of the diff view, `base` of `:practice` exercises, `vortex-term/tests/test/hunks.rs` |
 | Commit log | `vortex-term/src/commands/git_log.rs`, `vortex-vcs/src/commit.rs`, `vortex-vcs/src/git/log.rs` |
-| Uncommitted changes, live views | `vortex-term/src/commands/changes.rs` (the lists of changed files, lockfiles), `vortex-term/src/live.rs` (the shared watch, background refreshes), `vortex-view/src/watcher.rs` (the reusable watcher), `RepoState` and `log_entries` in `vortex-vcs/src/lib.rs`, `[editor.changes]` in `vortex-view/src/editor.rs`, `vortex-term/tests/test/uncommitted.rs` |
+| Uncommitted changes, live views | `vortex-term/src/commands/uncommitted.rs` (the list of uncommitted hunks, their marks, unsaved edits), `vortex-term/src/commands/changes.rs` (the files of a commit, lockfiles), `with_drawn_preview` in `vortex-term/src/ui/picker.rs` (a preview drawn by its owner), `vortex-term/src/live.rs` (the shared watch, background refreshes), `vortex-view/src/watcher.rs` (the reusable watcher), `RepoState` and `log_entries` in `vortex-vcs/src/lib.rs`, `[editor.changes]` in `vortex-view/src/editor.rs`, `vortex-term/tests/test/uncommitted.rs` |
 | Files changed on disk | `vortex-term/src/handlers/disk.rs`, the disk state of `Document` in `vortex-view/src/document.rs`, `vortex-term/tests/test/stale_buffers.rs` |
 | Staged files, commit diffs | `vortex-vcs/src/git.rs`, `vortex-vcs/src/lib.rs`, `vortex-vcs/src/status.rs` |
 | File tree | `vortex-term/src/ui/explorer.rs`, `vortex-term/src/ui/explorer/`, `vortex-term/benches/explorer.rs` |
@@ -213,7 +213,7 @@ theme scope `ui.picker.divider` if the theme has it, else `ui.text.inactive`, el
 | `space l`, `:git-log` | Open the commit picker, in normal mode, with the cursor on its first row, the [uncommitted changes](#uncommitted-changes-live). The status line shows `s filter, v extend, w/b section, enter files`. |
 | `s` | Filter mode: typing filters by summary; `%commit`, `%author`, `%date` filter by the other columns. `Esc` goes back to normal mode and keeps the query. |
 | `j`/`k`, `Down`/`Up`, `C-n`/`C-p`, `Tab`/`S-Tab`, `C-d`/`C-u`/`PageDown`/`PageUp`, `gg`/`ge`/`G`, `Home`/`End` | Move. The keys that aren't letters work in filter mode too. |
-| `Enter` in the commit picker | List the files changed by the commit, or by the selected commits, or the uncommitted files, on top of the commit picker. The status line shows the commit or the range. |
+| `Enter` in the commit picker | List the files changed by the commit, or by the selected commits, or the uncommitted changes (one row per hunk), on top of the commit picker. The status line shows the commit or the range. |
 | `v`, `A-v` | Toggle extend mode: while it's on, every movement extends the selection from the commit where it started to the commit under the cursor. `A-v` works in filter mode too. |
 | `w`, `e` | Extend the selection down (older) to the oldest commit of the section the cursor is in, and put the cursor on it. Pressed again they do nothing, they never go past the divider. |
 | `b` | Extend the selection up (newer) to the newest commit of the section the cursor is in, and put the cursor on it. |
@@ -291,17 +291,50 @@ in front when extend mode is on:
 ## Uncommitted changes, live
 
 The [commit log](#git-commit-log) starts with a row for what isn't committed yet, above the first
-divider: `Uncommitted changes (3 files)`. Enter on it lists the files that differ from HEAD (staged
-or not, untracked files included, renames detected), and Enter on a file opens its
-[side by side diff](#side-by-side-git-diff): HEAD on the left, the working tree on the right (the
-buffer, with its unsaved changes, when the file is open).
+divider: `Uncommitted changes (3 files, 1 unsaved)`. Enter on it lists every change that isn't
+committed, one row per hunk, with where the change is:
+
+```
+  marks change
+  S     src/main.rs:12-14
+   M•   src/main.rs:40
+  SM    src/lib.rs:3
+    •   src/new_idea.rs:1-6 (untracked)
+   M    notes.md:1-20 (untracked)
+   M    Cargo.lock (+340 -12)
+```
+
+- `S`: the change is in the index (staged).
+- `M`: it is in the file on disk and not in the index (unstaged).
+- `•`: it is in the buffer and not on disk yet (unsaved).
+
+A hunk has any combination of them: staged, changed again on disk since, and edited again in its
+buffer is `SM•`. The hunks are those of the [side by side diff](#side-by-side-git-diff): HEAD
+against the buffer of the file when it is open, with its unsaved edits, else against the file on
+disk. So it doesn't matter who made a change: you, a formatter or an agent, written or not. A
+buffer whose file has no other change (or isn't on disk yet, or is ignored by git) lists its
+unsaved edits against the file on disk. Lines are those of the buffer when it is open, as in the
+right side of the diff.
+
+The list is a modal picker like the log: `j`/`k` move, `s` filters (by the `change` column; `%marks
+S` by the marks). The preview draws the hunk with a few lines of context. Rows are sorted by path,
+then by line, with lockfiles last.
+
+- **Enter** opens the diff of the file at that hunk, where `s`/`u`/`r` stage, unstage and revert it
+  ([hunk actions](#stage-unstage-and-revert-hunks)) and `n`/`N` go through the hunks of every file
+  of the list.
+- On a change that is only in the buffer (`•` alone), Enter opens the buffer at its first line
+  instead, closing the log.
+- `C-s`, `C-v` and the like open the file at the change, closing the log.
+
+The status line says how much there is: `Uncommitted changes: 6 changes in 5 files, 2 unsaved`.
 
 While the commit log, or anything opened from it, is open, the working tree is watched, and what
 is on screen follows it:
 
 - the count of the first row;
-- the list of uncommitted files: the cursor stays on the same file, or at the same place when that
-  file is gone;
+- the list of uncommitted changes, also while buffers are edited: the cursor stays on the same
+  change (the same file and line), or in the same file, or at the same place when it is gone;
 - the diff of an uncommitted file: the line at the top of the screen stays there, and so does the
   horizontal scroll. A diff with no changes left stays open, empty, with `no changes` in the
   footer;
@@ -318,8 +351,9 @@ views closes.
 
 ### Lockfiles
 
-In the lists of changed files, of a commit or uncommitted, lockfiles are never hidden, but each is
-one quiet row (`ui.text.inactive`) with the lines it adds and removes, after the other files:
+In the lists of changes, of a commit or uncommitted, lockfiles are never hidden, but each is
+one quiet row (`ui.text.inactive`) with the lines it adds and removes, after the other files. The
+files of a commit:
 
 ```
   ~ modified  src/main.rs
@@ -340,6 +374,9 @@ A binary lockfile (`bun.lockb`) shows `(binary)` instead of counts.
 
 ### Limitations
 
+- The uncommitted changes are one row per hunk, but a hunk is still staged whole, from its diff.
+- A buffer with unsaved edits is listed by its path: a buffer without a file (a scratch buffer)
+  isn't.
 - Only the commit log's views update live. The changed files picker (`space g`) and `space =` don't,
   and the files of a commit don't need to.
 - A directory that a `.gitignore` edit stops ignoring isn't watched until it is created again.
