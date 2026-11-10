@@ -398,10 +398,11 @@ impl Source {
         for change in changes {
             let (base_path, path) = diff_view::paths_of(&change);
             // once a rename is committed, the new path is the one in HEAD
-            let head = match self.providers.get_diff_base(&path, self.trust_full) {
-                Some(head) if base_path != path => Some(head),
-                _ => self.providers.get_diff_base(&base_path, self.trust_full),
-            };
+            let committed = (base_path != path)
+                .then(|| self.providers.get_diff_base(&path, self.trust_full))
+                .flatten();
+            let head =
+                committed.or_else(|| self.providers.get_diff_base(&base_path, self.trust_full));
             let index = self
                 .providers
                 .index_file(&path, self.trust_full)
@@ -422,6 +423,10 @@ impl Source {
         // is on disk
         for (path, buffer) in buffers {
             let disk = std::fs::read(&path).ok();
+            // modified, then edited back
+            if disk.as_deref() == Some(buffer.as_bytes()) {
+                continue;
+            }
             let change = match disk {
                 Some(_) => FileChange::Modified { path },
                 None => FileChange::Untracked { path },
