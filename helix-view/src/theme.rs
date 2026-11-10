@@ -764,6 +764,47 @@ mod tests {
         );
     }
 
+    fn theme_of(toml: &str) -> Theme {
+        Theme::from(toml::from_str::<Value>(toml).unwrap())
+    }
+
+    #[test]
+    fn conflict_scopes_fall_back_to_error() {
+        let theme = theme_of(
+            r##"
+"error" = { fg = "#ff0000" }
+"diagnostic.error" = { underline = { style = "curl" } }
+"##,
+        );
+        assert!(theme.try_get("conflict").is_none());
+        assert_eq!(theme.get_or("conflict", "error"), theme.get("error"));
+        assert_eq!(
+            theme.get_or("diagnostic.conflict", "diagnostic.error"),
+            theme.get("diagnostic.error")
+        );
+        assert_ne!(theme.get_or("conflict", "error"), Style::default());
+    }
+
+    #[test]
+    fn conflict_scopes_of_the_theme_are_used() {
+        let theme = theme_of(
+            r##"
+"error" = { fg = "#ff0000" }
+"conflict" = { fg = "#00ff00" }
+"diagnostic.conflict" = { fg = "#0000ff" }
+"##,
+        );
+        let green = Style::new().fg(Color::Rgb(0, 255, 0));
+        assert_eq!(theme.get_or("conflict", "error"), green);
+        assert_ne!(theme.get_or("conflict", "error"), theme.get("error"));
+        assert_eq!(
+            theme.get_or("diagnostic.conflict", "diagnostic.error"),
+            Style::new().fg(Color::Rgb(0, 0, 255))
+        );
+        // a narrower scope falls back to the broader one, before the fallback scope
+        assert_eq!(theme.get_or("conflict.diagnostic.inline", "error"), green);
+    }
+
     #[test]
     #[should_panic(expected = "index out of bounds: the len is 0 but the index is 4278190078")]
     fn out_of_bounds() {
