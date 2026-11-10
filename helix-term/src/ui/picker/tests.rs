@@ -323,7 +323,10 @@ async fn dividers_that_are_entries_are_stops_and_counted() {
         picker.move_by(1, Direction::Forward);
         seen.push(at(&picker).unwrap().to_string());
     }
-    assert_eq!(seen, ["a.rs:9", "b.rs:4", "!Cargo.lock", "!logo.png", "a.rs:1"]);
+    assert_eq!(
+        seen,
+        ["a.rs:9", "b.rs:4", "!Cargo.lock", "!logo.png", "a.rs:1"]
+    );
     // the dividers with entries are not counted, the others are
     assert_eq!(picker.counts(), (5, 5));
 }

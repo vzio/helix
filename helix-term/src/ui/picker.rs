@@ -740,6 +740,8 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
         }
         self.cursor = selected.min(count.saturating_sub(1));
         self.matcher.tick(10);
+        // the rows of the new items, for the owner looking for one of them right away
+        self.update_order();
     }
 
     /// Pressing `key` runs `handler` on the selected item and closes the picker.
@@ -1217,15 +1219,10 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
 
     fn render_picker(&mut self, area: Rect, surface: &mut Surface, cx: &mut Context) {
         let status = self.matcher.tick(10);
-        if status.changed {
-            self.cursor = self.cursor.min(
-                self.matcher
-                    .snapshot()
-                    .matched_item_count()
-                    .saturating_sub(1),
-            )
-        }
         self.update_order();
+        if status.changed {
+            self.cursor = self.cursor.min(self.rows().count().saturating_sub(1));
+        }
         self.update_dividers();
         let (matched_count, item_count) = self.counts();
         let snapshot = self.matcher.snapshot();

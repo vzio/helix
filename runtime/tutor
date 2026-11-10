@@ -262,15 +262,19 @@
                  s u r stage, unstage and revert the change, and
                  S U R the whole file. A revert is an edit of the
                  file: u in its buffer brings it back
-  space l        the commit log (fork): Enter lists the files of
-                 a commit, Enter on a file shows its diff; v
-                 selects several commits. Its first row is what
-                 you haven't committed: one row per change,
-                 marked S staged, M not staged, • not saved yet.
-                 It follows your edits while it's open, even
-                 from another program. In its diffs, n N go on
-                 to the next file. In its filter, a hash (4 hex
-                 digits or more) finds the commit
+  space l        the commit log (fork): Enter lists the changes
+                 of a commit, one row per change under a line
+                 per file, marked + adds, - removes, -+ both,
+                 ++ new file, -- deleted file. w b jump to the
+                 next and previous file, Enter on a change shows
+                 its diff there; v selects several commits. Its
+                 first row is what you haven't committed, in the
+                 same list, also marked S staged, M not staged,
+                 • not saved yet. It follows your edits while
+                 it's open, even from another program. In its
+                 diffs, n N go on to the next file. In its
+                 filter, a hash (4 hex digits or more) finds
+                 the commit
   space B        who changed each line, when, and in which
                  commit (fork)
   space i        yank the diagnostic under the cursor; with
