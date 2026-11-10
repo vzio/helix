@@ -26,6 +26,7 @@ fn picker(items: &[&str]) -> Picker<String, ()> {
 /// What rendering does before drawing: let the matcher finish and update the dividers.
 fn settle(picker: &mut Picker<String, ()>) {
     while picker.matcher.tick(10).running {}
+    picker.update_order();
     picker.update_dividers();
 }
 
@@ -235,4 +236,121 @@ async fn matched_items_are_in_the_order_they_are_listed_in() {
     query(&mut picker, "d");
     assert_eq!(picker.matched_item(0).map(String::as_str), Some("d"));
     assert_eq!(picker.matched_item(1), None);
+}
+
+/// A picker of strings in groups: the ones that start with `#` are dividers with entries after
+/// them, the ones that start with `!` are dividers that are entries, a group of their own.
+fn grouped(items: &[&str]) -> Picker<String, ()> {
+    let columns = [Column::new("text", |item: &String, _: &()| {
+        if item.starts_with('#') {
+            "".into()
+        } else {
+            item.trim_start_matches('!').into()
+        }
+    })];
+    let mut picker = Picker::new(
+        columns,
+        0,
+        items.iter().map(|item| item.to_string()),
+        (),
+        |_, _, _| {},
+    )
+    .with_dividers(|item, _| {
+        item.strip_prefix('#')
+            .or_else(|| item.strip_prefix('!'))
+            .map(Into::into)
+    })
+    .with_groups(|item| item.starts_with('!'))
+    .with_section_keys()
+    .with_modes();
+    settle(&mut picker);
+    picker
+}
+
+/// The rows as they are listed.
+fn listed(picker: &Picker<String, ()>) -> Vec<&str> {
+    (0..)
+        .map_while(|i| picker.matched_item(i))
+        .map(String::as_str)
+        .collect()
+}
+
+const FILES: [&str; 7] = [
+    "#a.rs",
+    "a.rs:1",
+    "a.rs:9",
+    "#b.rs",
+    "b.rs:4",
+    "!Cargo.lock",
+    "!logo.png",
+];
+
+#[tokio::test]
+async fn a_query_lists_the_groups_with_a_match_in_order() {
+    let mut picker = grouped(&FILES);
+    assert_eq!(listed(&picker), FILES);
+    // a path: all the entries of its group, under their divider
+    query(&mut picker, "a.rs");
+    assert_eq!(listed(&picker), ["#a.rs", "a.rs:1", "a.rs:9"]);
+    assert_eq!(picker.counts(), (2, 5));
+    // one entry of a group
+    query(&mut picker, "a.rs:9");
+    assert_eq!(listed(&picker), ["#a.rs", "a.rs:9"]);
+    assert_eq!(at(&picker), Some("a.rs:9"));
+    // the order of the groups, not the matcher's
+    query(&mut picker, "rs:");
+    assert_eq!(
+        listed(&picker),
+        ["#a.rs", "a.rs:1", "a.rs:9", "#b.rs", "b.rs:4"]
+    );
+    // a divider that is an entry matches by its own text
+    query(&mut picker, "lock");
+    assert_eq!(listed(&picker), ["!Cargo.lock"]);
+    assert_eq!(at(&picker), Some("!Cargo.lock"));
+    assert_eq!(picker.counts(), (1, 5));
+    // no match: no divider
+    query(&mut picker, "zzz");
+    assert!(listed(&picker).is_empty());
+    assert_eq!(at(&picker), None);
+}
+
+#[tokio::test]
+async fn dividers_that_are_entries_are_stops_and_counted() {
+    let mut picker = grouped(&FILES);
+    assert_eq!(at(&picker), Some("a.rs:1"));
+    let mut seen = Vec::new();
+    for _ in 0..5 {
+        picker.move_by(1, Direction::Forward);
+        seen.push(at(&picker).unwrap().to_string());
+    }
+    assert_eq!(seen, ["a.rs:9", "b.rs:4", "!Cargo.lock", "!logo.png", "a.rs:1"]);
+    // the dividers with entries are not counted, the others are
+    assert_eq!(picker.counts(), (5, 5));
+}
+
+#[tokio::test]
+async fn w_and_b_move_between_the_groups() {
+    let mut picker = grouped(&FILES);
+    let mut seen = Vec::new();
+    for _ in 0..4 {
+        picker.move_to_section(Direction::Forward);
+        seen.push(at(&picker).unwrap().to_string());
+    }
+    // to the first entry of each group, and no further than the last
+    assert_eq!(seen, ["b.rs:4", "!Cargo.lock", "!logo.png", "!logo.png"]);
+    let mut seen = Vec::new();
+    for _ in 0..4 {
+        picker.move_to_section(Direction::Backward);
+        seen.push(at(&picker).unwrap().to_string());
+    }
+    assert_eq!(seen, ["!Cargo.lock", "b.rs:4", "a.rs:1", "a.rs:1"]);
+    // from inside a group, `b` goes to its first entry first
+    picker.move_by(1, Direction::Forward);
+    assert_eq!(at(&picker), Some("a.rs:9"));
+    picker.move_to_section(Direction::Backward);
+    assert_eq!(at(&picker), Some("a.rs:1"));
+    // with a query, among the groups listed
+    query(&mut picker, "4");
+    picker.move_to_section(Direction::Forward);
+    assert_eq!(at(&picker), Some("b.rs:4"));
 }
