@@ -314,6 +314,41 @@ mod test {
     }
 
     #[test]
+    fn lines_that_are_not_committed_have_no_hash_style() {
+        use helix_view::graphics::Color;
+
+        let doc = document("hello\n", Config::default());
+        let area = Rect::new(0, 0, 40, 2);
+        let mut surface = Buffer::empty(area);
+        let mut decorations = DecorationManager::default();
+        decorations.add_decoration(InlineBlame {
+            doc: &doc,
+            format: "{commit} {author}".to_owned(),
+            lines: Lines::All,
+            style: Style::default().fg(Color::Green),
+            hash_style: Style::default().fg(Color::Red),
+        });
+        render_document(
+            &mut surface,
+            area,
+            &doc,
+            ViewPosition::default(),
+            &TextAnnotations::default(),
+            None,
+            Vec::new(),
+            &Theme::default(),
+            decorations,
+        );
+        let row: String = (0..area.width)
+            .map(|x| surface[(x, 0)].symbol.as_str())
+            .collect();
+        let start = row.find("Not committed yet").expect("the blame");
+        for x in start..start + "Not committed yet".len() {
+            assert_eq!(surface[(x as u16, 0)].fg, Color::Green, "column {x}");
+        }
+    }
+
+    #[test]
     fn theme_scope_falls_back_to_inlay_hints() {
         let hint = Style::default().fg(helix_view::graphics::Color::Red);
         let blame = Style::default().fg(helix_view::graphics::Color::Blue);

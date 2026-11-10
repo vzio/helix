@@ -902,6 +902,127 @@ mod test {
         );
     }
 
+    #[test]
+    fn commit_range_of_the_format() {
+        let slice = |(text, range): (String, Option<Range<usize>>)| {
+            let range = range.expect("a range for the hash");
+            (text.clone(), text[range].to_owned())
+        };
+
+        // at the start
+        let (text, hash) = slice(bob().parse_format_with_commit("{commit} {author}, {date}"));
+        assert_eq!(text, "f14ab1cf Bob TheBuilder, 2028-01-10");
+        assert_eq!(hash, "f14ab1cf");
+        let range = bob().parse_format_with_commit("{commit} {author}").1;
+        assert_eq!(range, Some(0..8));
+
+        // in the middle, after multi-byte text (a byte range)
+        let multibyte = line_blame(BlameCommit {
+            title: Some("naïve • été".to_owned()),
+            ..bob_commit()
+        });
+        let (text, range) = multibyte.parse_format_with_commit("{title} • {commit} {author}");
+        assert_eq!(text, "naïve • été • f14ab1cf Bob TheBuilder");
+        let range = range.unwrap();
+        assert_eq!(&text[range.clone()], "f14ab1cf");
+        // bytes, not characters: more of them before the hash than characters
+        assert!(range.start > text[..range.start].chars().count());
+        let (text, hash) = slice(bob().parse_format_with_commit("{author} @ {commit}, {date}"));
+        assert_eq!(text, "Bob TheBuilder @ f14ab1cf, 2028-01-10");
+        assert_eq!(hash, "f14ab1cf");
+
+        // at the end
+        let (text, range) = bob().parse_format_with_commit("{author} {commit}");
+        assert_eq!(&text[range.unwrap()], "f14ab1cf");
+
+        // absent: no range, whatever else is in the format
+        for format in [
+            "{author}, {date} • {title}",
+            "",
+            "{email} {body} {nope} {foo",
+            "commit",
+        ] {
+            assert_eq!(bob().parse_format_with_commit(format).1, None, "{format}");
+        }
+        // an unknown id (empty) leaves the variable out, and so the range
+        let unknown = line_blame(BlameCommit {
+            short_id: String::new(),
+            ..bob_commit()
+        });
+        let (text, range) = unknown.parse_format_with_commit("{commit} {author}");
+        assert_eq!(text, "Bob TheBuilder");
+        assert_eq!(range, None);
+
+        // the text is the one of `parse_format`
+        for format in [
+            "{commit} {author}, {time-ago} • {title}",
+            "{author} {commit} {title}",
+            "{author}, {date} • {title} • {commit}",
+            "{email} {body} {nope} {foo",
+            "{commit}",
+        ] {
+            assert_eq!(
+                bob().parse_format_with_commit(format).0,
+                bob().parse_format(format),
+                "{format}"
+            );
+        }
+    }
+
+    /// `git rev-parse --short <rev>` in `dir`.
+    fn cli_short(dir: &Path, rev: &str) -> String {
+        let output = std::process::Command::new("git")
+            .arg("-C")
+            .arg(dir)
+            .args(["rev-parse", "--short", rev])
+            .env_remove("GIT_DIR")
+            .env("GIT_CONFIG_GLOBAL", "/dev/null")
+            .env("GIT_CONFIG_SYSTEM", "/dev/null")
+            .output()
+            .unwrap();
+        assert!(output.status.success());
+        String::from_utf8(output.stdout).unwrap().trim().to_owned()
+    }
+
+    #[test]
+    fn short_id_is_what_git_abbreviates() {
+        let repo = empty_git_repo();
+        let file = repo.path().join("file.txt");
+        let mut text = String::new();
+        let mut messages = Vec::new();
+        for i in 0..6 {
+            text.push_str(&format!("line {i}\n"));
+            std::fs::write(&file, &text).unwrap();
+            let message = format!("commit number {i}");
+            create_commit_with_message(repo.path(), true, &message);
+            messages.push(message);
+        }
+
+        let blame = FileBlame::try_new(&file).unwrap();
+        assert_eq!(blame.len(), 6);
+        let mut seen = std::collections::HashSet::new();
+        for line in 0..6u32 {
+            let line_blame = blame.blame_for_line(line, 0, 0).unwrap();
+            let commit = line_blame.commit();
+            let full = commit.id.to_string();
+            assert_eq!(full.len(), 40);
+            assert!(full.starts_with(&commit.short_id));
+            assert!(commit.short_id.len() >= 7);
+            assert!(commit.short_id.chars().all(|c| c.is_ascii_hexdigit()));
+            assert_eq!(commit.short_id, cli_short(repo.path(), &full));
+            // the text of the blame starts with it, and the range covers exactly it
+            let (text, range) = line_blame.parse_format_with_commit("{commit} {author} {title}");
+            assert!(text.starts_with(&format!("{} author ", commit.short_id)));
+            assert_eq!(&text[range.unwrap()], commit.short_id);
+            assert_eq!(
+                commit.title.as_deref(),
+                Some(messages[line as usize].as_str())
+            );
+            seen.insert(full);
+        }
+        assert_eq!(seen.len(), 6);
+    }
+
     fn assert_send_sync<T: Send + Sync + std::fmt::Debug>() {}
 
     #[test]
