@@ -67,6 +67,8 @@ impl RepoWatch {
                 // the same rule as when switching buffers: reload the unmodified ones, warn
                 // about the others
                 crate::handlers::disk::check_paths(editor, &paths);
+                // a merge, rebase or cherry-pick may have started or ended
+                crate::handlers::conflicts::refresh(editor);
                 bump.fetch_add(1, Ordering::Relaxed);
                 helix_event::request_redraw();
             });

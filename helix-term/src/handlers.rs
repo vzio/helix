@@ -19,6 +19,7 @@ mod auto_save;
 pub mod blame;
 mod code_action_hint;
 pub mod completion;
+pub mod conflicts;
 pub mod diagnostics;
 pub mod disk;
 mod document_colors;
@@ -70,6 +71,7 @@ pub fn setup(config: Arc<ArcSwap<Config>>) -> Handlers {
     line_select::register_hooks(&handlers);
     blame::register_hooks(&handlers);
     disk::register_hooks(&handlers);
+    conflicts::register_hooks(&handlers);
     prompt::register_hooks(&handlers);
     workspace_trust::register_hooks(&handlers);
     handlers

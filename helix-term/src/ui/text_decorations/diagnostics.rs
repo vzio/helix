@@ -21,6 +21,7 @@ struct Styles {
     info: Style,
     warning: Style,
     error: Style,
+    conflict: Style,
 }
 
 impl Styles {
@@ -30,6 +31,7 @@ impl Styles {
             info: theme.get("info.diagnostic.inline"),
             warning: theme.get("warning.diagnostic.inline"),
             error: theme.get("error.diagnostic.inline"),
+            conflict: theme.get_or("conflict.diagnostic.inline", "error.diagnostic.inline"),
         }
     }
 
@@ -39,6 +41,7 @@ impl Styles {
             Severity::Info => self.info,
             Severity::Warning => self.warning,
             Severity::Error => self.error,
+            Severity::Conflict => self.conflict,
         }
     }
 }

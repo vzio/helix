@@ -117,8 +117,8 @@ separator = "│"
 mode.normal = "NORMAL"
 mode.insert = "INSERT"
 mode.select = "SELECT"
-diagnostics = ["warning", "error"]
-workspace-diagnostics = ["warning", "error"]
+diagnostics = ["warning", "error", "conflict"]
+workspace-diagnostics = ["warning", "error", "conflict"]
 ```
 The `[editor.statusline]` key takes the following sub-keys:
 
@@ -131,8 +131,8 @@ The `[editor.statusline]` key takes the following sub-keys:
 | `mode.normal` | The text shown in the `mode` element for normal mode | `"NOR"` |
 | `mode.insert` | The text shown in the `mode` element for insert mode | `"INS"` |
 | `mode.select` | The text shown in the `mode` element for select mode | `"SEL"` |
-| `diagnostics` | A list of severities which are displayed for the current buffer | `["warning", "error"]` |
-| `workspace-diagnostics` | A list of severities which are displayed for the workspace | `["warning", "error"]` |
+| `diagnostics` | A list of severities which are displayed for the current buffer: `hint`, `info`, `warning`, `error`, and `conflict` for git merge conflicts (this fork) | `["warning", "error", "conflict"]` |
+| `workspace-diagnostics` | A list of severities which are displayed for the workspace | `["warning", "error", "conflict"]` |
 
 The following statusline elements can be configured:
 
@@ -579,7 +579,7 @@ fn main() {
 | `max-wrap` | Equivalent of the `editor.soft-wrap.max-wrap` option for diagnostics.  | `20` |
 | `max-diagnostics` | Maximum number of diagnostics to render inline for a given line  | `10` |
 
-The allowed values for `cursor-line` and `other-lines` are: `error`, `warning`, `info`, `hint`.
+The allowed values for `cursor-line` and `other-lines` are: `conflict` (git merge conflicts, this fork), `error`, `warning`, `info`, `hint`.
 
 The (first) diagnostic with the highest severity that is not shown inline is rendered at the end of the line (as long as its severity is higher than the `end-of-line-diagnostics` config option):
 

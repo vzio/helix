@@ -232,6 +232,10 @@ impl Application {
                 .unwrap_or_else(|_| editor.new_file(Action::VerticalSplit));
         }
 
+        // git merge conflicts in the repository of the working directory, for `space D` and the
+        // statusline before any file is opened
+        crate::handlers::conflicts::refresh(&mut editor);
+
         #[cfg(windows)]
         let signals = futures_util::stream::empty();
         #[cfg(not(windows))]

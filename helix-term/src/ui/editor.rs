@@ -390,6 +390,7 @@ impl EditorView {
         let mut hint_vec = Vec::new();
         let mut warning_vec = Vec::new();
         let mut error_vec = Vec::new();
+        let mut conflict_vec = Vec::new();
         let mut unnecessary_vec = Vec::new();
         let mut deprecated_vec = Vec::new();
 
@@ -416,7 +417,8 @@ impl EditorView {
                 Some(Severity::Hint) => &mut hint_vec,
                 Some(Severity::Warning) => &mut warning_vec,
                 Some(Severity::Error) => &mut error_vec,
-                _ => &mut default_vec,
+                Some(Severity::Conflict) => &mut conflict_vec,
+                None => &mut default_vec,
             };
 
             // If the diagnostic has tags and a non-warning/error severity, skip rendering
@@ -426,7 +428,7 @@ impl EditorView {
             if diagnostic.tags.is_empty()
                 || matches!(
                     diagnostic.severity,
-                    Some(Severity::Warning | Severity::Error)
+                    Some(Severity::Warning | Severity::Error | Severity::Conflict)
                 )
             {
                 push_diagnostic(vec, diagnostic.range);
@@ -480,6 +482,13 @@ impl EditorView {
             OverlayHighlights::Homogeneous {
                 highlight: get_scope_of("diagnostic.error"),
                 ranges: error_vec,
+            },
+            // conflict blocks (this fork) look like errors in themes that don't style them
+            OverlayHighlights::Homogeneous {
+                highlight: theme
+                    .find_highlight_exact("diagnostic.conflict")
+                    .unwrap_or_else(|| get_scope_of("diagnostic.error")),
+                ranges: conflict_vec,
             },
         ]);
     }
@@ -815,6 +824,7 @@ impl EditorView {
         let error = theme.get("error");
         let info = theme.get("info");
         let hint = theme.get("hint");
+        let conflict = theme.get_or("conflict", "error");
 
         let mut lines = Vec::new();
         let background_style = theme.get("ui.background");
@@ -822,6 +832,7 @@ impl EditorView {
             let style = Style::reset()
                 .patch(background_style)
                 .patch(match diagnostic.severity {
+                    Some(Severity::Conflict) => conflict,
                     Some(Severity::Error) => error,
                     Some(Severity::Warning) | None => warning,
                     Some(Severity::Info) => info,
