@@ -1,0 +1,6 @@
+# Commits that `git blame` (with `git config blame.ignoreRevsFile .git-blame-ignore-revs`),
+# GitHub's blame view and Vortex's inline blame pass over, blaming their lines on the commit
+# before. See FORK.md, "History".
+
+# feat!: rename Helix to Vortex (#24): the non-mechanical part of the rename (binary, directories, prose)
+f89b6075ad184de1d4d49fd757c4c7caaed7904f

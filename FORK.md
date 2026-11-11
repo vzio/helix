@@ -56,8 +56,8 @@ became `vortex_<crate>`). Upstream's history isn't included (it is in
 [helix-editor/helix](https://github.com/helix-editor/helix), and CHANGELOG.md is upstream's up to
 the fork point). Every later commit is this fork's own, rewritten with the same mechanical rename;
 the history before the rewrite is kept under the tag `pre-vortex-master`. The rest of the rename
-(the `vx` binary, directories, variables, prose) is the single commit "feat!: rename Helix to Vortex",
-listed in [`.git-blame-ignore-revs`](.git-blame-ignore-revs) so that blame skips it: git with
+(the `vx` binary, directories, variables, prose) is the single commit
+"feat!: rename Helix to Vortex (#24)", listed in [`.git-blame-ignore-revs`](.git-blame-ignore-revs) so that blame skips it: git with
 `git config blame.ignoreRevsFile .git-blame-ignore-revs` (once per clone), GitHub's blame view,
 and Vortex's own inline blame (which reads that file, or git's `blame.ignoreRevsFile`).
 
@@ -105,7 +105,7 @@ Each feature lives in its own modules, to keep rebasing on upstream cheap:
 | Conflict diagnostics | `vortex-vcs/src/conflict.rs` (finding the blocks), `conflicted_files` in `vortex-vcs/src/git.rs` (the unmerged files), `vortex-term/src/handlers/conflicts.rs` (when to look, the documents' state), `vortex-term/tests/test/conflicts.rs` |
 | Staged files, commit diffs | `vortex-vcs/src/git.rs`, `vortex-vcs/src/lib.rs`, `vortex-vcs/src/status.rs` |
 | File tree | `vortex-term/src/ui/explorer.rs`, `vortex-term/src/ui/explorer/`, `vortex-term/benches/explorer.rs` |
-| Inline blame | `vortex-vcs/src/git/blame.rs`, `vortex-vcs/src/blame_stub.rs`, `vortex-vcs/benches/blame.rs`, `vortex-stdx/src/time.rs`, `vortex-view/src/blame.rs`, `vortex-term/src/handlers/blame.rs`, `vortex-term/src/commands/blame.rs`, `vortex-term/src/ui/text_decorations/blame.rs` |
+| Inline blame | `vortex-vcs/src/git/blame.rs`, `vortex-vcs/src/git/blame/ignore_revs.rs`, `vortex-vcs/src/blame_stub.rs`, `vortex-vcs/benches/blame.rs`, `vortex-stdx/src/time.rs`, `vortex-view/src/blame.rs`, `vortex-term/src/handlers/blame.rs`, `vortex-term/src/commands/blame.rs`, `vortex-term/src/ui/text_decorations/blame.rs` |
 | `x` on an empty line | `vortex-term/src/handlers/line_select.rs` |
 | Move lines | `vortex-term/src/commands/move_lines.rs` |
 | Terminal panel | `vortex-terminal/` (the shell: pty, emulator, OSC 133, bash/zsh integration), `vortex-view/src/terminal.rs` (panel state, `[editor.terminal]`), `vortex-term/src/terminal/` (drawing, focus, input encoding, the `vx` shim), `vortex-term/tests/test/terminal.rs` |
@@ -878,9 +878,15 @@ with blame off or not computed yet, it yanks nothing and the error says why.
   at once) and cached per document. It's refreshed on save, `:reload`, terminal focus and when
   turned on; a refresh only reads `HEAD` (~0.3 ms) unless a commit was made, and then it also
   updates the diff base so the git gutter follows external commits.
-- Cost (release build): `vortex-term/src/commands.rs`, 7,273 lines touched by 1,141 commits, takes
-  1.5 s; small files 3-160 ms. It depends on the file's history, not its size. Showing a line
-  is a lookup (~0.4 µs). `cargo bench -p vortex-vcs --features git --bench blame`.
+- Commits listed in [`.git-blame-ignore-revs`](.git-blame-ignore-revs) at the root of the
+  working tree, or in a file named by git's `blame.ignoreRevsFile` setting, are passed over like
+  `git blame --ignore-revs-file` does: their lines show the commit their parent blamed them on
+  (so the rename commit never shows, see [History](#history)). A line is matched to the parent's
+  line at the same offset within its hunk; lines a listed commit added beyond what it replaced
+  stay on it (`vortex-vcs/src/git/blame/ignore_revs.rs`).
+- Cost (release build, measured on upstream's full history): `vortex-term/src/commands.rs`,
+  7,273 lines touched by 1,141 commits, takes 1.5 s; small files 3-160 ms. It depends on the
+  file's history, not its size. Showing a line is a lookup (~0.4 µs). `cargo bench -p vortex-vcs --features git --bench blame`.
 
 ### Limitations
 
@@ -890,6 +896,8 @@ with blame off or not computed yet, it yanks nothing and the error says why.
 - After a commit made outside the editor, blame updates on the next save, `:reload` or terminal
   focus, not by itself.
 - Blame is for the committed file at `HEAD`; staged-but-uncommitted lines show "Not committed yet".
+- A change to the ignored revisions applies to blames computed after it: the next commit, or a
+  file opened afterwards.
 
 ## `x` on an empty line
 

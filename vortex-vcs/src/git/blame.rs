@@ -19,10 +19,13 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use anyhow::Context as _;
-use gix::bstr::ByteSlice;
+use gix::bstr::{BString, ByteSlice};
 use gix::objs::tree::EntryKind;
 
 use super::open_repo;
+
+mod ignore_revs;
+use ignore_revs::Origin;
 
 /// Why a blame could not be computed.
 ///
@@ -147,48 +150,61 @@ impl FileBlame {
         let mut resource_cache = repo
             .diff_resource_cache_for_tree_diff()
             .context("failed to create diff resource cache")?;
-        let commit_graph = repo.commit_graph_if_enabled().ok().flatten();
-        let outcome = gix::blame::file(
-            &repo.objects,
-            head.0,
-            commit_graph,
-            &mut resource_cache,
-            // NOTE: bstr always uses unix separators `/`, even on
-            // Windows which uses the `\` separator
-            &gix::path::to_unix_separators_on_windows(
-                gix::path::try_into_bstr(rel_path).context("path is not valid")?,
-            ),
-            gix::blame::Options {
-                // follow the file through renames, like `git blame` does. Doesn't make a
-                // measurable difference in time.
-                rewrites: Some(gix::diff::Rewrites::default()),
-                ..Default::default()
-            },
-        );
-        let entries = match outcome {
-            Ok(outcome) => outcome.entries,
+        // NOTE: bstr always uses unix separators `/`, even on
+        // Windows which uses the `\` separator
+        let rel_path: BString = gix::path::to_unix_separators_on_windows(
+            gix::path::try_into_bstr(rel_path).context("path is not valid")?,
+        )
+        .into_owned();
+        let mut blame = |commit: gix::ObjectId, path: &BString| {
+            gix::blame::file(
+                &repo.objects,
+                commit,
+                repo.commit_graph_if_enabled().ok().flatten(),
+                &mut resource_cache,
+                path.as_ref(),
+                gix::blame::Options {
+                    // follow the file through renames, like `git blame` does. Doesn't make a
+                    // measurable difference in time.
+                    rewrites: Some(gix::diff::Rewrites::default()),
+                    ..Default::default()
+                },
+            )
+            .map(|outcome| origins(&outcome.entries, path))
+        };
+        let mut origins = match blame(head.0, &rel_path) {
+            Ok(origins) => origins,
             Err(gix::blame::Error::FileMissing { .. }) => return Err(BlameError::NotCommitted),
             Err(err) => return Err(BlameError::Other(anyhow::Error::new(err))),
         };
 
+        // Lines of commits listed in `.git-blame-ignore-revs` (or git's `blame.ignoreRevsFile`)
+        // are blamed on what their parents blamed them on.
+        let ignored = ignore_revs::ignored_revs(&repo);
+        if origins
+            .iter()
+            .flatten()
+            .any(|origin| ignored.contains(&origin.commit))
+        {
+            ignore_revs::pass_over(&repo, &mut origins, &ignored, |commit, path| {
+                blame(commit, path).ok()
+            });
+        }
+
         // Resolve every distinct commit once.
         let mut commits: HashMap<gix::ObjectId, Arc<BlameCommit>> = HashMap::new();
-        let line_count = entries
-            .iter()
-            .map(|entry| entry.start_in_blamed_file + entry.len.get())
-            .max()
-            .unwrap_or(0);
-        let mut lines = vec![None; line_count as usize];
-        for entry in entries {
-            let commit = commits
-                .entry(entry.commit_id)
-                .or_insert_with(|| Arc::new(resolve_commit(&repo, entry.commit_id)))
-                .clone();
-            let start = entry.start_in_blamed_file as usize;
-            for line in &mut lines[start..start + entry.len.get() as usize] {
-                *line = Some(commit.clone());
-            }
-        }
+        let lines = origins
+            .into_iter()
+            .map(|origin| {
+                let id = origin?.commit;
+                Some(
+                    commits
+                        .entry(id)
+                        .or_insert_with(|| Arc::new(resolve_commit(&repo, id)))
+                        .clone(),
+                )
+            })
+            .collect();
 
         Ok(Self { head, lines })
     }
@@ -238,6 +254,27 @@ impl FileBlame {
             commit: Arc::clone(commit),
         })
     }
+}
+
+/// Where each line of the blamed file comes from, by 0-based line.
+fn origins(entries: &[gix::blame::BlameEntry], path: &BString) -> Vec<Option<Origin>> {
+    let line_count = entries
+        .iter()
+        .map(|entry| entry.start_in_blamed_file + entry.len.get())
+        .max()
+        .unwrap_or(0);
+    let mut lines = vec![None; line_count as usize];
+    for entry in entries {
+        let path = entry.source_file_name.as_ref().unwrap_or(path);
+        for offset in 0..entry.len.get() {
+            lines[(entry.start_in_blamed_file + offset) as usize] = Some(Origin {
+                commit: entry.commit_id,
+                path: path.clone(),
+                line: entry.start_in_source_file + offset,
+            });
+        }
+    }
+    lines
 }
 
 /// Get the id of the commit `HEAD` points to for the repository `file` is in.
@@ -1223,5 +1260,50 @@ mod test {
             let line_blame = blame.blame_for_line(line, 0, 0).unwrap();
             assert_eq!(line_blame.commit().title.as_deref(), Some("add"));
         }
+    }
+
+    #[cfg(not(windows))]
+    #[test]
+    fn ignored_revs_pass_lines_on_to_the_parent() {
+        use std::process::Command;
+        let repo = empty_git_repo();
+        let file = repo.path().join("file.txt");
+        let titles = || -> Vec<String> {
+            let blame = FileBlame::try_new(&file).unwrap();
+            (0..blame.len() as u32)
+                .map(|line| {
+                    let blame = blame.blame_for_line(line, 0, 0).unwrap();
+                    blame.commit().title.clone().unwrap()
+                })
+                .collect()
+        };
+        std::fs::write(&file, "one old\ntwo\nthree old\n").unwrap();
+        create_commit_with_message(repo.path(), true, "first");
+        // renames in place on lines 1 and 3, and adds a line
+        std::fs::write(&file, "one new\ntwo\nthree new\nfour\n").unwrap();
+        create_commit_with_message(repo.path(), true, "rename");
+        std::fs::write(&file, "one new\nTWO\nthree new\nfour\n").unwrap();
+        create_commit_with_message(repo.path(), true, "third");
+        assert_eq!(titles(), ["rename", "third", "rename", "rename"]);
+
+        let rename = Command::new("git")
+            .args(["rev-parse", "HEAD~1"])
+            .current_dir(repo.path())
+            .output()
+            .unwrap();
+        let rename = String::from_utf8(rename.stdout).unwrap();
+        let revs = format!("# the rename\n{}\n", rename.trim());
+
+        // the default file at the root of the working tree
+        std::fs::write(repo.path().join(ignore_revs::IGNORE_REVS_FILE), &revs).unwrap();
+        // the line the rename added has no counterpart in the parent: it stays
+        assert_eq!(titles(), ["first", "third", "first", "rename"]);
+
+        // git's setting, naming another file
+        std::fs::remove_file(repo.path().join(ignore_revs::IGNORE_REVS_FILE)).unwrap();
+        assert_eq!(titles(), ["rename", "third", "rename", "rename"]);
+        std::fs::write(repo.path().join("revs.txt"), &revs).unwrap();
+        exec_git_args(&["config", "blame.ignoreRevsFile", "revs.txt"], repo.path());
+        assert_eq!(titles(), ["first", "third", "first", "rename"]);
     }
 }
