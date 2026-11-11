@@ -9,8 +9,9 @@
 //! - Lockfiles are collapsed to one row with their line counts, binary files are one row.
 //!
 //! The list follows the working tree while the commit log watches it, and the buffers as they
-//! are edited. Enter opens the diff of a change at its hunk, where it can be staged and
-//! reverted, or the buffer at a change that is only in the buffer.
+//! are edited, and so do its totals in the status line. Enter opens the diff of a change at its
+//! hunk, where it can be staged and reverted, or the buffer at a change that is only in the
+//! buffer.
 
 use std::collections::HashMap;
 use std::ops::Range;
@@ -18,6 +19,7 @@ use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::sync::Arc;
 
+use helix_core::diagnostic::Severity;
 use helix_core::{Rope, Selection};
 use helix_vcs::staging::{self, touches, LineHunk};
 use helix_vcs::{DiffProviderRegistry, FileChange};
@@ -282,6 +284,8 @@ pub(crate) struct UncommittedChanges {
     pending: Pending<anyhow::Result<Vec<ChangeRow>>>,
     /// The files listed, for `n`/`N` in the diffs opened from the list.
     files: Arc<Mutex<NavFiles>>,
+    /// The totals of the list (see [`summary`]), as last put in the status line.
+    totals: String,
 }
 
 /// The modified buffers of `buffers`, to read off the main thread.
@@ -298,7 +302,7 @@ fn snapshot(editor: &Editor, buffers: &[(DocumentId, i32, PathBuf)]) -> Vec<Buff
 }
 
 impl UncommittedChanges {
-    fn refresh(&mut self, editor: &Editor) {
+    fn refresh(&mut self, editor: &mut Editor) {
         let buffers = self.source.buffers(editor);
         let tree = self.live.as_mut().is_some_and(Live::changed);
         if tree || buffers != self.buffers {
@@ -308,13 +312,14 @@ impl UncommittedChanges {
             self.pending.run(move || source.list(snapshot));
         }
         match self.pending.take() {
-            Some(Ok(rows)) => self.replace(rows),
+            Some(Ok(rows)) => self.replace(rows, editor),
             Some(Err(err)) => log::debug!("uncommitted changes: {err}"),
             None => {}
         }
     }
 
-    fn replace(&mut self, rows: Vec<ChangeRow>) {
+    fn replace(&mut self, rows: Vec<ChangeRow>, editor: &mut Editor) {
+        self.show_totals(editor, summary(&rows), false);
         let selected = self
             .picker
             .selection()
@@ -325,6 +330,20 @@ impl UncommittedChanges {
         if let Some((path, line)) = selected {
             select_row(&mut self.picker, &path, Some(line));
         }
+    }
+
+    /// Updates the totals of the list in the status line, when it shows them (or nothing), so as
+    /// not to hide a message the user should see, such as a revert's undo hint; and when the list
+    /// is `regained`, shown again after a diff opened from it.
+    fn show_totals(&mut self, editor: &mut Editor, totals: String, regained: bool) {
+        let shown = match editor.get_status() {
+            Some((status, severity)) => *severity == Severity::Info && *status == self.totals,
+            None => true,
+        };
+        if regained || (shown && totals != self.totals) {
+            editor.set_status(totals.clone());
+        }
+        self.totals = totals;
     }
 }
 
@@ -396,7 +415,8 @@ pub(crate) fn open(cx: &mut compositor::Context, cwd: PathBuf, watch: Option<Arc
                     return;
                 }
             };
-            editor.set_status(summary(&rows));
+            let totals = summary(&rows);
+            editor.set_status(totals.clone());
             let files = Arc::new(Mutex::new(nav_files(&rows)));
             let picker = changes_picker(editor, cwd, rows, watch.clone(), files.clone());
             let list = UncommittedChanges {
@@ -406,6 +426,7 @@ pub(crate) fn open(cx: &mut compositor::Context, cwd: PathBuf, watch: Option<Arc
                 buffers,
                 pending: Pending::new(),
                 files,
+                totals,
             };
             compositor.push(Box::new(overlaid(list)));
         };
@@ -466,6 +487,13 @@ fn changes_picker(
                     Rc::new(|compositor, change| {
                         if let Some(overlay) = compositor.find::<Overlay<UncommittedChanges>>() {
                             select_row(&mut overlay.content.picker, change.path(), None);
+                        }
+                    }),
+                    // the list's totals again, which may have changed meanwhile
+                    Rc::new(|compositor, cx| {
+                        if let Some(overlay) = compositor.find::<Overlay<UncommittedChanges>>() {
+                            let list = &mut overlay.content;
+                            list.show_totals(cx.editor, list.totals.clone(), true);
                         }
                     }),
                 )

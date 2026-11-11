@@ -218,6 +218,33 @@ impl DiffProviderRegistry {
         Err(first_err.unwrap_or_else(|| anyhow!("no diff provider returns success")))
     }
 
+    /// The contents of the files of the range of commits from `oldest` to `newest`: for each
+    /// `(old path, new path)` of `files`, in order, calls `f` with its index, the contents of
+    /// the old path in the first parent of `oldest` and of the new path in `newest` (`None`
+    /// where the commit doesn't have the file), until `f` returns `false`. Much faster than
+    /// [`Self::file_at_commit`] for each, which opens the repository every time.
+    pub fn for_each_range_file(
+        &self,
+        cwd: &Path,
+        trust_full: bool,
+        oldest: &str,
+        newest: &str,
+        files: &[(PathBuf, PathBuf)],
+        mut f: impl FnMut(usize, Option<Vec<u8>>, Option<Vec<u8>>) -> bool,
+    ) -> Result<()> {
+        // report the error of the first provider, not the fallback's "no diff support"
+        let mut first_err = None;
+        for provider in &self.providers {
+            match provider.for_each_range_file(cwd, trust_full, (oldest, newest), files, &mut f) {
+                Ok(()) => return Ok(()),
+                Err(err) => {
+                    first_err.get_or_insert(err);
+                }
+            }
+        }
+        Err(first_err.unwrap_or_else(|| anyhow!("no diff provider returns success")))
+    }
+
     /// The contents of `file` in commit `id` (`id^` for its first parent), or `None` if the
     /// commit doesn't have it.
     pub fn file_at_commit(
@@ -392,6 +419,24 @@ impl DiffProvider {
             #[cfg(feature = "git")]
             Self::Git => git::file_at_commit(cwd, trust_full, id, file),
             Self::None => bail!("No diff support compiled in"),
+        }
+    }
+
+    fn for_each_range_file(
+        &self,
+        cwd: &Path,
+        trust_full: bool,
+        (oldest, newest): (&str, &str),
+        files: &[(PathBuf, PathBuf)],
+        f: impl FnMut(usize, Option<Vec<u8>>, Option<Vec<u8>>) -> bool,
+    ) -> Result<()> {
+        match self {
+            #[cfg(feature = "git")]
+            Self::Git => git::for_each_range_file(cwd, trust_full, oldest, newest, files, f),
+            Self::None => {
+                let _ = (cwd, trust_full, oldest, newest, files, f);
+                bail!("No diff support compiled in")
+            }
         }
     }
 
