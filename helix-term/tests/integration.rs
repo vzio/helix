@@ -23,6 +23,7 @@ mod test {
     mod conflicts;
     mod explorer;
     mod git_log;
+    mod hex_view;
     mod hunks;
     mod inline_blame;
     mod move_lines;
