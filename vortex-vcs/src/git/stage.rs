@@ -285,6 +285,9 @@ mod tests {
     fn read_index_file() {
         let repo = empty_git_repo();
         let dir = repo.path();
+        // the index is read in the working tree's form: keep LF whatever the user's git config
+        // says (core.autocrlf is true on Windows CI runners)
+        exec_git_args(&["config", "core.autocrlf", "false"], dir);
         let file = dir.join("a.txt");
         fs::write(&file, "one\n").unwrap();
         // untracked
@@ -305,6 +308,9 @@ mod tests {
     fn set_and_remove() {
         let repo = empty_git_repo();
         let dir = repo.path();
+        // the index is read in the working tree's form: keep LF whatever the user's git config
+        // says (core.autocrlf is true on Windows CI runners)
+        exec_git_args(&["config", "core.autocrlf", "false"], dir);
         let file = dir.join("a.txt");
         fs::write(&file, "one\ntwo\n").unwrap();
         create_commit(dir, true);
