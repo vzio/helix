@@ -52,6 +52,7 @@ bug-fixed version of it in omentic's [helix-ext](https://github.com/omentic/heli
 - [`x` on an empty line](#x-on-an-empty-line)
 - [Move lines](#move-lines)
 - [Terminal panel](#terminal-panel)
+- [Hex view](#hex-view)
 - [Practice](#practice)
 - [Tutor](#tutor)
 
@@ -73,6 +74,7 @@ Each feature lives in its own modules, to keep rebasing on upstream cheap:
 | `x` on an empty line | `helix-term/src/handlers/line_select.rs` |
 | Move lines | `helix-term/src/commands/move_lines.rs` |
 | Terminal panel | `helix-terminal/` (the shell: pty, emulator, OSC 133, bash/zsh integration), `helix-view/src/terminal.rs` (panel state, `[editor.terminal]`), `helix-term/src/terminal/` (drawing, focus, input encoding, the `hx` shim), `helix-term/tests/test/terminal.rs` |
+| Hex view | `helix-view/src/hex.rs` (the bytes: windowed reads, the overwritten bytes, undo, cursors, search, the row layout), `helix-term/src/ui/hex_view.rs` (drawing, the statusline texts), `helix-term/src/commands/hex.rs` (keys, mouse, prompts, `:hex`), `helix-term/tests/test/hex_view.rs` |
 | Practice | `helix-term/src/practice.rs`, `helix-term/src/practice/`, `runtime/practice/`, `helix-term/tests/test/practice.rs` |
 
 Hooks into core files: commands and keys in `helix-term/src/commands.rs`,
@@ -117,6 +119,17 @@ diagnostics in `ui/editor.rs` and `ui/text_decorations/diagnostics.rs`, the pick
 diagnostics, in `helix-view/src/document.rs`; `Editor::conflicts` and `workspace_conflict_count` in
 `helix-view/src/editor.rs`; `Theme::get_or`; refresh calls in `disk::check_all`, `live.rs` and
 `Application::new`.
+
+The hex view changes core files: the `hex` field of `Document` and what it changes there
+(`open_hex`, `enter_hex`/`leave_hex`, `apply` refusing transactions, `is_modified`, `save_impl`
+writing in place, `disk_change` and `reload`, `remove_view`) and `DocumentSavedEvent::hex_written`
+in `helix-view/src/document.rs`; binary files opening with `open_hex` in `Editor::open`
+(`helix-view/src/editor.rs`); `is_binary`, moved from `helix-term/src/lib.rs` to
+`helix_view::hex`; the key, mouse, drawing and cursor hooks in `ui/editor.rs`
+(`render_view_frame` is the border and statusline the hex view shares); the mode, position and
+other elements in `ui/statusline.rs`; `:hex`, and `:goto`/`:0x…` going to an offset, in
+`typed.rs`; the write message in `application.rs`; the hex preview of binary files in
+`ui/picker.rs`; the blame request skipping it in `handlers/blame.rs`; `ui.hex.*` in `theme.toml`.
 
 The hunk actions add `Editor::save_messages` (`helix-view/src/editor.rs`), a message shown
 instead of `'file' written` when a document's save completes (`handle_document_write` in
@@ -1027,6 +1040,154 @@ with the POSIX tools the exercises may use no short text makes them beat typing 
 - `hx` in a shell started inside the panel over `ssh` or in a container doesn't reach this editor.
 - A command typed with `:sh` while a full screen program runs goes to that program.
 
+## Hex view
+
+Binary files open in a hex view instead of as garbled text: offsets, the bytes in hex (or bits),
+and the same bytes as ASCII. It is read-only until you ask to overwrite, it never inserts or
+deletes a byte, and it never loads the file: a file of several GB opens at once.
+
+```text
+0x00000000  89 50 4e 47 0d 0a 1a 0a  00 00 00 0d 49 48 44 52  .PNG........IHDR
+0x00000010  00 00 00 10 00 00 00 10  08 02 00 00 00 90 91 68  ...............h
+0x00000020  36 00 00 01 62 49 44 41  54 78 9c 63 60 60 e7 13  6...bIDATx.c``..
+```
+
+### When it appears
+
+- Opening a file that looks binary (Helix's check: a NUL byte in its first KiB, or the signature of
+  a PDF or a PNG) shows it in the hex view, from any picker, `:open`, `gf` or the command line.
+- `:hex` shows the current file in the hex view, text files too, and `:hex` again shows it as text.
+  It shows the file on disk, so a buffer with unsaved changes must be written (or reloaded) first,
+  and going back to text is refused while overwritten bytes aren't written (`:w`, or `:reload` to
+  drop them).
+- The file pickers preview binary files in hex too (instead of `<Binary file>`), whatever their
+  size.
+
+### Layout
+
+- **Offsets** on the left, after a grey `0x`, with 8 hex digits, more for files past 4 GiB.
+- **Hex mode** (the default): 16 bytes per row in two groups of 8, or 8 bytes per row when the
+  view is narrower than a 16-byte row (78 columns with 8-digit offsets).
+- **Bin mode** (`~`): each byte as 8 bits, 8 bytes per row in two groups of 4, or 4, 2 or 1 when
+  the view is narrower.
+- **ASCII** on the right: printable bytes as themselves, the others as `.`. A short last row keeps
+  the ASCII column in place.
+- **Colors** by kind of byte, as in hexyl, the same in both columns: null, printable ASCII, ASCII
+  whitespace, other ASCII control bytes, and the bytes past ASCII. See [Theme](#hex-view-theme).
+- **The cursor** is on a byte: highlighted in the column it is in (where typing goes), and
+  underlined in the other one.
+
+### Keys
+
+| Key or command | What it does |
+| --- | --- |
+| `h` `l`, `←` `→` | Previous, next byte |
+| `j` `k`, `↓` `↑` | Next, previous row |
+| `w` `b` | Next, previous word: 4 bytes, from a multiple of 4 |
+| `gg` `ge` | First, last byte |
+| `gh` `gl`, `Home` `End` | Start, end of the row |
+| `Ctrl-d` `Ctrl-u` | Half a page down, up; `Ctrl-f` `Ctrl-b`, `PageDown` `PageUp`: a page |
+| Mouse wheel, click, drag | Scroll; put the cursor on a byte (in the column clicked); select |
+| `Tab` | Go between the hex (or bin) and the ASCII column |
+| `~` | Hex mode ↔ bin mode |
+| `G` | Go to an offset: `0x1a4` in hex, `420` in decimal |
+| `:goto 0x1a4`, `:goto 420`, `:0x1a4`, `:420` | The same, from the command line |
+| `/` `?` | Search forward, backward: hex bytes (`de ad be ef`, spaces optional) or text in double quotes (`"IHDR"`) |
+| `n` `N` | Next, previous match, wrapping around the file. The matches on screen are highlighted |
+| `v` | Select bytes from the cursor; `;` or `Esc` stops selecting |
+| `y` | Yank the selection (or the byte under the cursor) as hex text, `de ad be ef`, to the default register (`"ay` to register `a`) |
+| `i` | Overwrite mode (`OVR`), until `Esc` |
+| `u` `U` | Undo, redo (one step per stay in overwrite mode) |
+| `:w` | Write the overwritten bytes, in place |
+
+`:`, `space` and the keys with `Ctrl` or `Alt` the view doesn't use go to the keymap as in any
+buffer: `:q`, `:w`, the pickers, the windows (`Ctrl-w`), the jumplist (`Ctrl-o`/`Ctrl-i`)... Any
+other character is refused in read-only mode with `read-only, i to overwrite`.
+
+### Overwrite mode
+
+`i` starts overwriting, `Esc` stops; the statusline says `OVR` instead of `RO`. Typing overwrites
+the byte under the cursor, in the column the cursor is in:
+
+- **hex column**: a hex digit overwrites a nibble, the high one first, then the cursor goes to the
+  next byte;
+- **bin column**: `0` or `1` overwrites the bit under the cursor, then the next bit;
+- **ASCII column**: a character overwrites a whole byte (a character past ASCII, as many bytes as
+  its UTF-8 takes, refused when they don't fit before the end of the file).
+
+The arrows move by digit in the hex and bin columns, `Backspace` goes back one without deleting,
+and other keys say what the column takes. Bytes are never inserted or deleted, so the size of the
+file never changes: at the last byte, the cursor stays there.
+
+Overwritten bytes are drawn in the `diff.delta` color until written, and the buffer shows as
+modified (`[+]`, `:q` refuses). `u` and `U` undo and redo, also after writing. `:w` writes only
+the bytes that changed, in place (`'file' written, 4 bytes changed in place`), never a copy of the
+whole file, after the same check as text buffers: if the file changed on disk since it was opened
+or last written, the write is refused until `:reload` (or `:w!`).
+
+### Statusline
+
+The mode element says `HEX RO`, `HEX OVR`, `BIN RO` or `BIN OVR` (in the colors of normal, insert
+and select mode). The position element says where the cursor is and what it is on, and the size of
+the file:
+
+```text
+ HEX RO   image.png                          0x1A4 (420)  26 38 00100110 '&'  of 4.0 GiB
+```
+
+That is the offset in hex and decimal, the byte in hex, decimal and bits, the character (or `\0`,
+`\t`, `\n`, `\r`), `[N B sel]` while selecting, and the size. The selection length element counts
+bytes; the elements about text (line ending, indentation, encoding, total lines) are hidden.
+
+### How it lives in the editor
+
+The hex view is a mode of the document, not a separate view or component: a `Document` in the hex
+view has a `HexBuffer` (`helix-view/src/hex.rs`) and draws its rows instead of its text. So it is a
+buffer like any other: splits (each view with its own cursor and hex or bin mode, a new split
+starting where the view it splits is), the buffer picker, `:q`, `:w`, `:bc`, the jumplist between
+buffers, the modified flag.
+
+- **The bytes are read in windows**: a `HexBuffer` holds the open file and reads what it is asked
+  for, through a 64 KiB window cache, with positioned reads. Drawing reads a screen of rows; a
+  search reads 1 MiB chunks. Positioned reads rather than a memory map: a file that another program
+  truncates can't crash the editor (reading past its new end only returns less).
+- **Overwritten bytes** are a sparse map over the file (offset → byte), holding only the bytes that
+  differ from the file, so the buffer is modified exactly when the map isn't empty. Undo steps
+  record each byte's old and new values.
+- **The text of the document** stays as it was (empty for a file opened in the hex view), and
+  `Document::apply` refuses every transaction meanwhile: the keys that reach the keymap can't
+  change it unseen. Going back to text reloads it from the file.
+- **Files changed on disk**: the check compares the modification time and size only, since hashing
+  the content (what text buffers do) would read the whole file.
+
+### Hex view theme
+
+| Scope | For | Falls back to |
+| --- | --- | --- |
+| `ui.hex.null` | `00` | `ui.text.inactive`, `comment` |
+| `ui.hex.printable` | printable ASCII, `21`–`7e` | `function` |
+| `ui.hex.whitespace` | tab, line feed, vertical tab, form feed, carriage return, space | `string` |
+| `ui.hex.control` | the other ASCII control bytes, `01`–`1f` and `7f` | `constant` |
+| `ui.hex.other` | `80`–`ff` | `ui.text` |
+| `ui.hex.prefix` | the `0x` of the offsets | `ui.text.inactive`, `comment` |
+| `ui.hex.offset` | the digits of the offsets | `ui.linenr` |
+| `ui.hex.match` | search matches | `ui.highlight`, `ui.selection` |
+
+Overwritten bytes use `diff.delta`, the selection `ui.selection` and the cursor `ui.cursor.primary`
+(`ui.cursor`, else reversed colors). The default theme sets the `ui.hex.*` byte colors.
+
+### Limitations
+
+- The keys are built in, not in the keymap, so they can't be remapped, and there are no counts
+  (`5j`): digits are refused like any other character in read-only mode.
+- A search runs on the main thread: through a multi-GB file it can take seconds when the match is
+  far or absent.
+- The jumplist remembers buffers, not offsets: `Ctrl-o` comes back to the hex view where its cursor
+  is, not to the offset before a `G` or a search.
+- `:w` writes to the file itself only: `:w other.bin` is refused.
+- A file changed on disk counts as changed when its modification time does, even if `touch` left
+  its bytes the same.
+
 ## Practice
 
 A built-in trainer, Rustlings crossed with VimGolf: each exercise teaches a feature with a short
@@ -1141,7 +1302,7 @@ use `:practice` for editing, then covers only what doesn't fit an exercise check
 a buffer: opening, saving and quitting, buffers, pickers, the file tree, the jumplist, going
 places (`gw`, `[`/`]`), the view, splits, the system clipboard, language servers, git (with this
 fork's diff view, commit log and blame), the shell commands other than `|`, `:earlier`, settings,
-the debugger, this fork's terminal panel, and a last section with the editing keys that have no exercise. Upstream's lessons
+the debugger, this fork's terminal panel and hex view, and a last section with the editing keys that have no exercise. Upstream's lessons
 on editing are exercises now (the case keys, `<A-C>`, `n` in select mode, rotating and removing
 selections were added for them).
 

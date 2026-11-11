@@ -388,7 +388,34 @@
 
 
 =================================================================
-=                     17 MORE EDITING KEYS                      =
+=                       17 THE HEX VIEW                         =
+=================================================================
+
+ A binary file (an image, an executable...) opens in the hex
+ view: offsets, the bytes in hex, and the same bytes as ASCII.
+ It reads only what it shows, so even a huge file opens at once.
+ :hex shows any file this way, and back as text.
+
+  h l  j k       a byte, a row
+  w b            the next, the previous word of 4 bytes
+  gg  ge         the first, the last byte
+  Tab            go between the hex and the ASCII column
+  ~              show bits instead of hex digits, and back
+  G              go to an offset: 0x1a4 in hex, 420 in decimal
+                 (:goto 0x1a4 does the same)
+  / ?  n N       search hex bytes (de ad be ef) or "text"
+  v  y           select bytes, yank them as hex text
+
+ It is read-only: typing only reminds you that i overwrites.
+ After i, typing overwrites the byte under the cursor, a hex
+ digit, a bit or a character at a time, depending on the column
+ (the file never grows or shrinks), until Esc. u undoes, and :w
+ writes back only the bytes that changed.
+
+
+
+=================================================================
+=                     18 MORE EDITING KEYS                      =
 =================================================================
 
  These keys change text or selections too, but :practice has no
