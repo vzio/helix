@@ -445,9 +445,10 @@ async fn opening_a_directory_without_hits_in_the_filter_shows_it_in_the_tree() -
     let (dir, x, _y) = fixture()?;
     let mut session = Session::on(&x);
 
-    // `/a$` matches the directory `a` but nothing in it.
+    // `/a$` matches the directory `a` but nothing in it (`\a$` on Windows, the paths have `\`).
     session.keys("<space>es").await;
-    session.keys(&format!("'{} /a$", name_of(&dir))).await;
+    let sep = std::path::MAIN_SEPARATOR;
+    session.keys(&format!("'{} {sep}a$", name_of(&dir))).await;
     session
         .wait_for_screen("the filtered tree", |rows| {
             on_screen(rows, "+ a/") && !on_screen(rows, "+ contrib/")

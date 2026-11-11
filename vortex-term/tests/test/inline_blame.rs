@@ -72,6 +72,9 @@ fn commit(dir: &Path, author: &str, message: &str) {
 fn repo() -> (tempfile::TempDir, PathBuf) {
     let dir = tempfile::tempdir().unwrap();
     git(dir.path(), &["init", "-q"]);
+    // the editor reads the system and global git config, the setup doesn't: git for Windows
+    // sets core.autocrlf there, which would make every line of these LF files a change
+    git(dir.path(), &["config", "core.autocrlf", "false"]);
     let file = dir.path().join("numbers.txt");
     std::fs::write(&file, "one\ntwo\nthree\n").unwrap();
     commit(dir.path(), "Jane Doe", "Add numbers");
@@ -394,6 +397,9 @@ async fn untracked_files_are_not_committed() {
 async fn repositories_without_commits_are_not_committed() {
     let empty = tempfile::tempdir().unwrap();
     git(empty.path(), &["init", "-q"]);
+    // the editor reads the system and global git config, the setup doesn't: git for Windows
+    // sets core.autocrlf there, which would make every line of these LF files a change
+    git(empty.path(), &["config", "core.autocrlf", "false"]);
     let file = empty.path().join("a.txt");
     std::fs::write(&file, "a\n").unwrap();
     let mut session = Session::new(app_with(

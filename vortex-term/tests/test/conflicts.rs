@@ -39,6 +39,9 @@ fn make(parent: &Path, style: Option<&str>) -> PathBuf {
     let work = parent.join("work");
     std::fs::create_dir_all(&work).unwrap();
     git(&work, "", &["init", "-q"]);
+    // the editor reads the system and global git config, the setup doesn't: git for Windows
+    // sets core.autocrlf there, which would make every line of these LF files a change
+    git(&work, "", &["config", "core.autocrlf", "false"]);
     git(&work, "", &["config", "user.name", "Jane Doe"]);
     git(&work, "", &["config", "user.email", "jane@example.com"]);
     if let Some(style) = style {

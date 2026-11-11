@@ -25,6 +25,8 @@ fn rebound() -> Config {
         "#,
     )
     .unwrap();
+    // the texts of the tests are LF: without this, the text `p` pastes would be CRLF on Windows
+    config.editor.default_line_ending = vortex_view::editor::LineEndingConfig::LF;
     config
 }
 
@@ -708,7 +710,12 @@ async fn the_statusline_shows_the_move_mode() -> anyhow::Result<()> {
                     check("MOV", &["NOR", "SEL"])(app);
                     // the colors of select mode
                     assert_eq!(label_style(app, "MOV"), styles.borrow()[1]);
-                    assert_ne!(styles.borrow()[0], styles.borrow()[1]);
+                    assert_ne!(
+                        styles.borrow()[0],
+                        styles.borrow()[1],
+                        "{}",
+                        statusline(app)
+                    );
                 }),
             ),
             (
