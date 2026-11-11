@@ -1,11 +1,11 @@
-# Completions for Helix: <https://github.com/helix-editor/helix>
+# Completions for Vortex
 #
 # NOTE: the `+N` syntax is not supported in Nushell (https://github.com/nushell/nushell/issues/13418)
 #       so it has not been specified here and will not be proposed in the autocompletion of Nushell.
 #       The help message won't be overridden though, so it will still be present here
 
 def health_categories [] {
-    let languages = ^hx --health all-languages | detect columns | get Language | where { $in != null }
+    let languages = ^vx --health all-languages | detect columns | get Language | where { $in != null }
     let completions = [ "all", "clipboard", "languages", "all-languages" ] | append $languages
     return $completions
 }
@@ -13,7 +13,7 @@ def health_categories [] {
 def grammar_categories [] { ["fetch", "build"] }
 
 # A post-modern text editor.
-export extern hx [
+export extern vx [
     --help(-h),                                 # Prints help information
     --strict,                                   # Bail on error for commands that can fail
     --tutor,                                    # Loads the tutorial

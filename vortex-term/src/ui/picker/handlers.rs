@@ -4,8 +4,8 @@ use std::{
     time::Duration,
 };
 
-use vortex_event::AsyncHook;
 use tokio::time::Instant;
+use vortex_event::AsyncHook;
 
 use crate::{compositor::Compositor, job, ui::overlay::Overlay};
 

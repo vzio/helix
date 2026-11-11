@@ -1,3 +1,5 @@
+> This is upstream Helix's changelog, up to the fork point of Vortex: Helix [ba40e5474](https://github.com/helix-editor/helix/commit/ba40e547426b0f9896c8bdc699a4ab11f2b37dbc) (upstream master of 2026-09-29, version 25.07.1); Vortex's own changes are in [FORK.md](FORK.md).
+
 <!--
 # YY.0M (YYYY-0M-0D)
 

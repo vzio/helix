@@ -178,13 +178,13 @@ mod test {
     use std::sync::Arc;
 
     use arc_swap::ArcSwap;
+    use tui::buffer::Buffer;
     use vortex_core::{
         syntax::{self, config::SoftWrap},
         text_annotations::TextAnnotations,
         Rope,
     };
     use vortex_view::{blame::BlameOutcome, editor::Config, graphics::Rect, view::ViewPosition};
-    use tui::buffer::Buffer;
 
     use super::*;
     use crate::ui::document::render_document;

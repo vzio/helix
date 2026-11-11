@@ -3,12 +3,12 @@ use std::ops::Index;
 use std::sync::Arc;
 
 use anyhow::{anyhow, Result};
-use vortex_stdx::rope::RopeSliceExt;
-use vortex_stdx::Range;
 use regex_cursor::engines::meta::Builder as RegexBuilder;
 use regex_cursor::engines::meta::Regex;
 use regex_cursor::regex_automata::util::syntax::Config as RegexConfig;
 use ropey::RopeSlice;
+use vortex_stdx::rope::RopeSliceExt;
+use vortex_stdx::Range;
 
 use crate::case_conversion::to_lower_case_with;
 use crate::case_conversion::to_upper_case_with;

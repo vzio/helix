@@ -177,7 +177,7 @@ macro_rules! register_hook {
             // However, this case will always emit a compiler warning/cause CI
             // failures so a user would have to introduce #[allow(unused)] which
             // is easily caught in review (and a very theoretical case anyway).
-            // If we want to be pedantic we can simply compile helix with
+            // If we want to be pedantic we can simply compile vortex with
             // forbid(unused). All of this is just a safety net to prevent
             // very theoretical misuse. This won't come up in real code (and is
             // easily caught in review).

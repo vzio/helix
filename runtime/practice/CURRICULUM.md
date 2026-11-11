@@ -1,6 +1,6 @@
 # The `:practice` curriculum
 
-`:practice` teaches Helix from the first keystroke to the advanced features, one chapter at a
+`:practice` teaches Vortex from the first keystroke to the advanced features, one chapter at a
 time. Every chapter builds on the ones before it: an exercise may only use the keys of its own
 chapter and of earlier chapters, so you never meet a key the course hasn't taught yet. The
 chapters and their keys live in `index.toml`. This file explains them, and the replay test
@@ -24,7 +24,7 @@ The key names below are explained in [Key names](#key-names) at the end.
 
 Keys: `h` `j` `k` `l` `i` `a` `I` `A` `o` `O` `<esc>`
 
-Helix is modal. In normal mode, keys are commands. In insert mode, keys type text. `<esc>` goes
+Vortex is modal. In normal mode, keys are commands. In insert mode, keys type text. `<esc>` goes
 back to normal mode. You move with `h` `j` `k` `l`. You start typing with `i` (before the
 cursor), `a` (after it), `I` and `A` (at the start and end of the line), `o` and `O` (on a new
 line below or above). The chapter is about getting to the right place to type in as few keys as
@@ -36,10 +36,10 @@ Assumes: nothing.
 
 Keys: `d` `x` `~` `` ` `` `` <A-`> `` `J` `<gt>` `<lt>` `<C-c>` `insert:<C-w>`
 
-Helix selects first and acts second. So far the selection was just the cursor, one character, and
+Vortex selects first and acts second. So far the selection was just the cursor, one character, and
 `d` deletes it. `x` selects the whole line (press it again to add the next one). On an empty line
-`x` selects just that line, so a selection can start on the blank line above a block (upstream
-Helix also takes the next line there; this fork doesn't). The commands of this chapter act on
+`x` selects just that line, so a selection can start on the blank line above a block
+(upstream Helix also takes the next line there; this fork doesn't). The commands of this chapter act on
 whatever is selected:
 
 - `xd` deletes lines;
@@ -50,7 +50,7 @@ whatever is selected:
 
 In insert mode, `<C-w>` deletes the word before the cursor.
 
-Assumes: chapter 1. This chapter comes before motions on purpose. In Helix a motion selects text,
+Assumes: chapter 1. This chapter comes before motions on purpose. In Vortex a motion selects text,
 and the motions chapter needs commands that act on a selection.
 
 ## 3. Words, lines and counts
@@ -126,7 +126,7 @@ Assumes: chapters 1-5.
 
 Keys: `%` `s` `S` `C` `<A-C>` `,` `<A-s>` `K` `<A-K>` `&` `(` `)` `<A-,>` `<A-(>` `<A-)>` `<A-J>` `_`
 
-Helix's multiple selections. One edit applies to every selection at once:
+Vortex's multiple selections. One edit applies to every selection at once:
 
 - `%` selects everything;
 - `s` selects the matches of a regex inside the selection, and `S` splits the selection on a
@@ -164,7 +164,7 @@ Assumes: chapters 1-7.
 
 Keys: `<A-o>` `<A-n>` `<A-p>` `<A-a>` `]f`
 
-Helix parses code with tree-sitter, and these keys select along the syntax tree:
+Vortex parses code with tree-sitter, and these keys select along the syntax tree:
 
 - `<A-o>` expands the selection to the enclosing node (and `<A-i>` shrinks it back);
 - `<A-n>` and `<A-p>` go to the next and previous sibling node;

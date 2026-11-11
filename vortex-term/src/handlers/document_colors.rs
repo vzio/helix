@@ -1,6 +1,7 @@
 use std::{collections::HashSet, time::Duration};
 
 use futures_util::{stream::FuturesUnordered, StreamExt};
+use tokio::time::Instant;
 use vortex_core::{syntax::config::LanguageServerFeature, text_annotations::InlineAnnotation};
 use vortex_event::{cancelable_future, register_hook};
 use vortex_lsp::lsp;
@@ -10,7 +11,6 @@ use vortex_view::{
     handlers::{lsp::DocumentColorsEvent, Handlers},
     DocumentId, Editor, Theme,
 };
-use tokio::time::Instant;
 
 use crate::job;
 

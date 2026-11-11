@@ -369,7 +369,7 @@ impl<'t> DocumentFormatter<'t> {
             let mut col = self.visual_pos.col + word_width;
             let char_pos = self.char_pos + word_chars;
             match col.cmp(&(self.text_fmt.viewport_width as usize)) {
-                // The EOF char and newline chars are always selectable in helix. That means
+                // The EOF char and newline chars are always selectable in vortex. That means
                 // that wrapping happens "too-early" if a word fits a line perfectly. This
                 // is intentional so that all selectable graphemes are always visible (and
                 // therefore the cursor never disappears). However if the user manually set a

@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 
+use tokio::task::JoinSet;
 use vortex_core::chars::char_is_word;
 use vortex_core::completion::CompletionProvider;
 use vortex_core::syntax::config::LanguageServerFeature;
@@ -9,7 +10,6 @@ use vortex_stdx::rope::RopeSliceExt;
 use vortex_view::document::Mode;
 use vortex_view::handlers::completion::{CompletionEvent, ResponseContext};
 use vortex_view::Editor;
-use tokio::task::JoinSet;
 
 use crate::commands;
 use crate::compositor::Compositor;

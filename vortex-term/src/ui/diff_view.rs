@@ -9,6 +9,8 @@ use std::ops::Range;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 
+use imara_diff::{Algorithm, Diff, InternedInput};
+use tui::buffer::Buffer as Surface;
 use vortex_core::syntax::{self, HighlightEvent};
 use vortex_core::unicode::width::UnicodeWidthChar;
 use vortex_core::{RopeSlice, Selection, Syntax};
@@ -19,8 +21,6 @@ use vortex_view::graphics::{Color, CursorKind, Modifier, Rect, Style};
 use vortex_view::input::{Event, KeyEvent, MouseEventKind};
 use vortex_view::keyboard::{KeyCode, KeyModifiers};
 use vortex_view::{align_view, current, Align, DocumentId, Editor, Theme};
-use imara_diff::{Algorithm, Diff, InternedInput};
-use tui::buffer::Buffer as Surface;
 
 use crate::commands::hunks;
 use crate::compositor::{Component, Compositor, Context, EventResult};

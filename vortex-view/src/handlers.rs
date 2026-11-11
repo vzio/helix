@@ -1,6 +1,6 @@
 use completion::{CompletionEvent, CompletionHandler};
-use vortex_event::send_blocking;
 use tokio::sync::mpsc::Sender;
+use vortex_event::send_blocking;
 
 use crate::handlers::lsp::SignatureHelpInvoked;
 use crate::{DocumentId, Editor, ViewId};

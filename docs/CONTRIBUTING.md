@@ -6,11 +6,11 @@ Some suggestions to get started:
 
 - You can look at the [good first issue][good-first-issue] label on the issue tracker.
 - Help with packaging on various distributions needed!
-- To use print debugging to the [Helix log file][log-file], you must:
-  * Print using `log::info!`, `warn!`, or `error!`. (`log::info!("helix!")`)
-  * Pass the appropriate verbosity level option for the desired log level. (`hx -v <file>` for info, more `v`s for higher verbosity)
-  * Want to display the logs in a separate file instead of using the `:log-open` command in your compiled Helix editor? Start your debug version with `cargo run -- --log foo.log` and in a new terminal use `tail -f foo.log`
-- Instead of running a release version of Helix, while developing you may want to run in debug mode with `cargo run` which is way faster to compile
+- To use print debugging to the [Vortex log file][log-file], you must:
+  * Print using `log::info!`, `warn!`, or `error!`. (`log::info!("vortex!")`)
+  * Pass the appropriate verbosity level option for the desired log level. (`vx -v <file>` for info, more `v`s for higher verbosity)
+  * Want to display the logs in a separate file instead of using the `:log-open` command in your compiled Vortex editor? Start your debug version with `cargo run -- --log foo.log` and in a new terminal use `tail -f foo.log`
+- Instead of running a release version of Vortex, while developing you may want to run in debug mode with `cargo run` which is way faster to compile
 - Looking for even faster compile times? Give [mold](https://github.com/rui314/mold) a try
 - If your preferred language is missing, integrating a tree-sitter grammar for
     it and defining syntax highlight queries for it is straightforward and
@@ -52,8 +52,8 @@ Run `cargo test --workspace` to run unit tests and documentation tests in all pa
 Integration tests for vortex-term can be run with `cargo integration-test`. Code
 contributors are strongly encouraged to write integration tests for their code.
 Existing tests can be used as examples. Helpers can be found in
-[helpers.rs][helpers.rs]. The log level can be set with the `HELIX_LOG_LEVEL`
-environment variable, e.g. `HELIX_LOG_LEVEL=debug cargo integration-test`.
+[helpers.rs][helpers.rs]. The log level can be set with the `VORTEX_LOG_LEVEL`
+environment variable, e.g. `VORTEX_LOG_LEVEL=debug cargo integration-test`.
 
 Contributors using MacOS might encounter `Too many open files (os error 24)`
 failures while running integration tests. This can be resolved by increasing
@@ -61,7 +61,7 @@ the default value (e.g. to `10240` from `256`) by running `ulimit -n 10240`.
 
 ## Minimum Stable Rust Version (MSRV) Policy
 
-Helix keeps an intentionally low MSRV for the sake of easy building and packaging
+Vortex keeps an intentionally low MSRV for the sake of easy building and packaging
 downstream. We follow [Firefox's MSRV policy]. Once Firefox's MSRV increases we
 may bump ours as well, but be sure to check that popular distributions like Ubuntu
 package the new MSRV version. When increasing the MSRV, update these three places:

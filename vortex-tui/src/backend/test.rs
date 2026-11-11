@@ -3,9 +3,9 @@ use crate::{
     buffer::{Buffer, Cell},
     terminal::Config,
 };
+use std::{fmt::Write, io};
 use vortex_core::unicode::width::UnicodeWidthStr;
 use vortex_view::graphics::{CursorKind, Rect};
-use std::{fmt::Write, io};
 
 /// A backend used for the integration tests.
 #[derive(Debug)]
@@ -173,7 +173,10 @@ impl Backend for TestBackend {
         None
     }
 
-    fn set_background_color(&mut self, _color: Option<vortex_view::theme::Color>) -> io::Result<()> {
+    fn set_background_color(
+        &mut self,
+        _color: Option<vortex_view::theme::Color>,
+    ) -> io::Result<()> {
         Ok(())
     }
 }

@@ -2,7 +2,7 @@
 //
 // The site hosts several channels under one domain:
 //   /            latest stable release (a copy of the newest /<version>/)
-//   /master/     development docs, rebuilt on every push to master
+//   /main/       development docs, rebuilt on every push to main
 //   /<version>/  archived release snapshots
 //
 // CI deploys the same built HTML to each folder, so the channel can only
@@ -14,7 +14,7 @@
   var first = segments[0];
 
   var channel;
-  if (first === "master") {
+  if (first === "main") {
     channel = { kind: "nightly" };
   } else if (/^\d+\.\d+/.test(first || "")) {
     channel = { kind: "version", version: first };
@@ -26,7 +26,7 @@
     var releasePath = "/" + segments.slice(1).join("/");
 
     var banner = document.createElement("div");
-    banner.id = "helix-version-banner";
+    banner.id = "vortex-version-banner";
     banner.setAttribute("role", "status");
 
     var link =
@@ -34,7 +34,7 @@
     if (channel.kind === "nightly") {
       banner.className = "nightly";
       banner.innerHTML =
-        "You're reading the <strong>development (master)</strong> docs &mdash; " +
+        "You're reading the <strong>development (main)</strong> docs &mdash; " +
         "they describe unreleased changes. " + link;
     } else {
       banner.className = "archived";
@@ -48,7 +48,7 @@
   }
 
   // Landing-page chooser
-  var currentHref = channel.kind === "nightly" ? "/master/" : "/";
+  var currentHref = channel.kind === "nightly" ? "/main/" : "/";
   var tiles = document.querySelectorAll(".version-tiles .version-tile");
   for (var i = 0; i < tiles.length; i++) {
     if (tiles[i].getAttribute("href") === currentHref) {

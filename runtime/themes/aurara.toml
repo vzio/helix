@@ -1,5 +1,5 @@
 # aurara
-# a messy mix of aura (dark, soft), noctis, and liberal use of helix's text styling
+# a messy mix of aura (dark, soft), noctis, and liberal use of vortex's text styling
 # Author : rahil/rathewolf <rahil627@berkeley.edu>
 
 # aura ported by:
@@ -79,7 +79,7 @@
 'diagnostic.deprecated' = { modifiers = ["crossed_out"] } # took this from default theme
 
 # UI ==============================
-# For styling helix itself.
+# For styling vortex itself.
 
 # 'ui' = { bg = 'bg-ui' }
   # doesn't work.. :/

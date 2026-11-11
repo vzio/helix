@@ -1,5 +1,6 @@
 //! Starting the shell, focus, and the events that go to the panel instead of the editor.
 
+use tokio::sync::mpsc::unbounded_channel;
 use vortex_core::{pos_at_coords, Position, Selection};
 use vortex_view::{
     align_view,
@@ -10,7 +11,6 @@ use vortex_view::{
     terminal::{Shell, ShellEvent, ShellOptions, Size, Waiter},
     Align, Editor,
 };
-use tokio::sync::mpsc::unbounded_channel;
 
 use super::{
     input::{encode_key, encode_mouse, encode_paste, MouseAction},
@@ -56,7 +56,7 @@ fn spawn(editor: &mut Editor) -> anyhow::Result<()> {
         cols: area.width.max(1),
     };
 
-    // `hx` in the shell talks to this editor; started first, so its directory goes on PATH
+    // `vx` in the shell talks to this editor; started first, so its directory goes on PATH
     let server = match shim::Server::start(|request, reply| {
         tokio::spawn(job::dispatch(move |editor, _| {
             handle_shim_request(editor, request, reply)
@@ -64,7 +64,7 @@ fn spawn(editor: &mut Editor) -> anyhow::Result<()> {
     }) {
         Ok(server) => Some(server),
         Err(err) => {
-            log::warn!("terminal: no `hx` shim: {err}");
+            log::warn!("terminal: no `vx` shim: {err}");
             None
         }
     };
@@ -86,7 +86,7 @@ fn spawn(editor: &mut Editor) -> anyhow::Result<()> {
     let pid = shell.pid();
 
     tokio::spawn(async move {
-        // the server lives as long as the shell: `hx` can't reach a dead one
+        // the server lives as long as the shell: `vx` can't reach a dead one
         let _server = server;
         while let Some(event) = receiver.recv().await {
             match event {
@@ -195,7 +195,7 @@ pub fn handle_event(event: &Event, editor: &mut Editor, compositor: &mut Composi
     }
 }
 
-/// `hx` in the shell: opens files, or just gives the editor the keys.
+/// `vx` in the shell: opens files, or just gives the editor the keys.
 fn handle_shim_request(editor: &mut Editor, request: shim::Request, reply: shim::Reply) {
     let (files, wait) = match request {
         shim::Request::Focus => {

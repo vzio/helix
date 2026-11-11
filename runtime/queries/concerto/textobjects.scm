@@ -3,7 +3,7 @@
 ; Helix-specific text objects. For use in helix-editor/helix at
 ; runtime/queries/concerto/textobjects.scm
 ;
-; Helix uses @<object>.around / @<object>.inside suffixes.
+; Vortex uses @<object>.around / @<object>.inside suffixes.
 ; See: https://docs.helix-editor.com/guides/textobject.html
 
 ; ---------------------------------------------------------------------------

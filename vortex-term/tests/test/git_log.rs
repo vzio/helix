@@ -11,9 +11,9 @@ use std::{
     time::{Duration, Instant},
 };
 
+use tokio_stream::wrappers::UnboundedReceiverStream;
 use vortex_term::application::Application;
 use vortex_view::input::parse_macro;
-use tokio_stream::wrappers::UnboundedReceiverStream;
 
 #[cfg(windows)]
 use crossterm::event::{Event, KeyEvent};
@@ -22,7 +22,7 @@ use termina::event::{Event, KeyEvent};
 
 use super::*;
 
-const IN_REPO: &str = "HELIX_GIT_LOG_TEST_IN_REPO";
+const IN_REPO: &str = "VORTEX_GIT_LOG_TEST_IN_REPO";
 
 pub(super) fn git(dir: &Path, date: &str, args: &[&str]) -> String {
     let mut command = Command::new("git");

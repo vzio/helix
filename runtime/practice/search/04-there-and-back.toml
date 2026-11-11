@@ -3,7 +3,7 @@ chapter = "search"
 kind = "learn"
 feature = "Ctrl-o jumps back to where you were before a search"
 lesson = """
-A search is a jump, and Helix keeps a list of jumps: `<C-o>` goes back to
+A search is a jump, and Vortex keeps a list of jumps: `<C-o>` goes back to
 where you were before it, selection and all. Go and fetch something far
 away, then `<C-o>` and use it right where you left off.
 """

@@ -22,7 +22,7 @@ while ($n > 0) {
 }
 
 my $config = {
-  name => "helix",
+  name => "vortex",
   list => [
     1,
     2,

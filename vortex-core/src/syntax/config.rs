@@ -1,8 +1,8 @@
 use crate::{auto_pairs::AutoPairs, diagnostic::Severity, Language};
 
-use vortex_stdx::rope;
 use serde::{ser::SerializeSeq as _, Deserialize, Serialize};
 use serde_json::Value;
+use vortex_stdx::rope;
 
 use std::{
     collections::{HashMap, HashSet},

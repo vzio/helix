@@ -1,24 +1,23 @@
-# Installing Helix
+# Installing Vortex
 
-The typical way to install Helix is via [your operating system's package manager](./package-managers.md).
+Vortex is not packaged anywhere: there are no pre-built binaries and no
+package manager provides it. Vortex is installed by
+[building it from source](./building-from-source.md), which creates the `vx`
+executable.
 
 Note that:
 
-- To get the latest nightly version of Helix, you need to
-  [build from source](./building-from-source.md).
+- The packages in your system's package manager install upstream
+  [Helix](https://github.com/helix-editor/helix), not Vortex.
+  See [Package managers](./package-managers.md).
 
-- To take full advantage of Helix, install the language servers for your
-  preferred programming languages. See the
+- To take full advantage of Vortex, install the language servers for your
+  preferred programming languages. The upstream Helix
   [wiki](https://github.com/helix-editor/helix/wiki/Language-Server-Configurations)
-  for instructions.
+  has instructions that apply to Vortex too.
 
-## Pre-built binaries
-
-Download pre-built binaries from the [GitHub Releases page](https://github.com/helix-editor/helix/releases).
-The tarball contents include an `hx` binary and a `runtime` directory.
-To set up Helix:
-
-1. Add the `hx` binary to your system's `$PATH` to allow it to be used from the command line.
-2. Copy the `runtime` directory to a location that `hx` searches for runtime files. A typical location on Linux/macOS is `~/.config/helix/runtime`.
-
-To see the runtime directories that `hx` searches, run `hx --health`. If necessary, you can override the default runtime location by setting the `HELIX_RUNTIME` environment variable.
+After building, run `vx --health` to see which runtime directories `vx`
+searches and which languages and language servers are available. If
+necessary, you can override the default runtime location by setting the
+`VORTEX_RUNTIME` environment variable (see
+[Configuring Vortex's runtime files](./building-from-source.md#configuring-vortexs-runtime-files)).

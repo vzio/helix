@@ -1,13 +1,13 @@
-# Helix
+# Vortex
 
 <div class="version-tiles">
   <a class="version-tile" href="/">
     <strong>Stable</strong>
     <span class="version-tile-sub">Documentation for the latest tagged release.</span>
   </a>
-  <a class="version-tile" href="/master/">
-    <strong>Latest (master)</strong>
-    <span class="version-tile-sub">Bleeding-edge docs built from the <code>master</code> branch.</span>
+  <a class="version-tile" href="/main/">
+    <strong>Latest (main)</strong>
+    <span class="version-tile-sub">Bleeding-edge docs built from the <code>main</code> branch.</span>
   </a>
 </div>
 

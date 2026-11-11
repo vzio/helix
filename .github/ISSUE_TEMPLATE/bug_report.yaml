@@ -23,21 +23,21 @@ body:
 
         I tried this:
 
-        1. `hx`
+        1. `vx`
 
         I expected this to happen:
 
         Instead, this happened:
   - type: textarea
-    id: helix-log
+    id: vortex-log
     attributes:
-      label: Helix log
-      description: See `hx -h` for log file path. If you can reproduce the issue run `RUST_BACKTRACE=1 hx -vv` to generate a more detailed log file.
+      label: Vortex log
+      description: See `vx -h` for log file path. If you can reproduce the issue run `RUST_BACKTRACE=1 vx -vv` to generate a more detailed log file.
       value: |
-        <details><summary>~/.cache/helix/helix.log</summary>
+        <details><summary>~/.cache/vortex/vortex.log</summary>
 
         ```
-        please provide a copy of `~/.cache/helix/helix.log` here if possible, you may need to redact some of the lines
+        please provide a copy of `~/.cache/vortex/vortex.log` here if possible, you may need to redact some of the lines
         ```
 
         </details>
@@ -60,19 +60,20 @@ body:
     attributes:
       label: Installation Method
       description: >
-        How you installed Helix - from a package manager like Homebrew or the
-        AUR, built from source, downloaded a binary from the releases page, etc.
-      placeholder: "source / brew / nixpkgs / flake / releases page"
+        How you installed Vortex. Vortex is only built from source (for
+        example `cargo install --path vortex-term --locked`); say if you did
+        something different.
+      placeholder: "source / cargo install"
     validations:
       required: true
   - type: input
-    id: helix-version
+    id: vortex-version
     attributes:
-      label: Helix Version
+      label: Vortex Version
       description: >
-        Helix version (`hx -V` if using a release, `git describe` if building
-        from master).
-        **Make sure that you are using the [latest helix release](https://github.com/helix-editor/helix/releases) or a newer master build**
-      placeholder: "helix 22.12 (5eaa6d97)"
+        Vortex version (`vx -V`), and the commit you built (`git describe`).
+        **Make sure that you are using the latest `main` of
+        [vzio/vortex](https://github.com/vzio/vortex).**
+      placeholder: "vortex 0.1.0 (5eaa6d97) (based on Helix 25.07.1 ba40e547)"
     validations:
       required: true

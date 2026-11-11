@@ -1,6 +1,6 @@
 [package]
 name = "vortex-loader"
-description = "Build bootstrapping for Helix crates"
+description = "Build bootstrapping for Vortex crates"
 version.workspace = true
 authors.workspace = true
 edition.workspace = true
@@ -11,7 +11,7 @@ repository.workspace = true
 homepage.workspace = true
 
 [[bin]]
-name = "hx-loader"
+name = "vx-loader"
 path = "src/main.rs"
 
 [dependencies]

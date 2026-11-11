@@ -12,10 +12,10 @@ use crate::{
     tree_sitter::Node,
     Assoc, ChangeSet, RopeSlice,
 };
-use vortex_stdx::range::is_subset;
-use vortex_stdx::rope::{self, RopeSliceExt};
 use smallvec::{smallvec, SmallVec};
 use std::{borrow::Cow, iter, slice};
+use vortex_stdx::range::is_subset;
+use vortex_stdx::rope::{self, RopeSliceExt};
 
 /// A single selection range.
 ///

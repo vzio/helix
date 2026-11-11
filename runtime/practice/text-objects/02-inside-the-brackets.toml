@@ -10,7 +10,7 @@ another line, and nested brackets are skipped over.
 language = "javascript"
 start = '''
 const defaults = {
-  tags: ["news", "tech", "rust", "helix"],
+  tags: ["news", "tech", "rust", "vortex"],
   mute: ["sports", "celebrity", "crypto"],
   sources: ["hn", "lobsters", "reddit"],
 };
@@ -30,4 +30,4 @@ hints = [
   "`jf\"mi[d` empties the tags, `jmi[d` the mutes (the cursor is still between the brackets). `jjj` down to the call, `mi(cdefaults<esc>`.",
 ]
 teach = "jf\"mi[djmi[djjjmi(cdefaults<esc>"
-naive = "jllllllllldddddddddddddddddddddddddddddddjdddddddddddddddddddddddddddddddjjjllllddddddddddddddddddddddddddddddddd"
+naive = "jlllllllllddddddddddddddddddddddddddddddddjdddddddddddddddddddddddddddddddjjjllllddddddddddddddddddddddddddddddddd"

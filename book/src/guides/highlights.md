@@ -5,7 +5,7 @@
 colour. Highlighting is the one query file that every language needs.
 
 Query files should be placed in `runtime/queries/{language}/highlights.scm` when
-contributing to Helix.
+contributing to Vortex.
 
 ## Scopes
 

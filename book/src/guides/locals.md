@@ -1,13 +1,13 @@
 ## Adding Locals Queries
 
-`locals.scm` queries teach Helix about variable scopes and definitions so that
+`locals.scm` queries teach Vortex about variable scopes and definitions so that
 local variables can be highlighted distinctly from global ones. When a
 `@local.reference` identifier is resolved to a `@local.definition`, it inherits
 the highlight class of that definition rather than the class assigned by
 `highlights.scm`.
 
 Query files should be placed in `runtime/queries/{language}/locals.scm` when
-contributing to Helix. Like other query files, `locals.scm` may reuse another
+contributing to Vortex. Like other query files, `locals.scm` may reuse another
 language's with `; inherits: <lang>` on the first line. Locals are resolved in
 their own pass with their own precedence, independently of `highlights.scm`.
 
@@ -47,7 +47,7 @@ Common suffixes mirror the highlight classes in `highlights.scm`:
 ### `@local.reference`
 
 Marks an identifier node as a potential reference to a local definition.
-Helix searches enclosing scopes for a matching definition and, if found,
+Vortex searches enclosing scopes for a matching definition and, if found,
 highlights the reference with that definition's class instead.
 
 ```scm
@@ -79,7 +79,7 @@ The convention is to use a capture name beginning with an underscore (e.g. `@_`,
 
 ## How definitions and references are matched
 
-Helix matches references to definitions by comparing the text of the reference
+Vortex matches references to definitions by comparing the text of the reference
 node against the text of definitions visible from the current scope. Definitions
 in inner scopes shadow those in outer scopes. If no definition is found the
 reference is left with its `highlights.scm` highlight.

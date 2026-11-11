@@ -1,4 +1,4 @@
-//! Encodes Helix's key, mouse and paste events as the bytes a program in a terminal reads, in
+//! Encodes Vortex's key, mouse and paste events as the bytes a program in a terminal reads, in
 //! the modes it asked for ([`InputModes`]).
 //!
 //! The encoding is that of xterm (`TERM=xterm-256color`): legacy control characters for

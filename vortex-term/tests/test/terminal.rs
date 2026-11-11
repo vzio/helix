@@ -1,4 +1,4 @@
-//! The terminal panel (`C-t`, `:sh`, the `hx` shim), against a real shell on a pty.
+//! The terminal panel (`C-t`, `:sh`, the `vx` shim), against a real shell on a pty.
 //!
 //! The shell is `sh` so rc files don't matter. The shell's work happens on other threads and
 //! reaches the editor through the job queue, so the tests pump the event loop until a condition
@@ -11,6 +11,9 @@ use std::{
     time::{Duration, Instant},
 };
 
+use termina::event::{Event, KeyEvent};
+use tokio::sync::mpsc::UnboundedSender;
+use tokio_stream::wrappers::UnboundedReceiverStream;
 use vortex_term::{
     application::Application,
     config::Config,
@@ -22,9 +25,6 @@ use vortex_view::{
     input::parse_macro,
     terminal::{ShellStatus, TerminalConfig},
 };
-use termina::event::{Event, KeyEvent};
-use tokio::sync::mpsc::UnboundedSender;
-use tokio_stream::wrappers::UnboundedReceiverStream;
 
 use super::*;
 
@@ -200,7 +200,7 @@ async fn open_panel(h: &mut Harness) -> anyhow::Result<()> {
 async fn socket_path(h: &mut Harness, dir: &Path) -> anyhow::Result<PathBuf> {
     let out = dir.join("socket");
     h.keys(&format!(
-        "printenv HELIX_TERMINAL_SOCKET <gt> {}<ret>",
+        "printenv VORTEX_TERMINAL_SOCKET <gt> {}<ret>",
         out.display()
     ))
     .await?;
@@ -439,7 +439,7 @@ async fn shim_open_goes_to_line_and_column() -> anyhow::Result<()> {
     h.finish().await
 }
 
-/// `hx --wait`: the client is answered when the buffer is closed.
+/// `vx --wait`: the client is answered when the buffer is closed.
 async fn open_and_wait(
     h: &mut Harness,
     dir: &Path,

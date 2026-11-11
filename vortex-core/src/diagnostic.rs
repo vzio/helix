@@ -1,8 +1,8 @@
 //! LSP diagnostic utility types.
 use std::{fmt, sync::Arc};
 
-pub use vortex_stdx::range::Range;
 use serde::{Deserialize, Serialize};
+pub use vortex_stdx::range::Range;
 
 /// Describes the severity level of a [`Diagnostic`].
 ///

@@ -1,0 +1,74 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>io.github.vzio.Vortex</id>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>MPL-2.0</project_license>
+  <name>Vortex</name>
+  <summary>A post-modern text editor</summary>
+  <summary xml:lang="ar">مُحَرِّرُ نُصُوصٍ سَابِقٌ لِعَهدِه</summary>
+  <developer id="io.github.vzio">
+    <name>vzio</name>
+  </developer>
+
+  <description>
+    <p>
+      Vortex is a personal fork of the Helix editor: a terminal-based, modal text editor written in Rust.
+    </p>
+    <p xml:lang="ar">
+      مُحَرِّرُ نُصُوصٍ يَعمَلُ فِي الطَّرَفِيَّة، مُستَلهَمٌ مِن Kakoune وَ Neovim وَمَكتُوبٌ بِلُغَةِ رَست البَرمَجِيَّة.
+    </p>
+    <ul>
+      <li>Vim-like modal editing</li>
+      <li xml:lang="ar">تَحرِيرٌ وَضعِيٌّ شَبيهٌ بِـVim</li>
+      <li>Multiple selections</li>
+      <li xml:lang="ar">تَحدِيدَاتٌ لِلنَّصِ مُتَعَدِّدَة</li>
+      <li>Built-in language server support</li>
+      <li xml:lang="ar">دَعْمٌ مُدمَجٌ لِخَوادِمِ اللُّغَات</li>
+      <li>Smart, incremental syntax highlighting and code editing via tree-sitter</li>
+      <li xml:lang="ar">تَحرِيرُ التَّعلِيمَاتِ البَّرمَجِيَّةِ مَعَ تَمييزٍ لِلتَّركِيبِ النَّحُويِّ بِواسِطَةِ tree-sitter</li>
+    </ul>
+  </description>
+
+  <launchable type="desktop-id">Vortex.desktop</launchable>
+
+  <url type="homepage">https://github.com/vzio/vortex</url>
+  <url type="vcs-browser">https://github.com/vzio/vortex</url>
+  <url type="bugtracker">https://github.com/vzio/vortex/issues</url>
+
+  <content_rating type="oars-1.1" />
+
+  <recommends>
+    <control>keyboard</control>
+  </recommends>
+
+  <categories>
+    <category>Utility</category>
+    <category>TextEditor</category>
+  </categories>
+
+  <keywords>
+    <keyword>text</keyword>
+    <keyword>editor</keyword>
+    <keyword>development</keyword>
+    <keyword>programming</keyword>
+  </keywords>
+
+  <provides>
+    <binary>vx</binary>
+    <mediatype>text/english</mediatype>
+    <mediatype>text/plain</mediatype>
+    <mediatype>text/x-makefile</mediatype>
+    <mediatype>text/x-c++hdr</mediatype>
+    <mediatype>text/x-c++src</mediatype>
+    <mediatype>text/x-chdr</mediatype>
+    <mediatype>text/x-csrc</mediatype>
+    <mediatype>text/x-java</mediatype>
+    <mediatype>text/x-moc</mediatype>
+    <mediatype>text/x-pascal</mediatype>
+    <mediatype>text/x-tcl</mediatype>
+    <mediatype>text/x-tex</mediatype>
+    <mediatype>application/x-shellscript</mediatype>
+    <mediatype>text/x-c</mediatype>
+    <mediatype>text/x-c++</mediatype>
+  </provides>
+</component>

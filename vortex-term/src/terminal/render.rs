@@ -1,12 +1,12 @@
 //! Draws the panel: the screen of the shell cell by cell, right below the statusline of the
 //! splits above, in the colors the programs set (indexed colors stay indexed, so the outer terminal's palette applies).
 
+use tui::buffer::Buffer as Surface;
 use vortex_view::{
     graphics::{Color, CursorKind, Modifier, Rect, Style, UnderlineStyle},
     terminal::{self, CursorShape},
     Editor,
 };
-use tui::buffer::Buffer as Surface;
 
 /// Draws the panel's screen in `area` and remembers where it is.
 pub fn render(editor: &mut Editor, area: Rect, surface: &mut Surface) {

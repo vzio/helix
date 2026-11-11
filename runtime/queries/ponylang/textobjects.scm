@@ -1,4 +1,4 @@
-;; Queries for helix to select textobjects: https://docs.helix-editor.com/usage.html#textobjects
+;; Queries for vortex to select textobjects: https://docs.helix-editor.com/usage.html#textobjects
 ;;  function.inside
 ;; function.around
 ;; class.inside

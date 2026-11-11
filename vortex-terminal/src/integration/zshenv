@@ -1,6 +1,6 @@
-# Shell integration for Helix's terminal panel: runs the user's own .zshenv from their ZDOTDIR
+# Shell integration for Vortex's terminal panel: runs the user's own .zshenv from their ZDOTDIR
 # (or $HOME), then points ZDOTDIR back here so that zsh reads the other files of this directory.
-if [[ -n ${HELIX_USER_ZDOTDIR+x} ]]; then ZDOTDIR=$HELIX_USER_ZDOTDIR; else unset ZDOTDIR; fi
+if [[ -n ${VORTEX_USER_ZDOTDIR+x} ]]; then ZDOTDIR=$VORTEX_USER_ZDOTDIR; else unset ZDOTDIR; fi
 if [[ -r ${ZDOTDIR:-$HOME}/.zshenv ]]; then source "${ZDOTDIR:-$HOME}/.zshenv"; fi
-if [[ -n ${ZDOTDIR+x} ]]; then HELIX_USER_ZDOTDIR=$ZDOTDIR; else unset HELIX_USER_ZDOTDIR; fi
-ZDOTDIR=$HELIX_ZDOTDIR
+if [[ -n ${ZDOTDIR+x} ]]; then VORTEX_USER_ZDOTDIR=$ZDOTDIR; else unset VORTEX_USER_ZDOTDIR; fi
+ZDOTDIR=$VORTEX_ZDOTDIR

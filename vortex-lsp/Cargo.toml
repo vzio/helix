@@ -1,6 +1,6 @@
 [package]
 name = "vortex-lsp"
-description = "LSP client implementation for Helix project"
+description = "LSP client implementation for Vortex project"
 version.workspace = true
 authors.workspace = true
 edition.workspace = true

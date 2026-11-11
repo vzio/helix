@@ -15,9 +15,9 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 
 use anyhow::{anyhow, Context as _};
+use serde::Deserialize;
 use vortex_core::{syntax, Selection};
 use vortex_view::input::parse_macro;
-use serde::Deserialize;
 
 /// The file with the chapters, in the directory of the exercises.
 pub const INDEX_FILE: &str = "index.toml";

@@ -2,9 +2,9 @@
 
 Writing language injection queries allows one to highlight a specific node as a different language.
 In addition to the [standard][upstream-docs] language injection options used by tree-sitter, there
-are a few Helix specific extensions that allow for more control.
+are a few Vortex specific extensions that allow for more control.
 
-Injection drives more than highlighting: within an injected region Helix also
+Injection drives more than highlighting: within an injected region Vortex also
 uses the injected language's own indentation, textobjects, and comment tokens —
 so, for example, editing JavaScript inside an HTML `<script>` indents and
 comments as JavaScript.
@@ -30,9 +30,9 @@ The captured node may contain the language name used to highlight the node captu
 Marks the content to be highlighted as the language captured with `@injection.language` _et al_.
 
 - `@injection.filename` (extension):
-The captured node may contain a filename with a file-extension known to Helix,
+The captured node may contain a filename with a file-extension known to Vortex,
 highlighting `@injection.content` as that language. This uses the language extensions defined in
-both the default languages.toml distributed with Helix, as well as user defined languages.
+both the default languages.toml distributed with Vortex, as well as user defined languages.
 
 - `@injection.shebang` (extension):
 The captured node may contain a shebang used to choose a language to highlight as. This also uses

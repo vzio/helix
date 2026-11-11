@@ -65,7 +65,7 @@ fn add(x: i32, y: i32) -> i32 { x + y }
     let main = Exercise {
         title: "Append at the end of a line".to_owned(),
         lesson: "\
-Typing at the end of a line is common, so Helix has `A`: it jumps to the end
+Typing at the end of a line is common, so Vortex has `A`: it jumps to the end
 of the line and starts inserting there. Without it you walk with `l`, or use
 `gl` and then `a`. Press `<esc>` when you are done.
 "
@@ -349,7 +349,7 @@ async fn snapshot_of_the_fresh_panel() -> anyhow::Result<()> {
 │ Append at the end of a line                          │
 │                                                      │
 │ Lesson                                               │
-│ Typing at the end of a line is common, so Helix has  │
+│ Typing at the end of a line is common, so Vortex has │
 │ A: it jumps to the end of the line and starts        │
 │ inserting there. Without it you walk with l, or use  │
 │ gl and then a. Press <esc> when you are done.        │
@@ -394,7 +394,7 @@ async fn snapshot_with_two_hints() -> anyhow::Result<()> {
 │ Append at the end of a line                          │
 │                                                      │
 │ Lesson                                               │
-│ Typing at the end of a line is common, so Helix has  │
+│ Typing at the end of a line is common, so Vortex has │
 │ A: it jumps to the end of the line and starts        │
 │ inserting there. Without it you walk with l, or use  │
 │ gl and then a. Press <esc> when you are done.        │
@@ -443,7 +443,7 @@ async fn snapshot_of_the_solved_panel() -> anyhow::Result<()> {
 │ Append at the end of a line                          │
 │                                                      │
 │ Lesson                                               │
-│ Typing at the end of a line is common, so Helix has  │
+│ Typing at the end of a line is common, so Vortex has │
 │ A: it jumps to the end of the line and starts        │
 │ inserting there. Without it you walk with l, or use  │
 │ gl and then a. Press <esc> when you are done.        │

@@ -1,14 +1,14 @@
+use ropey::Rope;
+use std::{ops::Range, path::PathBuf, process::Command};
 use vortex_core::{
     indent::{indent_level_for_line, treesitter_indent_for_pos, IndentStyle},
     syntax::{config::Configuration, Loader},
     Syntax,
 };
 use vortex_stdx::rope::RopeSliceExt;
-use ropey::Rope;
-use std::{ops::Range, path::PathBuf, process::Command};
 
 #[test]
-fn test_treesitter_indent_rust_helix() {
+fn test_treesitter_indent_rust_vortex() {
     // We pin a specific git revision to prevent unrelated changes from causing the indent tests to fail.
     // Ideally, someone updates this once in a while and fixes any errors that occur.
     let rev = "af382768cdaf89ff547dbd8f644a1bddd90e7c8f";
@@ -170,7 +170,7 @@ fn test_treesitter_indent(
     // set runtime path so we can find the queries
     let mut runtime = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     runtime.push("../runtime");
-    std::env::set_var("HELIX_RUNTIME", runtime.to_str().unwrap());
+    std::env::set_var("VORTEX_RUNTIME", runtime.to_str().unwrap());
 
     let language = loader.language_for_scope(lang_scope).unwrap();
     let language_config = loader.language(language).config();

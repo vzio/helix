@@ -1,7 +1,7 @@
+use std::sync::OnceLock;
 use vortex_event::status::StatusMessage;
 use vortex_event::{runtime_local, send_blocking};
 use vortex_view::Editor;
-use std::sync::OnceLock;
 
 use crate::compositor::Compositor;
 

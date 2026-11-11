@@ -6,6 +6,8 @@ use crate::job::Job;
 
 use super::*;
 
+use serde_json::Value;
+use ui::completers::{self, Completer};
 use vortex_core::command_line::{Args, Flag, Signature, Token, TokenKind};
 use vortex_core::fuzzy::fuzzy_match;
 use vortex_core::indent::MAX_INDENT;
@@ -14,8 +16,6 @@ use vortex_stdx::path::home_dir;
 use vortex_view::document::{read_to_string, DEFAULT_LANGUAGE_NAME};
 use vortex_view::editor::{CloseError, ConfigEvent};
 use vortex_view::expansion;
-use serde_json::Value;
-use ui::completers::{self, Completer};
 
 #[derive(Clone)]
 pub struct TypableCommand {
@@ -115,7 +115,7 @@ fn quit(cx: &mut compositor::Context, _args: Args, event: PromptEvent) -> anyhow
         return Ok(());
     }
 
-    // a buffer an `hx` in the terminal panel waits on (`git commit`): close it, and go back to
+    // a buffer a `vx` in the terminal panel waits on (`git commit`): close it, and go back to
     // the panel, rather than closing the split or the editor
     let doc_id = view!(cx.editor).doc;
     if cx.editor.terminal.is_awaited(doc_id) {
@@ -138,7 +138,7 @@ fn force_quit(cx: &mut compositor::Context, _args: Args, event: PromptEvent) -> 
         return Ok(());
     }
 
-    // a buffer an `hx` in the terminal panel waits on (`git commit`): close it, and go back to
+    // a buffer a `vx` in the terminal panel waits on (`git commit`): close it, and go back to
     // the panel, rather than closing the split or the editor
     let doc_id = view!(cx.editor).doc;
     if cx.editor.terminal.is_awaited(doc_id) {
@@ -2675,7 +2675,8 @@ fn open_log(cx: &mut compositor::Context, _args: Args, event: PromptEvent) -> an
         return Ok(());
     }
 
-    cx.editor.open(&vortex_loader::log_file(), Action::Replace)?;
+    cx.editor
+        .open(&vortex_loader::log_file(), Action::Replace)?;
     Ok(())
 }
 
@@ -4101,7 +4102,7 @@ pub const TYPABLE_COMMAND_LIST: &[TypableCommand] = &[
     TypableCommand {
         name: "log-open",
         aliases: &[],
-        doc: "Open the helix log file.",
+        doc: "Open the vortex log file.",
         fun: open_log,
         completer: CommandCompleter::none(),
         signature: Signature {

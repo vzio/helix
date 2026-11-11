@@ -1,8 +1,8 @@
 //! Pickers without modes (every picker but the file tree and the commit log) send the letters to
 //! their prompt, and Esc closes them, as upstream's do.
 
-use vortex_view::input::parse_macro;
 use tokio_stream::wrappers::UnboundedReceiverStream;
+use vortex_view::input::parse_macro;
 
 #[cfg(windows)]
 use crossterm::event::{Event, KeyEvent};

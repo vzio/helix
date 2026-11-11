@@ -1,7 +1,7 @@
-#compdef _hx hx
-# Zsh completion script for Helix editor
+#compdef _vx vx
+# Zsh completion script for Vortex editor
 
-_hx() {
+_vx() {
 	_arguments -C \
 		"-h[Prints help information]" \
 		"--help[Prints help information]" \
@@ -26,7 +26,7 @@ _hx() {
 
 	case "$state" in
 	health)
-		local languages=($(hx --health all-languages | tail -n '+2' | awk '{print $1}' | sed 's/\x1b\[[0-9;]*m//g;s/[✘✓]//g'))
+		local languages=($(vx --health all-languages | tail -n '+2' | awk '{print $1}' | sed 's/\x1b\[[0-9;]*m//g;s/[✘✓]//g'))
 		_values 'language' $languages
 		;;
 	grammar)

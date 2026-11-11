@@ -2,9 +2,9 @@
 //! Frontend for [Backend]
 
 use crate::{backend::Backend, buffer::Buffer};
+use std::io;
 use vortex_view::editor::{Config as EditorConfig, KittyKeyboardProtocolConfig};
 use vortex_view::graphics::{CursorKind, Rect};
-use std::io;
 
 #[derive(Debug, Clone, PartialEq)]
 /// UNSTABLE

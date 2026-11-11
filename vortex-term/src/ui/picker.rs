@@ -16,7 +16,6 @@ use crate::{
     },
 };
 use futures_util::future::BoxFuture;
-use vortex_event::AsyncHook;
 use nucleo::pattern::{CaseMatching, Normalization};
 use nucleo::{Config, Nucleo};
 use thiserror::Error;
@@ -27,6 +26,7 @@ use tui::{
     text::{Span, Spans},
     widgets::{Block, BorderType, Cell, Row, Table},
 };
+use vortex_event::AsyncHook;
 
 use tui::widgets::Widget;
 

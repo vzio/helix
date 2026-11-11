@@ -88,7 +88,7 @@ fn ensure_git_is_available() -> Result<()> {
     Ok(())
 }
 
-/// Print a notice if the current workspace has a `.helix/languages.toml` that we *would* have
+/// Print a notice if the current workspace has a `.vortex/languages.toml` that we *would* have
 /// merged but the workspace-trust gate is keeping us from.
 fn warn_if_workspace_languages_skipped(trust: &crate::workspace_trust::WorkspaceTrust) {
     let workspace_languages = crate::workspace_lang_config_file();
@@ -103,7 +103,7 @@ fn warn_if_workspace_languages_skipped(trust: &crate::workspace_trust::Workspace
     }
     println!(
         "Note: workspace `{}` was skipped because the workspace is not trusted. Run \
-         `:workspace-trust` from an interactive helix session in this workspace to opt in.",
+         `:workspace-trust` from an interactive vortex session in this workspace to opt in.",
         workspace_languages.display(),
     );
 }
@@ -247,8 +247,8 @@ pub fn build_grammars(target: Option<String>, strict: bool) -> Result<()> {
 // down all grammars into a subset of the user's choosing.
 fn get_grammar_configs() -> Result<Vec<GrammarConfiguration>> {
     // `--grammar fetch/build` clones grammar sources from URLs in `languages.toml` and compiles
-    // them into `.so` files helix later loads at runtime. If we let workspace
-    // `.helix/languages.toml` in through `fully_trusted`, a malicious workspace could inject a
+    // them into `.so` files vortex later loads at runtime. If we let workspace
+    // `.vortex/languages.toml` in through `fully_trusted`, a malicious workspace could inject a
     // grammar with an attacker-controlled git source — running grammar build in that
     // directory would clone and compile attacker code
     let trust = crate::workspace_trust::WorkspaceTrust::new(Default::default());
@@ -518,14 +518,14 @@ fn build_grammar(grammar: GrammarConfiguration, target: Option<&str>) -> Result<
 
     let grammar_dir_entries = grammar_dir.read_dir().with_context(|| {
         format!(
-            "Failed to read directory {:?}. Did you use 'hx --grammar fetch'?",
+            "Failed to read directory {:?}. Did you use 'vx --grammar fetch'?",
             grammar_dir
         )
     })?;
 
     if grammar_dir_entries.count() == 0 {
         return Err(anyhow!(
-            "Directory {:?} is empty. Did you use 'hx --grammar fetch'?",
+            "Directory {:?} is empty. Did you use 'vx --grammar fetch'?",
             grammar_dir
         ));
     };

@@ -1,4 +1,4 @@
-//! Logging support for `hx`.
+//! Logging support for `vx`.
 
 use std::io::Write;
 use std::path::Path;

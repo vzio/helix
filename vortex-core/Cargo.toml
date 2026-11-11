@@ -1,6 +1,6 @@
 [package]
 name = "vortex-core"
-description = "Helix editor core editing primitives"
+description = "Vortex editor core editing primitives"
 include = ["src/**/*", "README.md"]
 version.workspace = true
 authors.workspace = true

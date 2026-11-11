@@ -1,9 +1,9 @@
 //! Contents of a terminal screen. A [Buffer] is made up of [Cell]s.
 use crate::text::{Span, Spans};
-use vortex_core::unicode::width::{UnicodeWidthChar, UnicodeWidthStr};
-use vortex_view::graphics::{Color, Modifier, Rect, Style, UnderlineStyle};
 use std::cmp::min;
 use unicode_segmentation::UnicodeSegmentation;
+use vortex_core::unicode::width::{UnicodeWidthChar, UnicodeWidthStr};
+use vortex_view::graphics::{Color, Modifier, Rect, Style, UnderlineStyle};
 
 pub const SYMBOL_CAPACITY: usize = 28;
 pub type Symbol = arrayvec::ArrayString<SYMBOL_CAPACITY>;

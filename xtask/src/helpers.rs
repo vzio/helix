@@ -11,7 +11,7 @@ pub fn ts_lang_support(feat: TsFeature) -> Vec<String> {
     find_files(&queries_dir, feat.runtime_filename())
         .iter()
         .map(|f| {
-            // .../helix/runtime/queries/python/highlights.scm
+            // .../vortex/runtime/queries/python/highlights.scm
             let tail = f.strip_prefix(&queries_dir).unwrap(); // python/highlights.scm
             let lang = tail.components().next().unwrap(); // python
             lang.as_os_str().to_string_lossy().to_string()

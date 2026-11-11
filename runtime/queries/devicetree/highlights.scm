@@ -91,7 +91,7 @@
 
 ; Phandle references (`&label`, `&{/path}`): colour the whole reference as a
 ; constant. The label identifier needs its own capture to reclaim it from the
-; `(identifier) @variable` base — helix lets the contained node win otherwise.
+; `(identifier) @variable` base — vortex lets the contained node win otherwise.
 (reference) @constant
 (reference (identifier) @constant)
 

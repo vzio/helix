@@ -6,8 +6,8 @@ use tui::{buffer::Buffer as Surface, widgets::Table};
 
 pub use tui::widgets::{Cell, Row};
 
-use vortex_view::{editor::SmartTabConfig, graphics::Rect, Editor};
 use tui::layout::Constraint;
+use vortex_view::{editor::SmartTabConfig, graphics::Rect, Editor};
 
 pub trait Item: Sync + Send + 'static {
     /// Additional editor state that is used for label calculation.

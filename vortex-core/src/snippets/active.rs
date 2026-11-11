@@ -1,9 +1,9 @@
 use std::ops::{Index, IndexMut};
 
 use foldhash::HashSet;
+use ropey::Rope;
 use vortex_stdx::range::{is_exact_subset, is_subset};
 use vortex_stdx::Range;
-use ropey::Rope;
 
 use crate::movement::Direction;
 use crate::snippets::render::{RenderedSnippet, Tabstop};

@@ -25,8 +25,8 @@ use futures_util::Future;
 mod handlers;
 mod live;
 
-use vortex_stdx::Url;
 use ignore::DirEntry;
+use vortex_stdx::Url;
 
 #[cfg(windows)]
 fn true_color() -> bool {

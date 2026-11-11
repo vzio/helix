@@ -19,6 +19,8 @@ use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::sync::Arc;
 
+use parking_lot::Mutex;
+use tui::buffer::Buffer as Surface;
 use vortex_core::diagnostic::Severity;
 use vortex_core::{Rope, Selection};
 use vortex_vcs::staging::{self, touches, LineHunk};
@@ -28,8 +30,6 @@ use vortex_view::{
     graphics::Rect,
     DocumentId, Editor,
 };
-use parking_lot::Mutex;
-use tui::buffer::Buffer as Surface;
 
 use super::changes::{
     self, file_group, hunks, line_counts, nav_files, select_row, sort_groups, text, Body,

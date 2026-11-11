@@ -3,7 +3,7 @@ chapter = "edit"
 kind = "learn"
 feature = "x selects a line, d deletes the selection"
 lesson = """
-Helix selects first and acts second. `d` deletes what is selected, which so
+Vortex selects first and acts second. `d` deletes what is selected, which so
 far was one character. `x` selects the whole line, and every further `x` adds
 the next line, so `xd` deletes a line and `xxd` deletes two.
 """

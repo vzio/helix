@@ -3,7 +3,7 @@ chapter = "syntax"
 kind = "learn"
 feature = "Alt-o expands the selection to the enclosing syntax node"
 lesson = """
-Helix parses the code, and `<A-o>` grows the selection to the next bigger
+Vortex parses the code, and `<A-o>` grows the selection to the next bigger
 piece of it: a name, then the call around it, then the argument list, the
 statement... `<A-i>` shrinks it back. No counting characters.
 """

@@ -31,7 +31,7 @@ mod imp {
     pub fn access(p: &Path, mode: AccessMode) -> io::Result<()> {
         #[cfg(target_os = "linux")]
         {
-            // If helix has ambient CAP_DAC_OVERRIDE, everything is accessible regardless of mode bits
+            // If vortex has ambient CAP_DAC_OVERRIDE, everything is accessible regardless of mode bits
             use rustix::thread::{capability_is_in_ambient_set, CapabilitySet};
             if capability_is_in_ambient_set(CapabilitySet::DAC_OVERRIDE).unwrap_or(false) {
                 return Ok(());

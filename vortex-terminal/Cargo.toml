@@ -1,6 +1,6 @@
 [package]
 name = "vortex-terminal"
-description = "The shell of Helix's terminal panel: a pseudo-terminal, its emulator and shell integration"
+description = "The shell of Vortex's terminal panel: a pseudo-terminal, its emulator and shell integration"
 version.workspace = true
 authors.workspace = true
 edition.workspace = true

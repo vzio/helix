@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# Bash completion script for Helix editor
+# Bash completion script for Vortex editor
 
-_hx() {
+_vx() {
     local cur prev languages
     COMPREPLY=()
     cur="${COMP_WORDS[COMP_CWORD]}"
@@ -13,7 +13,7 @@ _hx() {
         return 0
         ;;
     --health)
-        languages=$(hx --health all-languages | tail -n '+2' | awk '{print $1}' | sed 's/\x1b\[[0-9;]*m//g')
+        languages=$(vx --health all-languages | tail -n '+2' | awk '{print $1}' | sed 's/\x1b\[[0-9;]*m//g')
         mapfile -t COMPREPLY < <(compgen -W """clipboard languages all-languages all $languages""" -- "$cur")
         return 0
         ;;
@@ -29,4 +29,4 @@ _hx() {
         return 0
         ;;
     esac
-} && complete -o filenames -F _hx hx
+} && complete -o filenames -F _vx vx

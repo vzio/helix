@@ -16,7 +16,7 @@ use vortex_term::application::Application;
 
 use super::git_log::{git, on_screen, Session};
 
-const IN_REPO: &str = "HELIX_CONFLICTS_TEST_IN_REPO";
+const IN_REPO: &str = "VORTEX_CONFLICTS_TEST_IN_REPO";
 
 /// The text of `a.txt` and `b.txt` on the branches: `l1`...`l8`, with `l2` and `l7` changed.
 fn text(change: &str) -> String {

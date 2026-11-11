@@ -1,6 +1,6 @@
 //! The event system makes use of global to decouple different systems.
 //! However, this can cause problems for the integration test system because
-//! it runs multiple helix applications in parallel. Making the globals
+//! it runs multiple vortex applications in parallel. Making the globals
 //! thread-local does not work because a applications can/does have multiple
 //! runtime threads. Instead this crate implements a similar notion to a thread
 //! local but instead of being local to a single thread, the statics are local to

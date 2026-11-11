@@ -46,6 +46,7 @@ pub mod tasks {
     }
 
     pub fn indentcheck(languages: impl Iterator<Item = String>) -> Result<(), DynError> {
+        use ropey::Rope;
         use vortex_core::{
             indent::{
                 is_opaque_interior, is_outdent_token_at, treesitter_indent_for_pos, IndentStyle,
@@ -53,7 +54,6 @@ pub mod tasks {
             Syntax,
         };
         use vortex_stdx::rope::RopeSliceExt;
-        use ropey::Rope;
 
         let filter: HashSet<String> = languages.collect();
         let loader = vortex_core::config::default_lang_loader();
@@ -281,9 +281,9 @@ pub mod tasks {
     }
 
     pub fn highlightcheck(args: impl Iterator<Item = String>) -> Result<(), DynError> {
+        use ropey::Rope;
         use vortex_core::syntax::{HighlightEvent, Loader, Syntax};
         use vortex_core::Language;
-        use ropey::Rope;
 
         // The highlighter yields a `Highlight` index into the loader's scope
         // list. Feed it the capture names actually used across the bundled

@@ -189,7 +189,7 @@ code.hljs {
 
 /* highlight.js theme, :where() is used to avoid increasing specificity */
 
-/* Mapped to the helix theme.toml palette */
+/* Mapped to the vortex theme.toml palette */
 :where(.colibri) .hljs {
   background: #1f1029;          /* slightly deeper than --bg revolver */
   color: #a4a0e8;                /* lavender — ui.text */
@@ -264,7 +264,7 @@ code.hljs {
   font-weight: 700;
 }
 
-#helix-version-banner {
+#vortex-version-banner {
   margin: 0 0 1.75rem;
   padding: .75rem 1.15rem;
   border-radius: 4px;
@@ -274,11 +274,11 @@ code.hljs {
   line-height: 1.55;
 }
 
-#helix-version-banner.archived {
+#vortex-version-banner.archived {
   border-inline-start-color: var(--blockquote-note-color, #697C81);
 }
 
-#helix-version-banner a {
+#vortex-version-banner a {
   white-space: nowrap;
   font-weight: 500;
 }

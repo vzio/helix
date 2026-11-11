@@ -8,13 +8,13 @@
 
 use std::ops::Range;
 
+use tui::buffer::Buffer as Surface;
 use vortex_view::{
     graphics::{Modifier, Rect, UnderlineStyle},
     hex::{ascii_char, ByteKind, Column, HexBuffer, HexCursor, Layout, Rows},
     theme::Style,
     Document, Theme, View,
 };
-use tui::buffer::Buffer as Surface;
 
 /// The area of a view the rows are drawn in: all of it but the statusline.
 pub fn rows_area(view: &View) -> Rect {

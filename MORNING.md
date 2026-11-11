@@ -2,7 +2,7 @@
 
 Inline git blame is done, tested and merged into **`fork-features`**. It was developed on
 **`inline-blame`**, which is also pushed. FORK.md has the user docs ("Inline git blame") and
-credits nik-rev's helix PR #13133. The report on the diff viewer and file tree port is in git
+credits nik-rev's Helix PR #13133. The report on the diff viewer and file tree port is in git
 history (`git log -p -- MORNING.md`).
 
 ## Status
@@ -26,7 +26,7 @@ Nothing is broken or partial that I know of.
 ## Try it
 
 ```toml
-# ~/.config/helix/config.toml
+# ~/.config/vortex/config.toml
 [editor.inline-blame]
 enable = true             # or leave it off and press space B when you want it
 show = "cursor-line"      # "all-lines" = every visible line
@@ -45,7 +45,7 @@ palette (`space ?`) shows the current line's blame in the statusline, even with 
 Theme: `ui.virtual.inline-blame`, falling back to `ui.virtual.inlay-hint` when a theme doesn't
 set it. To restyle it: `"ui.virtual.inline-blame" = { fg = "gray", modifiers = ["italic"] }`.
 
-On Termux: `git pull` on `fork-features`, `cargo build`, then the same `HELIX_RUNTIME` setup as
+On Termux: `git pull` on `fork-features`, `cargo build`, then the same `VORTEX_RUNTIME` setup as
 before. A file with a long history (e.g. `vortex-term/src/commands.rs`) takes ~9 s in a debug
 build on this machine before its blame appears (a phone will be slower; release builds are ~6x
 faster). The editor stays responsive meanwhile.
@@ -109,7 +109,7 @@ Benchmark (`cargo bench -p vortex-vcs --features git --bench blame`, release):
 6. **Refresh points**: open, save, `:reload`/`:reload-all`, terminal focus, turning it on.
    Each one first checks whether HEAD moved (~0.3 ms) and only recomputes if it did. There is no
    file watcher, so a commit made in another terminal shows up on the next focus/save/reload.
-7. **The diff base follows HEAD.** Helix only read the diff base on open/reload, so after an
+7. **The diff base follows HEAD.** Upstream Helix only read the diff base on open/reload, so after an
    external commit blame and diff disagreed (wrong "Not committed yet" lines). When blame moves
    to a new HEAD it now re-reads the diff base too. Side effect: the git gutter also updates
    after external commits.
@@ -126,8 +126,8 @@ Benchmark (`cargo bench -p vortex-vcs --features git --bench blame`, release):
 13. **Debug builds:** blame was ~120 s for commands.rs unoptimized, so the crates it spends its
     time in (gix-*, zlib-rs, hashing) are optimized even in debug builds (`[profile.dev.package]`
     in `Cargo.toml`, one commit, `82ea1ec79`): now ~9 s. Only those crates; the first debug build
-    takes a bit longer, rebuilds of helix itself don't.
+    takes a bit longer, rebuilds of vortex itself don't.
 14. **Repository trust:** blame opens the repository with reduced trust (it only reads objects).
-    The diff base refresh uses the workspace trust setting like the rest of helix.
+    The diff base refresh uses the workspace trust setting like the rest of vortex.
 15. **Tests that need background jobs** each build one app (the job queue is per runtime), with
     a small helper in the test file instead of `test_key_sequences`.

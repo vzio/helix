@@ -1,8 +1,8 @@
+use serde::{Deserialize, Serialize};
 use vortex_core::diagnostic::Severity;
 use vortex_core::doc_formatter::{FormattedGrapheme, TextFormat};
 use vortex_core::text_annotations::LineAnnotation;
 use vortex_core::{softwrapped_dimensions, Diagnostic, Position};
-use serde::{Deserialize, Serialize};
 
 use crate::Document;
 

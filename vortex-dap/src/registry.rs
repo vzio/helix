@@ -1,10 +1,10 @@
 use crate::{Client, Payload, Result, StackFrame};
 use futures_executor::block_on;
 use futures_util::stream::SelectAll;
-use vortex_core::syntax::config::DebugAdapterConfig;
 use slotmap::SlotMap;
 use std::fmt;
 use tokio_stream::wrappers::UnboundedReceiverStream;
+use vortex_core::syntax::config::DebugAdapterConfig;
 
 /// The resgistry is a struct that manages and owns multiple debugger clients
 /// This holds the responsibility of managing the lifecycle of each client

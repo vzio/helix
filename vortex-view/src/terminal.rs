@@ -1,5 +1,5 @@
 //! The state of the terminal panel: the shell in it, whether it is shown and focused, and the
-//! editors that `hx` started from it wait on. `vortex-term` draws it and sends it keys.
+//! editors that `vx` started from it wait on. `vortex-term` draws it and sends it keys.
 
 use serde::{Deserialize, Serialize};
 
@@ -25,7 +25,7 @@ pub struct TerminalConfig {
     /// Lines of scrollback. Defaults to 10000.
     pub scrollback: usize,
     /// The external terminal the debugger runs programs in (`runInTerminal`). Defaults to a tmux
-    /// or WezTerm split when Helix runs in one (`wt` or `conhost` on Windows).
+    /// or WezTerm split when Vortex runs in one (`wt` or `conhost` on Windows).
     #[serde(skip_serializing_if = "String::is_empty")]
     pub command: String,
     #[serde(skip_serializing_if = "Vec::is_empty")]
@@ -56,7 +56,7 @@ impl Default for TerminalConfig {
     }
 }
 
-/// A buffer an `hx` in the panel waits on (`hx` as `$EDITOR`): `done` is called when it closes.
+/// A buffer a `vx` in the panel waits on (`vx --wait` as `$EDITOR`): `done` is called when it closes.
 pub struct Waiter {
     pub doc: DocumentId,
     pub done: Box<dyn FnOnce() + Send>,
@@ -73,7 +73,7 @@ pub struct Panel {
     pub focused: bool,
     /// Where the screen of the shell was last drawn.
     pub area: Rect,
-    /// Buffers an `hx` in the panel waits on.
+    /// Buffers a `vx` in the panel waits on.
     pub waiters: Vec<Waiter>,
 }
 
@@ -115,7 +115,7 @@ impl Panel {
         self.visible = false;
     }
 
-    /// The shell exited: closes the panel, and answers the `hx` that waited on a buffer.
+    /// The shell exited: closes the panel, and answers the `vx` that waited on a buffer.
     pub fn shell_exited(&mut self) {
         self.shell = None;
         self.visible = false;
