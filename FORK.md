@@ -1113,7 +1113,7 @@ the byte under the cursor, in the column the cursor is in:
   next byte;
 - **bin column**: `0` or `1` overwrites the bit under the cursor, then the next bit;
 - **ASCII column**: a character overwrites a whole byte (a character past ASCII, as many bytes as
-  its UTF-8 takes).
+  its UTF-8 takes, refused when they don't fit before the end of the file).
 
 The arrows move by digit in the hex and bin columns, `Backspace` goes back one without deleting,
 and other keys say what the column takes. Bytes are never inserted or deleted, so the size of the
