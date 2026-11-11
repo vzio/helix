@@ -19,9 +19,6 @@ use vortex_view::{
     Document,
 };
 
-#[cfg(windows)]
-use crossterm::event::{Event, KeyEvent};
-#[cfg(not(windows))]
 use termina::event::{Event, KeyEvent};
 
 use super::*;
@@ -1057,7 +1054,6 @@ async fn a_file_changed_on_disk_is_not_written_over() {
 // A big file
 
 /// A file of 4 GiB opens at once: it is never read as a whole, only what is on screen.
-#[cfg(unix)]
 #[tokio::test(flavor = "multi_thread")]
 async fn a_sparse_file_of_4_gib() {
     const SIZE: u64 = 4 << 30;

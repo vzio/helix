@@ -90,7 +90,6 @@ async fn unicode_expansion() -> anyhow::Result<()> {
     Ok(())
 }
 
-#[cfg(unix)]
 #[tokio::test(flavor = "multi_thread")]
 async fn shell_expansion() -> anyhow::Result<()> {
     test_statusline(

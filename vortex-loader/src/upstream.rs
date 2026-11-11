@@ -33,11 +33,7 @@ fn hint(ours: &Path, helix: &Path, marker: &Path) -> Option<String> {
     std::fs::write(marker, "").ok()?;
     // the contents, into Vortex's directory: it may exist already (empty)
     let to = ours.display();
-    let copy = if cfg!(windows) {
-        format!("Copy-Item -Recurse '{}' '{to}'", helix.join("*").display())
-    } else {
-        format!("cp -r '{}' '{to}'", helix.join(".").display())
-    };
+    let copy = format!("cp -r '{}' '{to}'", helix.join(".").display());
     Some(format!(
         "Vortex doesn't read Helix's config. To copy it: {copy}"
     ))
@@ -60,20 +56,16 @@ mod tests {
         // startup creates Vortex's config directory: empty, it's no config
         std::fs::create_dir(&ours).unwrap();
         let text = hint(&ours, &helix, &marker).unwrap();
-        if cfg!(windows) {
-            assert!(text.contains("Copy-Item -Recurse"), "{text}");
-        } else {
-            let copy = format!("cp -r '{}/.' '{}'", helix.display(), ours.display());
-            assert!(text.ends_with(&copy), "{text}");
-            // the command does copy the config into the existing, empty directory
-            let status = std::process::Command::new("sh")
-                .args(["-c", text.split(": ").last().unwrap()])
-                .status()
-                .unwrap();
-            assert!(status.success());
-            assert!(ours.join("config.toml").is_file());
-            std::fs::remove_file(ours.join("config.toml")).unwrap();
-        }
+        let copy = format!("cp -r '{}/.' '{}'", helix.display(), ours.display());
+        assert!(text.ends_with(&copy), "{text}");
+        // the command does copy the config into the existing, empty directory
+        let status = std::process::Command::new("sh")
+            .args(["-c", text.split(": ").last().unwrap()])
+            .status()
+            .unwrap();
+        assert!(status.success());
+        assert!(ours.join("config.toml").is_file());
+        std::fs::remove_file(ours.join("config.toml")).unwrap();
         assert!(marker.exists());
         // once
         assert_eq!(hint(&ours, &helix, &marker), None);

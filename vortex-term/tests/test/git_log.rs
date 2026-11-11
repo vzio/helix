@@ -15,9 +15,6 @@ use tokio_stream::wrappers::UnboundedReceiverStream;
 use vortex_term::application::Application;
 use vortex_view::input::parse_macro;
 
-#[cfg(windows)]
-use crossterm::event::{Event, KeyEvent};
-#[cfg(not(windows))]
 use termina::event::{Event, KeyEvent};
 
 use super::*;

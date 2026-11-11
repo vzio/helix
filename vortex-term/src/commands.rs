@@ -6668,7 +6668,7 @@ async fn shell_impl_async(
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
 
-    if input.is_some() || cfg!(windows) {
+    if input.is_some() {
         process.stdin(Stdio::piped());
     } else {
         process.stdin(Stdio::null());
@@ -6850,7 +6850,6 @@ fn toggle_explorer_root(cx: &mut Context) {
 }
 
 fn suspend(_cx: &mut Context) {
-    #[cfg(not(windows))]
     {
         // SAFETY: These are calls to standard POSIX functions.
         // Unsafe is necessary since we are calling outside of Rust.

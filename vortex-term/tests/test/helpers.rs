@@ -18,9 +18,6 @@ use vortex_view::{
     Editor,
 };
 
-#[cfg(windows)]
-use crossterm::event::{Event, KeyEvent};
-#[cfg(not(windows))]
 use termina::event::{Event, KeyEvent};
 
 /// Specify how to set up the input text with line feeds

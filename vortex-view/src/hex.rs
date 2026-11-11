@@ -701,7 +701,6 @@ pub fn ascii_char(byte: u8) -> char {
     }
 }
 
-#[cfg(unix)]
 fn read_at(file: &File, offset: u64, buf: &mut [u8]) -> usize {
     use std::os::unix::fs::FileExt;
     let mut n = 0;
@@ -719,38 +718,9 @@ fn read_at(file: &File, offset: u64, buf: &mut [u8]) -> usize {
     n
 }
 
-#[cfg(windows)]
-fn read_at(file: &File, offset: u64, buf: &mut [u8]) -> usize {
-    use std::os::windows::fs::FileExt;
-    let mut n = 0;
-    while n < buf.len() {
-        match file.seek_read(&mut buf[n..], offset + n as u64) {
-            Ok(0) => break,
-            Ok(read) => n += read,
-            Err(err) if err.kind() == io::ErrorKind::Interrupted => continue,
-            Err(err) => {
-                log::warn!("hex view: reading at {offset}: {err}");
-                break;
-            }
-        }
-    }
-    n
-}
-
-#[cfg(unix)]
 fn write_at(file: &File, offset: u64, bytes: &[u8]) -> io::Result<()> {
     use std::os::unix::fs::FileExt;
     file.write_all_at(bytes, offset)
-}
-
-#[cfg(windows)]
-fn write_at(file: &File, offset: u64, bytes: &[u8]) -> io::Result<()> {
-    use std::os::windows::fs::FileExt;
-    let mut n = 0;
-    while n < bytes.len() {
-        n += file.seek_write(&bytes[n..], offset + n as u64)?;
-    }
-    Ok(())
 }
 
 #[cfg(test)]

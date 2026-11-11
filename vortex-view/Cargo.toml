@@ -17,7 +17,7 @@ bench = false
 
 [features]
 default = []
-term = ["termina", "crossterm"]
+term = ["termina"]
 unicode-lines = []
 # Exposes internals. Should not be enabled except for benchmarking.
 bench = []
@@ -61,12 +61,6 @@ kstring = "2.0"
 memchr = "2.7"
 notify = "8"
 ignore = "0.4"
-
-[target.'cfg(windows)'.dependencies]
-clipboard-win = { version = "5.4", features = ["std"] }
-crossterm = { version = "0.28", optional = true }
-
-[target.'cfg(unix)'.dependencies]
 libc = "0.2"
 rustix = { version = "1.1", features = ["fs"] }
 

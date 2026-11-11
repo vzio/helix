@@ -9,7 +9,7 @@ under Vortex's own names: the binary is `vx`, the config is in `~/.config/vortex
 in `.vortex/`), the log is `~/.cache/vortex/vortex.log` and the variables are `VORTEX_*`
 (`VORTEX_RUNTIME`, ...). Vortex never reads upstream Helix's directories; when it has no config of its
 own but upstream's exists, it says once at startup how to copy it. Vortex runs on Linux and macOS
-only: Windows isn't tested, built or released.
+only.
 
 README.md is the owner's (agents don't edit it). Vortex issues and PRs stay in this repository:
 never send them upstream.

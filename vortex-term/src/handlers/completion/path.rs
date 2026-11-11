@@ -47,9 +47,6 @@ pub(crate) fn path_completion(
                 Some(parent_dir) if path.is_relative() => parent_dir.join(&path),
                 _ => path.into_owned(),
             };
-            #[cfg(windows)]
-            let ends_with_slash = matches!(matched_path.as_bytes().last(), Some(b'/' | b'\\'));
-            #[cfg(not(windows))]
             let ends_with_slash = matches!(matched_path.as_bytes().last(), Some(b'/'));
 
             if ends_with_slash {
@@ -132,7 +129,6 @@ pub(crate) fn path_completion(
     Some(future)
 }
 
-#[cfg(unix)]
 fn path_documentation(md: &fs::Metadata, full_path: &Path, kind: &str) -> String {
     let full_path = fold_home_dir(canonicalize(full_path));
     let full_path_name = full_path.to_string_lossy();
@@ -169,14 +165,6 @@ fn path_documentation(md: &fs::Metadata, full_path: &Path, kind: &str) -> String
     )
 }
 
-#[cfg(not(unix))]
-fn path_documentation(_md: &fs::Metadata, full_path: &Path, kind: &str) -> String {
-    let full_path = fold_home_dir(canonicalize(full_path));
-    let full_path_name = full_path.to_string_lossy();
-    format!("type: `{kind}`\nfull path: `{full_path_name}`",)
-}
-
-#[cfg(unix)]
 fn path_kind(md: &fs::Metadata) -> &'static str {
     if md.is_symlink() {
         "link"
@@ -195,16 +183,5 @@ fn path_kind(md: &fs::Metadata) -> &'static str {
         } else {
             "file"
         }
-    }
-}
-
-#[cfg(not(unix))]
-fn path_kind(md: &fs::Metadata) -> &'static str {
-    if md.is_symlink() {
-        "link"
-    } else if md.is_dir() {
-        "folder"
-    } else {
-        "file"
     }
 }

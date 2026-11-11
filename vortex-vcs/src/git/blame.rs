@@ -150,12 +150,9 @@ impl FileBlame {
         let mut resource_cache = repo
             .diff_resource_cache_for_tree_diff()
             .context("failed to create diff resource cache")?;
-        // NOTE: bstr always uses unix separators `/`, even on
-        // Windows which uses the `\` separator
-        let rel_path: BString = gix::path::to_unix_separators_on_windows(
-            gix::path::try_into_bstr(rel_path).context("path is not valid")?,
-        )
-        .into_owned();
+        let rel_path: BString = gix::path::try_into_bstr(rel_path)
+            .context("path is not valid")?
+            .into_owned();
         let mut blame = |commit: gix::ObjectId, path: &BString| {
             gix::blame::file(
                 &repo.objects,
@@ -603,13 +600,6 @@ mod test {
         };
     }
 
-    #[cfg(windows)]
-    macro_rules! newline_literal {
-        () => {
-            "\r\n"
-        };
-    }
-    #[cfg(not(windows))]
     macro_rules! newline_literal {
         () => {
             "\n"
@@ -719,13 +709,6 @@ mod test {
         }};
     }
 
-    // For some reasons the CI is failing on windows with the message "Commits not found".
-    // The created temporary repository has no commits... But this is not an issue on unix.
-    // There is nothing platform-specific in this implementation. This is a problem only
-    // for tests on Windows.
-    // As such it should be fine to disable this test in Windows.
-    // As long as these tests pass on other platforms, on Windows it will work too.
-    #[cfg(not(windows))]
     #[test]
     pub fn blamed_lines() {
         assert_line_blame_progress! {
@@ -1262,7 +1245,6 @@ mod test {
         }
     }
 
-    #[cfg(not(windows))]
     #[test]
     fn ignored_revs_pass_lines_on_to_the_parent() {
         use std::process::Command;

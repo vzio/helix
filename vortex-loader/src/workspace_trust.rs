@@ -680,7 +680,6 @@ mod test {
         assert_eq!(trust.status(workspace), TrustStatus::Stale);
     }
 
-    #[cfg(unix)]
     #[test]
     fn hash_includes_symlinked_config_file() {
         // Regression: `.vortex/config.toml` is commonly a symlink to an external location (dotfiles

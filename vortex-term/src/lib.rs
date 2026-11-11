@@ -15,7 +15,6 @@ pub mod practice;
 pub mod terminal;
 pub mod ui;
 
-#[cfg(not(windows))]
 use std::env::var_os;
 
 use std::path::Path;
@@ -28,16 +27,8 @@ mod live;
 use ignore::DirEntry;
 use vortex_stdx::Url;
 
-#[cfg(windows)]
 fn true_color() -> bool {
-    true
-}
-
-#[cfg(not(windows))]
-fn true_color() -> bool {
-    if var_os("COLORTERM").is_some_and(|v| v == "truecolor" || v == "24bit")
-        || var_os("WSL_DISTRO_NAME").is_some()
-    {
+    if var_os("COLORTERM").is_some_and(|v| v == "truecolor" || v == "24bit") {
         return true;
     }
 

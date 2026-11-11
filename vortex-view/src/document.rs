@@ -1256,7 +1256,7 @@ impl Document {
                 ));
             }
 
-            // Assume it is a hardlink to prevent data loss if the metadata cant be read (e.g. on certain Windows configurations)
+            // Assume it is a hardlink to prevent data loss if the metadata cant be read
             let is_hardlink = vortex_stdx::faccess::hardlink_count(&write_path).unwrap_or(2) > 1;
             let is_symlink = match tokio::fs::symlink_metadata(&write_path).await {
                 Ok(meta) => meta.is_symlink(),
@@ -1309,7 +1309,6 @@ impl Document {
                     // not the same code, so we need to suppress the unreachable_patterns lint on
                     // Unix generally.
                     #[allow(unreachable_patterns)]
-                    #[cfg(unix)]
                     Err(err)
                         if matches!(err.raw_os_error(), Some(libc::ENOTSUP | libc::EOPNOTSUPP)) => {
                     }
@@ -1508,7 +1507,7 @@ impl Document {
         self.warned_hash = None;
     }
 
-    // Detect if the file is readonly and change the readonly field if necessary (unix only)
+    // Detect if the file is readonly and change the readonly field if necessary
     pub fn detect_readonly(&mut self) {
         // Allows setting the flag for files the user cannot modify, like root files
         self.readonly = match &self.path {

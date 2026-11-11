@@ -5,9 +5,6 @@ use tokio_stream::wrappers::UnboundedReceiverStream;
 use vortex_term::application::Application;
 use vortex_view::input::parse_macro;
 
-#[cfg(windows)]
-use crossterm::event::{Event, KeyEvent};
-#[cfg(not(windows))]
 use termina::event::{Event, KeyEvent};
 
 use super::*;
@@ -89,9 +86,6 @@ impl Session {
     /// A terminal of `width` by `height` cells.
     async fn resize(&mut self, width: u16, height: u16) {
         self.app.resize_screen(width, height);
-        #[cfg(windows)]
-        let event = Event::Resize(width, height);
-        #[cfg(not(windows))]
         let event = Event::WindowResized(termina::WindowSize {
             cols: width,
             rows: height,

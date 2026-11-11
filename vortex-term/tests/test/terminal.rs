@@ -3,7 +3,6 @@
 //! The shell is `sh` so rc files don't matter. The shell's work happens on other threads and
 //! reaches the editor through the job queue, so the tests pump the event loop until a condition
 //! holds, with a deadline, rather than sleeping.
-#![cfg(unix)]
 
 use std::{
     io,

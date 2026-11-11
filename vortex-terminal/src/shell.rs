@@ -29,7 +29,6 @@ use crate::{
 const READY_TIMEOUT: Duration = Duration::from_secs(3);
 
 /// How often the foreground process group is looked at, without shell integration.
-#[cfg(unix)]
 const FALLBACK_POLL_INTERVAL: Duration = Duration::from_millis(250);
 /// How long the exit of the shell waits for the reader to drain the last output.
 const DRAIN_TIMEOUT: Duration = Duration::from_millis(500);
@@ -257,7 +256,7 @@ fn prepare_integration(
     extra_args: &[String],
     options: &ShellOptions,
 ) -> anyhow::Result<Integration> {
-    if !cfg!(unix) || !options.integration || !extra_args.is_empty() {
+    if !options.integration || !extra_args.is_empty() {
         return Ok(Integration::default());
     }
     let name = Path::new(program)
@@ -315,13 +314,9 @@ fn prepare_integration(
 }
 
 fn default_program() -> String {
-    if cfg!(windows) {
-        std::env::var("COMSPEC").unwrap_or_else(|_| "cmd.exe".into())
-    } else {
-        match std::env::var("SHELL") {
-            Ok(shell) if !shell.is_empty() => shell,
-            _ => "/bin/sh".into(),
-        }
+    match std::env::var("SHELL") {
+        Ok(shell) if !shell.is_empty() => shell,
+        _ => "/bin/sh".into(),
     }
 }
 
@@ -463,7 +458,6 @@ impl Shell {
                 common.ready();
             })?;
         }
-        #[cfg(unix)]
         if let Some(pid) = pid {
             let common = common.clone();
             let master = master.clone();
@@ -663,7 +657,6 @@ fn read_loop(mut reader: Box<dyn Read + Send>, common: &Common, term: &SharedTer
 
 /// For shells without integration: looks at whether the shell or a command it started is in the
 /// foreground of the terminal, until a marker shows up or the shell exits.
-#[cfg(unix)]
 fn poll_foreground(common: &Common, master: &Mutex<Box<dyn MasterPty + Send>>, pid: u32) {
     while !common.integrated.load(Ordering::SeqCst) && !common.exited.load(Ordering::SeqCst) {
         let leader = master.lock().process_group_leader();

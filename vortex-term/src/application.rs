@@ -36,34 +36,22 @@ use std::{
     sync::Arc,
 };
 
-#[cfg_attr(windows, allow(unused_imports))]
 use anyhow::{Context, Error};
 
-#[cfg(not(windows))]
 use {signal_hook::consts::signal, signal_hook_tokio::Signals};
-#[cfg(windows)]
-type Signals = futures_util::stream::Empty<()>;
 
-#[cfg(all(not(windows), not(feature = "integration")))]
+#[cfg(not(feature = "integration"))]
 use tui::backend::TerminaBackend;
-
-#[cfg(all(windows, not(feature = "integration")))]
-use tui::backend::CrosstermBackend;
 
 #[cfg(feature = "integration")]
 use tui::backend::TestBackend;
 
-#[cfg(all(not(windows), not(feature = "integration")))]
+#[cfg(not(feature = "integration"))]
 type TerminalBackend = TerminaBackend;
-#[cfg(all(windows, not(feature = "integration")))]
-type TerminalBackend = CrosstermBackend<std::io::Stdout>;
 #[cfg(feature = "integration")]
 type TerminalBackend = TestBackend;
 
-#[cfg(not(windows))]
 type TerminalEvent = termina::Event;
-#[cfg(windows)]
-type TerminalEvent = crossterm::event::Event;
 
 type Terminal = tui::terminal::Terminal<TerminalBackend>;
 
@@ -106,11 +94,9 @@ impl Application {
         theme_parent_dirs.extend(vortex_loader::runtime_dirs().iter().cloned());
         let theme_loader = theme::Loader::new(&theme_parent_dirs);
 
-        #[cfg(all(not(windows), not(feature = "integration")))]
+        #[cfg(not(feature = "integration"))]
         let backend = TerminaBackend::new((&config.editor).into())
             .context("failed to create terminal backend")?;
-        #[cfg(all(windows, not(feature = "integration")))]
-        let backend = CrosstermBackend::new(std::io::stdout(), (&config.editor).into());
 
         #[cfg(feature = "integration")]
         let backend = TestBackend::new(120, 150);
@@ -236,9 +222,6 @@ impl Application {
         // statusline before any file is opened
         crate::handlers::conflicts::refresh(&mut editor);
 
-        #[cfg(windows)]
-        let signals = futures_util::stream::empty();
-        #[cfg(not(windows))]
         let signals = Signals::new([
             signal::SIGTSTP,
             signal::SIGCONT,
@@ -359,8 +342,7 @@ impl Application {
                     #[cfg(feature = "integration")]
                     {
                         // Don't report idle while a save is still in flight, or an assertion on the post-save document state (e.g. its path,
-                        // set in `handle_document_write`) can run before the `DocumentSavedEvent` is processed. Slow file I/O on Windows
-                        // (atomic_save's rename/fsync dance over the still-open temp file) makes this race observable.
+                        // set in `handle_document_write`) can run before the `DocumentSavedEvent` is processed.
                         // Errors produce an event too, so it cannot hang.
                         if _idle_handled && self.editor.write_count == 0 {
                             return true;
@@ -509,13 +491,6 @@ impl Application {
         let _ = editor.set_theme(theme);
     }
 
-    #[cfg(windows)]
-    // no signal handling available on windows
-    pub async fn handle_signals(&mut self, _signal: ()) -> bool {
-        true
-    }
-
-    #[cfg(not(windows))]
     pub async fn handle_signals(&mut self, signal: i32) -> bool {
         match signal {
             signal::SIGTSTP => {
@@ -718,7 +693,6 @@ impl Application {
     }
 
     pub async fn handle_terminal_events(&mut self, event: std::io::Result<TerminalEvent>) {
-        #[cfg(not(windows))]
         use termina::escape::csi;
 
         let mut cx = crate::compositor::Context {
@@ -728,7 +702,6 @@ impl Application {
         };
         // Handle key events
         let should_redraw = match event.unwrap() {
-            #[cfg(not(windows))]
             termina::Event::WindowResized(termina::WindowSize { rows, cols, .. }) => {
                 self.terminal
                     .resize(Rect::new(0, 0, cols, rows))
@@ -741,13 +714,11 @@ impl Application {
                 self.compositor
                     .handle_event(&Event::Resize(cols, rows), &mut cx)
             }
-            #[cfg(not(windows))]
             // Ignore keyboard release events.
             termina::Event::Key(termina::event::KeyEvent {
                 kind: termina::event::KeyEventKind::Release,
                 ..
             }) => false,
-            #[cfg(not(windows))]
             termina::Event::Csi(csi::Csi::Mode(csi::Mode::ReportTheme(mode))) => {
                 let config = self.config.load();
                 let mode = mode.into();
@@ -765,26 +736,6 @@ impl Application {
                     false
                 }
             }
-            #[cfg(windows)]
-            TerminalEvent::Resize(width, height) => {
-                self.terminal
-                    .resize(Rect::new(0, 0, width, height))
-                    .expect("Unable to resize terminal");
-
-                let area = self.terminal.size();
-
-                self.compositor.resize(area);
-
-                self.compositor
-                    .handle_event(&Event::Resize(width, height), &mut cx)
-            }
-            #[cfg(windows)]
-            // Ignore keyboard release events.
-            crossterm::event::Event::Key(crossterm::event::KeyEvent {
-                kind: crossterm::event::KeyEventKind::Release,
-                ..
-            }) => false,
-            #[cfg(not(windows))]
             event if event.is_escape() => false,
             event => {
                 let event = event.into();
@@ -1325,7 +1276,7 @@ impl Application {
         self.terminal.backend_mut().resize(width, height);
     }
 
-    #[cfg(all(not(feature = "integration"), not(windows)))]
+    #[cfg(not(feature = "integration"))]
     pub fn event_stream(&self) -> impl Stream<Item = std::io::Result<TerminalEvent>> + Unpin {
         use termina::{escape::csi, Terminal as _};
         let reader = self.terminal.backend().terminal().event_reader();
@@ -1337,11 +1288,6 @@ impl Application {
                     termina::Event::Csi(csi::Csi::Mode(csi::Mode::ReportTheme(_)))
                 )
         })
-    }
-
-    #[cfg(all(not(feature = "integration"), windows))]
-    pub fn event_stream(&self) -> impl Stream<Item = std::io::Result<TerminalEvent>> + Unpin {
-        crossterm::event::EventStream::new()
     }
 
     #[cfg(feature = "integration")]

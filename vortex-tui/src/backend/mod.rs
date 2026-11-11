@@ -9,15 +9,10 @@ use vortex_view::{
     theme::Color,
 };
 
-#[cfg(all(feature = "termina", not(windows)))]
+#[cfg(feature = "termina")]
 mod termina;
-#[cfg(all(feature = "termina", not(windows)))]
+#[cfg(feature = "termina")]
 pub use self::termina::TerminaBackend;
-
-#[cfg(all(feature = "termina", windows))]
-mod crossterm;
-#[cfg(all(feature = "termina", windows))]
-pub use self::crossterm::CrosstermBackend;
 
 mod test;
 pub use self::test::TestBackend;

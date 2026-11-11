@@ -25,7 +25,7 @@ pub struct TerminalConfig {
     /// Lines of scrollback. Defaults to 10000.
     pub scrollback: usize,
     /// The external terminal the debugger runs programs in (`runInTerminal`). Defaults to a tmux
-    /// or WezTerm split when Vortex runs in one (`wt` or `conhost` on Windows).
+    /// or WezTerm split when Vortex runs in one.
     #[serde(skip_serializing_if = "String::is_empty")]
     pub command: String,
     #[serde(skip_serializing_if = "Vec::is_empty")]

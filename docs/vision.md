@@ -4,7 +4,7 @@ The Vortex project still has a ways to go before reaching its goals.  This docum
 
 An efficient, batteries-included editor you can take anywhere and be productive... if it's your kind of thing.
 
-* **Cross-platform.**  Whether on Linux, Windows, or OSX, you should be able to take your editor with you.
+* **Linux and macOS.**  Whether on Linux or macOS, you should be able to take your editor with you.
 * **Terminal first.**  Not all environments have a windowing system, and you shouldn't have to abandon your preferred editor in those cases.
 * **Native.**  No Electron or HTML DOM here.  We want an efficient, native-compiled editor that can run with minimal resources when needed.  If you're working on a Raspberry Pi, your editor shouldn't consume half of your RAM.
 * **Batteries included.**  Both the default configuration and bundled features should be enough to have a good editing experience and be productive.  You shouldn't need a massive custom config or external executables and plugins for basic features and functionality.

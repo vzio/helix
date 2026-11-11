@@ -92,7 +92,7 @@ impl Target {
 
     /// The path relative to the working tree, with `/` as separator.
     fn rela_str(&self) -> Result<String> {
-        let bstr = gix::path::to_unix_separators_on_windows(gix::path::into_bstr(&*self.rela));
+        let bstr = gix::path::into_bstr(&*self.rela);
         Ok(bstr
             .to_str()
             .map_err(|_| anyhow::anyhow!("path {} is not valid UTF-8", self.rela.display()))?
@@ -119,7 +119,7 @@ impl Target {
     /// The kind and blob id of the entry of `file` in the index.
     fn index_entry(&self) -> Result<Option<(Kind, ObjectId)>> {
         let index = self.repo.index_or_empty()?;
-        let rela = gix::path::to_unix_separators_on_windows(gix::path::into_bstr(&*self.rela));
+        let rela = gix::path::into_bstr(&*self.rela);
         Ok(index
             .entry_by_path(rela.as_ref())
             .map(|entry| (Kind::from_index(entry.mode), entry.id)))
@@ -251,15 +251,9 @@ fn to_git(target: &Target, contents: &[u8]) -> Result<Vec<u8>> {
     Ok(buf)
 }
 
-#[cfg(unix)]
 fn is_executable(path: &Path) -> bool {
     use std::os::unix::fs::PermissionsExt;
     std::fs::metadata(path).is_ok_and(|meta| meta.permissions().mode() & 0o111 != 0)
-}
-
-#[cfg(not(unix))]
-fn is_executable(_path: &Path) -> bool {
-    false
 }
 
 #[cfg(test)]
@@ -285,9 +279,6 @@ mod tests {
     fn read_index_file() {
         let repo = empty_git_repo();
         let dir = repo.path();
-        // the index is read in the working tree's form: keep LF whatever the user's git config
-        // says (core.autocrlf is true on Windows CI runners)
-        exec_git_args(&["config", "core.autocrlf", "false"], dir);
         let file = dir.join("a.txt");
         fs::write(&file, "one\n").unwrap();
         // untracked
@@ -308,9 +299,6 @@ mod tests {
     fn set_and_remove() {
         let repo = empty_git_repo();
         let dir = repo.path();
-        // the index is read in the working tree's form: keep LF whatever the user's git config
-        // says (core.autocrlf is true on Windows CI runners)
-        exec_git_args(&["config", "core.autocrlf", "false"], dir);
         let file = dir.join("a.txt");
         fs::write(&file, "one\ntwo\n").unwrap();
         create_commit(dir, true);
@@ -396,7 +384,6 @@ mod tests {
         assert_eq!(git_out(dir, &["status", "--porcelain"]), " D a.txt\n");
     }
 
-    #[cfg(unix)]
     #[test]
     fn keeps_executable_mode() {
         use std::os::unix::fs::PermissionsExt;
@@ -419,7 +406,6 @@ mod tests {
         assert!(git_out(dir, &["ls-files", "--stage", "new.sh"]).starts_with("100755"));
     }
 
-    #[cfg(unix)]
     #[test]
     fn refuses_symlinks() {
         let repo = empty_git_repo();

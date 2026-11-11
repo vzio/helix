@@ -420,7 +420,7 @@ pub struct Config {
     pub mouse: bool,
     /// Which register to use for mouse yank.
     pub mouse_yank_register: char,
-    /// Shell to use for shell commands. Defaults to ["cmd", "/C"] on Windows and ["sh", "-c"] otherwise.
+    /// Shell to use for shell commands. Defaults to ["sh", "-c"].
     pub shell: Vec<String>,
     /// Line number mode.
     pub line_number: LineNumber,
@@ -518,7 +518,7 @@ pub struct Config {
     pub soft_wrap: SoftWrap,
     /// Workspace specific lsp ceiling dirs
     pub workspace_lsp_roots: Vec<PathBuf>,
-    /// Which line ending to choose for new documents. Defaults to `native`. i.e. `crlf` on Windows, otherwise `lf`.
+    /// Which line ending to choose for new documents. Defaults to `native`, i.e. `lf`.
     pub default_line_ending: LineEndingConfig,
     /// Whether to automatically insert a trailing line-ending on write if missing. Defaults to `true`.
     pub insert_final_newline: bool,
@@ -698,30 +698,7 @@ pub struct ExternalTerminal {
     pub args: Vec<String>,
 }
 
-#[cfg(windows)]
-pub fn get_terminal_provider() -> Option<ExternalTerminal> {
-    use vortex_stdx::env::binary_exists;
-
-    if binary_exists("wt") {
-        return Some(ExternalTerminal {
-            command: "wt".to_string(),
-            args: vec![
-                "new-tab".to_string(),
-                "--title".to_string(),
-                "DEBUG".to_string(),
-                "cmd".to_string(),
-                "/C".to_string(),
-            ],
-        });
-    }
-
-    Some(ExternalTerminal {
-        command: "conhost".to_string(),
-        args: vec!["cmd".to_string(), "/C".to_string()],
-    })
-}
-
-#[cfg(not(any(windows, target_arch = "wasm32")))]
+#[cfg(not(target_arch = "wasm32"))]
 pub fn get_terminal_provider() -> Option<ExternalTerminal> {
     use vortex_stdx::env::{binary_exists, env_var_is_set};
 
@@ -1241,9 +1218,7 @@ impl Default for IndentGuidesConfig {
 #[derive(Default, Debug, Copy, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum LineEndingConfig {
-    /// The platform's native line ending.
-    ///
-    /// `crlf` on Windows, otherwise `lf`.
+    /// The platform's native line ending: `lf`.
     #[default]
     Native,
     /// Line feed.
@@ -1309,11 +1284,7 @@ impl Default for Config {
             scroll_lines: 3,
             mouse: true,
             mouse_yank_register: '*',
-            shell: if cfg!(windows) {
-                vec!["cmd".to_owned(), "/C".to_owned()]
-            } else {
-                vec!["sh".to_owned(), "-c".to_owned()]
-            },
+            shell: vec!["sh".to_owned(), "-c".to_owned()],
             line_number: LineNumber::Absolute,
             cursorline: false,
             cursorcolumn: false,
