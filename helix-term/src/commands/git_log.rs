@@ -652,7 +652,7 @@ pub(crate) struct CommitStyle {
     uncommitted: Arc<UncommittedCount>,
 }
 
-/// Pushes the picker of the files changed by the commits of `range` on top of the commit picker.
+/// Pushes the list of the changes of the commits of `range` on top of the commit picker.
 fn open_commit_files(cx: &mut compositor::Context, cwd: PathBuf, range: CommitRange) {
     let range = Arc::new(range);
     cx.jobs.callback(async move {
@@ -674,50 +674,66 @@ fn open_commit_files(cx: &mut compositor::Context, cwd: PathBuf, range: CommitRa
                 editor.set_status(format!("{} changes no files", range.label()));
                 return;
             }
+            let rows = commit_rows(editor, &cwd, &range, changes);
+            let totals = changes::Totals::of(&rows).describe();
             if range.count == 1 {
                 editor.set_status(format!(
-                    "{} {}",
+                    "{}: {totals} · {}",
                     range.newest.short_id, range.newest.summary
                 ));
             } else {
-                editor.set_status(range.label());
+                editor.set_status(format!("{}: {totals}", range.label()));
             }
-            let picker = commit_files_picker(editor, cwd, range, changes);
+            let picker = commit_changes_picker(editor, cwd, range, rows);
             compositor.push(Box::new(overlaid(picker)));
         };
         Ok(Callback::EditorCompositor(Box::new(call)))
     });
 }
 
-/// The files changed by the commits of `range`, lockfiles last. Enter and `C-g` open the diff of
-/// the selected file on top.
-fn commit_files_picker(
+/// The rows of the changes of `range`: the hunks of each file, under its divider.
+fn commit_rows(
     editor: &Editor,
-    cwd: PathBuf,
-    range: Arc<CommitRange>,
+    cwd: &Path,
+    range: &CommitRange,
     changes: Vec<FileChange>,
-) -> Picker<changes::FileRow, changes::FileRowData> {
-    let trust_full = trust_full(editor, &cwd);
+) -> Vec<changes::ChangeRow> {
+    let trust_full = trust_full(editor, cwd);
     let read = |id: &str, path: &Path| {
         editor
             .diff_providers
-            .file_at_commit(&cwd, trust_full, id, path)
+            .file_at_commit(cwd, trust_full, id, path)
             .ok()
             .flatten()
-            .unwrap_or_default()
     };
     let parent = format!("{}^", range.oldest.id);
-    let rows = changes::rows(changes, &editor.config().changes, |change| {
+    changes::commit_rows(changes, &editor.config().changes, |change| {
         let (base_path, path) = diff_view::paths_of(change);
-        Some((read(&parent, &base_path), read(&range.newest.id, &path)))
-    });
+        (read(&parent, &base_path), read(&range.newest.id, &path))
+    })
+}
 
+/// The list of the changes of `range`. Enter and `C-g` open the diff of the file of the row on
+/// top, at its hunk; `C-s`/`C-v`... open the file as it is now, closing the commit log.
+fn commit_changes_picker(
+    editor: &Editor,
+    cwd: PathBuf,
+    range: Arc<CommitRange>,
+    rows: Vec<changes::ChangeRow>,
+) -> Picker<changes::ChangeRow, changes::RowData> {
     let picker_cwd = cwd.clone();
     let files = Arc::new(changes::nav_files(&rows));
-    let show_diff = move |cx: &mut compositor::Context, change: &FileChange| {
+    let enter = move |cx: &mut compositor::Context, row: &changes::ChangeRow| {
         let cwd = cwd.clone();
         let range = range.clone();
-        let change = change.clone();
+        let change = row.change.clone();
+        // a deleted file has no lines on the right side: its first hunk
+        let line = match &row.what {
+            changes::What::Hunk(hunk) if hunk.edit != changes::Edit::Delete => {
+                Some(hunk.lines.start)
+            }
+            _ => None,
+        };
         let files = files.clone();
         cx.jobs.callback(async move {
             let call = move |editor: &mut Editor, compositor: &mut Compositor| {
@@ -728,6 +744,7 @@ fn commit_files_picker(
                     &range.oldest,
                     &range.newest,
                     &change,
+                    line,
                     std::rc::Rc::new(move || files.as_ref().clone()),
                     std::rc::Rc::new(changes::select_in_commit_files),
                 ) {
@@ -737,5 +754,19 @@ fn commit_files_picker(
             Ok(Callback::EditorCompositor(Box::new(call)))
         });
     };
-    changes::files_picker(editor, picker_cwd, rows, show_diff)
+    let open = |cx: &mut compositor::Context, row: &changes::ChangeRow, action| {
+        // the file as it is now, closing the commit log below too
+        let path = row.change.path().to_path_buf();
+        if let Err(err) = cx.editor.open(&path, action) {
+            cx.editor
+                .set_error(format!("unable to open \"{}\": {err}", path.display()));
+        }
+        cx.jobs.callback(async move {
+            let call = |_: &mut Editor, compositor: &mut Compositor| {
+                compositor.remove(crate::ui::picker::ID);
+            };
+            Ok(Callback::EditorCompositor(Box::new(call)))
+        });
+    };
+    changes::picker(editor, picker_cwd, rows, false, enter, open)
 }

@@ -328,7 +328,8 @@ fn commit_view(
 }
 
 /// Opens the diff of `change` in the commits from `oldest` to `newest` on top of the commit
-/// pickers, see [`commit_view`]. `n`/`N` go through the other files of `files`.
+/// pickers, see [`commit_view`], at the hunk at `line` of its right side (from 0), or at its
+/// first hunk. `n`/`N` go through the other files of `files`.
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn open_commit(
     editor: &mut Editor,
@@ -337,10 +338,11 @@ pub(crate) fn open_commit(
     oldest: &CommitInfo,
     newest: &CommitInfo,
     change: &FileChange,
+    line: Option<u32>,
     files: ListFiles,
     select: SelectFile,
 ) -> anyhow::Result<()> {
-    let view = commit_view(editor, cwd, oldest, newest, change)?;
+    let mut view = commit_view(editor, cwd, oldest, newest, change)?;
     if !view.has_changes() {
         editor.set_status(format!("No changes in {}", relative(change.path())));
         return Ok(());
@@ -352,6 +354,9 @@ pub(crate) fn open_commit(
         open: Rc::new(move |editor, change| commit_view(editor, &cwd, &oldest, &newest, change)),
         select,
     };
+    if let Some(line) = line {
+        view.go_to_line(line);
+    }
     compositor.push(Box::new(view.with_nav(nav)));
     Ok(())
 }

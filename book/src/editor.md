@@ -206,11 +206,11 @@ shell = ["fish"]
 
 ### `[editor.changes]` Section
 
-The lists of changed files of the commit log (`space l`): the files of a commit, and the uncommitted changes.
+The lists of changes of the commit log (`space l`): the changes of a commit or range, and the uncommitted changes, one row per hunk under a divider per file.
 
 | Key | Description | Default |
 | --- | --- | --- |
-| `lockfiles` | File names (not paths) of lockfiles. In the lists they are one quiet row with their line counts, like `Cargo.lock (+340 -12)`, after the other files; Enter still opens their diff | `["Cargo.lock", "package-lock.json", "pnpm-lock.yaml", "yarn.lock", "bun.lock", "bun.lockb", "poetry.lock", "uv.lock", "go.sum", "Gemfile.lock", "composer.lock", "flake.lock"]` |
+| `lockfiles` | File names (not paths) of lockfiles. In the lists they are a divider alone, without hunk rows, with their line counts, like `── Cargo.lock  +340 -12`, after the other files; Enter still opens their diff | `["Cargo.lock", "package-lock.json", "pnpm-lock.yaml", "yarn.lock", "bun.lock", "bun.lockb", "poetry.lock", "uv.lock", "go.sum", "Gemfile.lock", "composer.lock", "flake.lock"]` |
 
 ```toml
 [editor.changes]

@@ -90,7 +90,7 @@ impl Session {
     }
 
     /// The first line of the footer without the keys: `hunk 2/5 staged · file 1/3`.
-    fn footer(&self) -> String {
+    pub(super) fn footer(&self) -> String {
         let rows = self.rows();
         let row = rows
             .iter()
@@ -334,7 +334,7 @@ async fn reverting_an_untracked_file_asks_before_deleting_it() {
     assert_eq!(status(&session.app), "Deleted new.txt");
     // the diff is closed
     assert!(
-        !on_screen(&session.rows(), "hunk "),
+        !on_screen(&session.rows(), "hunk 1/"),
         "{:#?}",
         session.rows()
     );
@@ -399,7 +399,7 @@ async fn n_and_n_visit_the_hunks_of_all_the_files_and_wrap_around() {
 impl Session {
     /// The path of the row under the cursor of the picker of hunks.
     fn selected_file_in_picker(&self) -> String {
-        let row = self.selected_hunk();
+        let row = self.selected_row();
         let change = row.split_whitespace().next_back().unwrap();
         change.split(':').next().unwrap().to_string()
     }

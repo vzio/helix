@@ -13,58 +13,78 @@ fn enter(test: &str) -> Option<PathBuf> {
     Repo::enter_in(module_path!(), test)
 }
 
-fn cwd() -> PathBuf {
+pub(super) fn cwd() -> PathBuf {
     helix_stdx::env::current_working_dir()
 }
 
-fn write(path: &str, contents: &str) {
+pub(super) fn write(path: &str, contents: &str) {
     std::fs::write(cwd().join(path), contents).unwrap();
 }
 
 /// `count` lines `{prefix}1`, `{prefix}2`...
-fn lines(prefix: &str, count: usize) -> String {
+pub(super) fn lines(prefix: &str, count: usize) -> String {
     (1..=count).map(|i| format!("{prefix}{i}\n")).collect()
 }
 
-fn commit_all(message: &str) {
+pub(super) fn commit_all(message: &str) {
     git(&cwd(), "", &["add", "-A"]);
     git(&cwd(), "", &["commit", "-q", "-m", message]);
 }
 
-/// The columns of a row of the picker of hunks, as `marks change`: the marks are 3 characters,
-/// like ` M•`, `S  ` or `SM•`.
-fn hunk_row(row: &str) -> String {
+/// A row of a list of changes, from the text of the screen: a divider as `── title`, a hunk
+/// as `marks edit change` (the marks are 3 characters, like ` M•`, `S  ` or `SM•`, and only in
+/// the uncommitted changes) or `edit change`.
+pub(super) fn list_row(row: &str, with_marks: bool) -> String {
     // (the picker has the preview in a box of its own, on the right)
-    let list = row.split("││").next().unwrap();
-    let mut chars = list.chars().skip(3);
-    let marks: String = chars.by_ref().take(3).collect();
-    let change: String = chars.collect();
-    format!("{marks} {}", change.trim())
+    let list = row.split("││").next().unwrap().trim_end();
+    if list.starts_with("──") {
+        return format!("── {}", list.trim_matches('─').trim());
+    }
+    // the cursor, or its place
+    let body: String = list.chars().skip(3).collect();
+    // a divider the cursor is on (the dividers that are rows of their own)
+    if body.ends_with('─') {
+        return format!("── {}", body.trim_end_matches('─').trim());
+    }
+    if with_marks {
+        let marks: String = body.chars().take(3).collect();
+        let rest: String = body.chars().skip(3).collect();
+        format!(
+            "{marks} {}",
+            rest.split_whitespace().collect::<Vec<_>>().join(" ")
+        )
+    } else {
+        body.split_whitespace().collect::<Vec<_>>().join(" ")
+    }
 }
 
 impl Session {
-    /// The rows of the picker of hunks (`marks change`, see [`hunk_row`]).
-    pub(super) fn hunks(&self) -> Vec<String> {
+    /// Whether the picker on top is a list of changes with the column of marks.
+    fn list_has_marks(&self) -> bool {
         let frame = self.frame();
-        assert!(
-            frame[2].contains("marks") && frame[2].contains("change"),
-            "{frame:#?}"
-        );
-        frame[3..]
+        assert!(frame[2].contains("change"), "{frame:#?}");
+        frame[2].contains("marks")
+    }
+
+    /// The rows of the list of changes on top (see [`list_row`]): dividers and hunks.
+    pub(super) fn list(&self) -> Vec<String> {
+        let marks = self.list_has_marks();
+        self.frame()[3..]
             .iter()
-            .map(|row| hunk_row(row))
-            .filter(|row| !row.trim().is_empty())
+            .filter(|row| !row.split("││").next().unwrap().trim().is_empty())
+            .map(|row| list_row(row, marks))
             .collect()
     }
 
-    /// The row under the cursor of the picker of hunks, as in [`Session::hunks`].
-    pub(super) fn selected_hunk(&self) -> String {
+    /// The row under the cursor of the list of changes, as in [`Session::list`].
+    pub(super) fn selected_row(&self) -> String {
+        let marks = self.list_has_marks();
         let frame = self.frame();
         let row = frame[3..]
             .iter()
             .find(|row| row.starts_with(" > "))
             .unwrap_or_else(|| panic!("no cursor: {frame:#?}"));
-        hunk_row(row)
+        list_row(row, marks)
     }
 
     /// The preview of the row under the cursor: its lines, without the empty ones at the end.
@@ -82,7 +102,7 @@ impl Session {
     }
 
     /// Waits for the first row of the log to say `label`.
-    async fn wait_for_uncommitted(&mut self, label: &str) {
+    pub(super) async fn wait_for_uncommitted(&mut self, label: &str) {
         let label = format!("{UNCOMMITTED} {label}");
         self.wait_for_screen(&label, |rows| on_screen(rows, &label))
             .await;
@@ -96,14 +116,14 @@ impl Session {
     }
 
     /// Waits for the picker of hunks to have exactly `rows`.
-    async fn wait_for_hunks(&mut self, rows: &[&str]) {
+    pub(super) async fn wait_for_list(&mut self, rows: &[&str]) {
         let expected: Vec<String> = rows.iter().map(|row| row.to_string()).collect();
         let deadline = std::time::Instant::now() + Duration::from_secs(20);
-        while self.hunks() != expected {
+        while self.list() != expected {
             assert!(
                 std::time::Instant::now() < deadline,
                 "timed out waiting for the hunks {expected:#?}, got {:#?}",
-                self.hunks()
+                self.list()
             );
             self.run_for(Duration::from_millis(50)).await;
         }
@@ -128,17 +148,19 @@ async fn the_uncommitted_files_are_sorted_with_the_lockfile_last() {
     session.wait_for_uncommitted("(4 files)").await;
     session.open_uncommitted_files().await;
     assert_eq!(
-        session.hunks(),
+        session.list(),
         [
-            " M  m1.txt:1",
-            " M  new.txt:1 (untracked)",
-            "S   renamed.txt (renamed from f1.txt)",
-            " M  Cargo.lock (+60 -50)",
+            "── m1.txt  1 hunk  +1 -1",
+            " M  -+ m1.txt:1",
+            "── new.txt (untracked)  1 hunk  +1",
+            " M  ++ new.txt:1",
+            "── f1.txt → renamed.txt (no lines changed)  staged",
+            "── Cargo.lock  +60 -50",
         ]
     );
     assert_eq!(
         status(&session.app),
-        "Uncommitted changes: 4 changes in 4 files"
+        "Uncommitted changes: 4 changes in 4 files, +62 -51"
     );
 }
 
@@ -153,9 +175,17 @@ async fn the_uncommitted_files_follow_the_working_tree_keeping_the_cursor() {
     let mut session = Session::open_log_on_uncommitted().await;
     session.wait_for_uncommitted("(2 files)").await;
     session.open_uncommitted_files().await;
-    assert_eq!(session.hunks(), [" M  m2.txt:1", " M  m3.txt:1"]);
+    assert_eq!(
+        session.list(),
+        [
+            "── m2.txt  1 hunk  +1 -1",
+            " M  -+ m2.txt:1",
+            "── m3.txt  1 hunk  +1 -1",
+            " M  -+ m3.txt:1",
+        ]
+    );
     session.keys("j").await;
-    assert_eq!(session.selected_hunk(), " M  m3.txt:1");
+    assert_eq!(session.selected_row(), " M  -+ m3.txt:1");
 
     // a file that sorts before the selected one, and a change of another
     write("a_new.txt", "new\n");
@@ -167,23 +197,27 @@ async fn the_uncommitted_files_follow_the_working_tree_keeping_the_cursor() {
         .wait_for_screen("all the files", |rows| on_screen(rows, "m1.txt"))
         .await;
     assert_eq!(
-        session.hunks(),
+        session.list(),
         [
-            " M  a_new.txt:1 (untracked)",
-            " M  m1.txt:1",
-            " M  m2.txt:1",
-            " M  m3.txt:1",
+            "── a_new.txt (untracked)  1 hunk  +1",
+            " M  ++ a_new.txt:1",
+            "── m1.txt  1 hunk  +1 -1",
+            " M  -+ m1.txt:1",
+            "── m2.txt  1 hunk  +1 -1",
+            " M  -+ m2.txt:1",
+            "── m3.txt  1 hunk  +1 -1",
+            " M  -+ m3.txt:1",
         ]
     );
-    assert_eq!(session.selected_hunk(), " M  m3.txt:1");
+    assert_eq!(session.selected_row(), " M  -+ m3.txt:1");
 
     // and a file that goes away: the cursor stays on the one it was on
     git(&cwd(), "", &["checkout", "--", "m2.txt"]);
     session
         .wait_for_screen("the file gone", |rows| !on_screen(rows, "m2.txt"))
         .await;
-    assert_eq!(session.selected_hunk(), " M  m3.txt:1");
-    assert_eq!(session.hunks().len(), 3);
+    assert_eq!(session.selected_row(), " M  -+ m3.txt:1");
+    assert_eq!(session.list().len(), 6);
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -311,7 +345,7 @@ async fn the_diff_of_an_uncommitted_file_follows_the_working_tree() {
     // q closes the diff, and the list below is gone (opening the file closes them): the log
     // is not
     session.keys("q").await;
-    assert!(!on_screen(&session.rows(), "hunk "));
+    assert!(!on_screen(&session.rows(), "hunk 1/"));
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -333,11 +367,13 @@ async fn configured_lockfiles_are_collapsed_instead_of_the_default_ones() {
     session.open_uncommitted_files().await;
     // (deps.lock: the last 2 of 20 lines go, 4 come)
     assert_eq!(
-        session.hunks(),
+        session.list(),
         [
-            " M  Cargo.lock:1-25",
-            " M  zeta.txt:1 (untracked)",
-            " M  deps.lock (+4 -2)",
+            "── Cargo.lock  1 hunk  +25 -20",
+            " M  -+ Cargo.lock:1-25",
+            "── zeta.txt (untracked)  1 hunk  +1",
+            " M  ++ zeta.txt:1",
+            "── deps.lock  +4 -2",
         ]
     );
 }
@@ -361,11 +397,13 @@ async fn the_files_of_a_commit_have_the_lockfile_last_with_its_counts() {
         .wait_for_screen("the files", |rows| on_screen(rows, "z.txt"))
         .await;
     assert_eq!(
-        session.files(),
+        session.list(),
         [
-            "+ added a.txt",
-            "+ added z.txt",
-            "~ modified Cargo.lock (+60 -50)",
+            "── a.txt (new)  1 hunk  +1",
+            "++ a.txt:1",
+            "── z.txt (new)  1 hunk  +1",
+            "++ z.txt:1",
+            "── Cargo.lock  +60 -50",
         ]
     );
     // the commit that added it: a new file, all lines are added
@@ -375,7 +413,7 @@ async fn the_files_of_a_commit_have_the_lockfile_last_with_its_counts() {
     session
         .wait_for_screen("the files", |rows| on_screen(rows, "Cargo.lock"))
         .await;
-    assert_eq!(session.files(), ["+ added Cargo.lock (+50 -0)"]);
+    assert_eq!(session.list(), ["── Cargo.lock (new)  +50"]);
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -426,7 +464,7 @@ fn buffer(session: &Session, path: &str) -> String {
 
 impl Session {
     /// Runs until `condition` is true of the application.
-    async fn wait_for(&mut self, what: &str, condition: impl Fn(&Self) -> bool) {
+    pub(super) async fn wait_for(&mut self, what: &str, condition: impl Fn(&Self) -> bool) {
         let deadline = std::time::Instant::now() + Duration::from_secs(20);
         while !condition(self) {
             assert!(
@@ -484,7 +522,7 @@ fn with_line(n: usize, new: &str, count: usize) -> String {
 }
 
 /// Types `text` at the start of the line `line` (from 1) of the current buffer: unsaved edits.
-fn type_at(line: usize, text: &str) -> String {
+pub(super) fn type_at(line: usize, text: &str) -> String {
     format!("{line}ggi{text}<esc>")
 }
 
@@ -535,29 +573,36 @@ async fn the_hunks_have_the_marks_of_where_their_changes_are() {
     session.wait_for_uncommitted("(6 files, 4 unsaved)").await;
     session.open_uncommitted_files().await;
     assert_eq!(
-        session.hunks(),
+        session.list(),
         [
-            "S   a.txt:3",
-            " M  a.txt:15",
-            "SM  b.txt:5",
-            "  • clean.txt:2",
-            " M• d.txt:4",
-            "  • d.txt:12",
-            "SM• e.txt:8",
-            "  • ghost.txt:1 (untracked)",
-            " M  new.txt:1-3 (untracked)",
-            " M  Cargo.lock (+60 -50)",
+            "── a.txt  2 hunks  +2 -2  1 staged",
+            "S   -+ a.txt:3",
+            " M  -+ a.txt:15",
+            "── b.txt  1 hunk  +1 -1  1 staged",
+            "SM  -+ b.txt:5",
+            "── clean.txt  1 hunk  +1 -1  1 unsaved",
+            "  • -+ clean.txt:2",
+            "── d.txt  2 hunks  +2 -2  2 unsaved",
+            " M• -+ d.txt:4",
+            "  • -+ d.txt:12",
+            "── e.txt  1 hunk  +1 -1  1 staged  1 unsaved",
+            "SM• -+ e.txt:8",
+            "── ghost.txt (untracked)  1 hunk  +1  1 unsaved",
+            "  • ++ ghost.txt:1",
+            "── new.txt (untracked)  1 hunk  +3",
+            " M  ++ new.txt:1-3",
+            "── Cargo.lock  +60 -50",
         ]
     );
     assert_eq!(
         status(&session.app),
-        "Uncommitted changes: 10 changes in 8 files, 5 unsaved"
+        "Uncommitted changes: 10 changes in 8 files, +71 -57, 5 unsaved"
     );
     // the preview says where the change is, and has the hunk
     session.keys("jj").await;
-    assert_eq!(session.selected_hunk(), "SM  b.txt:5");
+    assert_eq!(session.selected_row(), "SM  -+ b.txt:5");
     let preview = session.preview();
-    assert_eq!(preview[0].trim(), "b.txt:5 · staged, unstaged");
+    assert_eq!(preview[0].trim(), "b.txt:5 · +1 -1 · staged, unstaged");
     assert!(
         preview.iter().any(|line| line.trim() == "- line 5"),
         "{preview:#?}"
@@ -581,10 +626,13 @@ async fn the_label_of_the_log_counts_the_unsaved_buffers() {
     let mut session = Session::open_log_with(session).await;
     session.wait_for_uncommitted("(1 unsaved)").await;
     session.open_uncommitted_files().await;
-    assert_eq!(session.hunks(), ["  • m2.txt:1"]);
+    assert_eq!(
+        session.list(),
+        ["── m2.txt  1 hunk  +1 -1  1 unsaved", "  • -+ m2.txt:1"]
+    );
     assert_eq!(
         status(&session.app),
-        "Uncommitted changes: 1 change in 1 file, 1 unsaved"
+        "Uncommitted changes: 1 change in 1 file, +1 -1, 1 unsaved"
     );
     session.keys("<esc>").await;
 
@@ -638,24 +686,33 @@ async fn the_hunks_follow_the_files_and_the_index_keeping_the_cursor() {
     session.wait_for_uncommitted("(2 files)").await;
     session.open_uncommitted_files().await;
     assert_eq!(
-        session.hunks(),
-        [" M  a.txt:3", " M  b.txt:2", " M  b.txt:15"]
+        session.list(),
+        [
+            "── a.txt  1 hunk  +1 -1",
+            " M  -+ a.txt:3",
+            "── b.txt  2 hunks  +2 -2",
+            " M  -+ b.txt:2",
+            " M  -+ b.txt:15",
+        ]
     );
     session.keys("jj").await;
-    assert_eq!(session.selected_hunk(), " M  b.txt:15");
+    assert_eq!(session.selected_row(), " M  -+ b.txt:15");
 
     // another program: a new file that sorts first, and b.txt staged
     write("0_new.txt", "new\n");
     git(&cwd(), "", &["add", "b.txt"]);
     session
-        .wait_for_hunks(&[
-            " M  0_new.txt:1 (untracked)",
-            " M  a.txt:3",
-            "S   b.txt:2",
-            "S   b.txt:15",
+        .wait_for_list(&[
+            "── 0_new.txt (untracked)  1 hunk  +1",
+            " M  ++ 0_new.txt:1",
+            "── a.txt  1 hunk  +1 -1",
+            " M  -+ a.txt:3",
+            "── b.txt  2 hunks  +2 -2  2 staged",
+            "S   -+ b.txt:2",
+            "S   -+ b.txt:15",
         ])
         .await;
-    assert_eq!(session.selected_hunk(), "S   b.txt:15");
+    assert_eq!(session.selected_row(), "S   -+ b.txt:15");
 
     // the first hunk of b.txt changed again, and a hunk before the cursor in a.txt
     write("b.txt", &two_hunks.replacen("two\n", "TWO\n", 1));
@@ -664,22 +721,31 @@ async fn the_hunks_follow_the_files_and_the_index_keeping_the_cursor() {
         &with_line(3, "three", 20).replacen("line 12\n", "twelve\n", 1),
     );
     session
-        .wait_for_hunks(&[
-            " M  0_new.txt:1 (untracked)",
-            " M  a.txt:3",
-            " M  a.txt:12",
-            "SM  b.txt:2",
-            "S   b.txt:15",
+        .wait_for_list(&[
+            "── 0_new.txt (untracked)  1 hunk  +1",
+            " M  ++ 0_new.txt:1",
+            "── a.txt  2 hunks  +2 -2",
+            " M  -+ a.txt:3",
+            " M  -+ a.txt:12",
+            "── b.txt  2 hunks  +2 -2  2 staged",
+            "SM  -+ b.txt:2",
+            "S   -+ b.txt:15",
         ])
         .await;
-    assert_eq!(session.selected_hunk(), "S   b.txt:15");
+    assert_eq!(session.selected_row(), "S   -+ b.txt:15");
 
     // a file that goes away: the cursor stays where it was
     git(&cwd(), "", &["checkout", "--", "a.txt"]);
     session
-        .wait_for_hunks(&[" M  0_new.txt:1 (untracked)", "SM  b.txt:2", "S   b.txt:15"])
+        .wait_for_list(&[
+            "── 0_new.txt (untracked)  1 hunk  +1",
+            " M  ++ 0_new.txt:1",
+            "── b.txt  2 hunks  +2 -2  2 staged",
+            "SM  -+ b.txt:2",
+            "S   -+ b.txt:15",
+        ])
         .await;
-    assert_eq!(session.selected_hunk(), "S   b.txt:15");
+    assert_eq!(session.selected_row(), "S   -+ b.txt:15");
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -698,27 +764,40 @@ async fn the_hunks_follow_the_edits_of_the_buffers_keeping_the_cursor() {
     let mut session = Session::open_log_with(session).await;
     session.wait_for_uncommitted("(1 file)").await;
     session.open_uncommitted_files().await;
-    assert_eq!(session.hunks(), [" M  b.txt:10"]);
+    assert_eq!(
+        session.list(),
+        ["── b.txt  1 hunk  +1 -1", " M  -+ b.txt:10"]
+    );
 
     // edits of the buffer (not typed: the list is open and has the keys), in the hunk and
     // apart from it
     session.edit_buffer("b.txt", 9, "ZZ");
     session.edit_buffer("b.txt", 1, "YY");
     session
-        .wait_for_hunks(&["  • b.txt:2", " M• b.txt:10"])
+        .wait_for_list(&[
+            "── b.txt  2 hunks  +2 -2  2 unsaved",
+            "  • -+ b.txt:2",
+            " M• -+ b.txt:10",
+        ])
         .await;
-    assert_eq!(session.selected_hunk(), " M• b.txt:10");
+    assert_eq!(session.selected_row(), " M• -+ b.txt:10");
     assert_eq!(
         status(&session.app),
-        "Uncommitted changes: 1 change in 1 file"
+        "Uncommitted changes: 1 change in 1 file, +1 -1"
     );
 
     // the buffer of another file: its rows come before the cursor
     session.edit_buffer("a.txt", 3, "XX");
     session
-        .wait_for_hunks(&["  • a.txt:4", "  • b.txt:2", " M• b.txt:10"])
+        .wait_for_list(&[
+            "── a.txt  1 hunk  +1 -1  1 unsaved",
+            "  • -+ a.txt:4",
+            "── b.txt  2 hunks  +2 -2  2 unsaved",
+            "  • -+ b.txt:2",
+            " M• -+ b.txt:10",
+        ])
         .await;
-    assert_eq!(session.selected_hunk(), " M• b.txt:10");
+    assert_eq!(session.selected_row(), " M• -+ b.txt:10");
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -739,8 +818,13 @@ async fn enter_opens_the_diff_at_the_hunk_of_the_row() {
     session.wait_for_uncommitted("(1 file)").await;
     session.open_uncommitted_files().await;
     assert_eq!(
-        session.hunks(),
-        [" M  a.txt:3", " M  a.txt:15", " M  a.txt:27"]
+        session.list(),
+        [
+            "── a.txt  3 hunks  +3 -3",
+            " M  -+ a.txt:3",
+            " M  -+ a.txt:15",
+            " M  -+ a.txt:27",
+        ]
     );
     session.keys("j").await;
     session.keys("<ret>").await;
@@ -780,7 +864,10 @@ async fn enter_on_an_unsaved_hunk_opens_the_buffer_at_it() {
     let mut session = Session::open_log_with(session).await;
     session.wait_for_uncommitted("(1 unsaved)").await;
     session.open_uncommitted_files().await;
-    assert_eq!(session.hunks(), ["  • a.txt:27"]);
+    assert_eq!(
+        session.list(),
+        ["── a.txt  1 hunk  +1 -1  1 unsaved", "  • -+ a.txt:27"]
+    );
 
     session.keys("<ret>").await;
     // the list and the log are gone, and the buffer is where the hunk is
