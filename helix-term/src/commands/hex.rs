@@ -408,17 +408,16 @@ fn type_char(target: &mut Target, c: char) -> Result<(), &'static str> {
         }
         (Column::Ascii, _) => {
             let mut buf = [0; 4];
-            let mut offset = cursor.offset;
-            for (i, &byte) in c.encode_utf8(&mut buf).as_bytes().iter().enumerate() {
-                if i > 0 {
-                    if offset >= last {
-                        break;
-                    }
-                    offset += 1;
-                }
-                target.hex.overwrite(offset, byte);
+            let encoded = c.encode_utf8(&mut buf).as_bytes();
+            // all of the character or nothing: half of it would be a broken UTF-8 sequence
+            if cursor.offset + encoded.len() as u64 - 1 > last {
+                return Err("no room for this character before the end of the file");
             }
-            target.hex.cursor_mut(target.view).offset = (offset + 1).min(last);
+            for (i, &byte) in encoded.iter().enumerate() {
+                target.hex.overwrite(cursor.offset + i as u64, byte);
+            }
+            target.hex.cursor_mut(target.view).offset =
+                (cursor.offset + encoded.len() as u64).min(last);
         }
     }
     target.scroll_to_cursor();

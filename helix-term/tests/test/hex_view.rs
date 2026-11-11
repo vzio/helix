@@ -977,16 +977,24 @@ async fn the_size_never_changes() {
             .copied()
             .collect::<Vec<_>>()
     );
-    // a character of two bytes on the last byte: what fits is written, the file stays as long
-    session.keys("i\u{e9}<esc>").await;
+    // a character of two bytes on the last byte doesn't fit: refused, nothing written
+    session.keys("i\u{e9}").await;
+    assert!(
+        status(&session.app).contains("no room"),
+        "{}",
+        status(&session.app)
+    );
+    assert_eq!(bytes(&session.app)[62..], [0xde, b'Z']);
+    // one byte before, it fits
+    session.keys("<left>\u{e9}<esc>").await;
     assert_eq!(bytes(&session.app).len(), 64);
-    assert_eq!(bytes(&session.app)[62..], [0xde, 0xc3]);
+    assert_eq!(bytes(&session.app)[62..], [0xc3, 0xa9]);
 
     session.write(":w").await;
     let on_disk = std::fs::read(&path).unwrap();
     assert_eq!(on_disk.len(), 64);
     assert_eq!(on_disk[..62], png()[..62]);
-    assert_eq!(on_disk[62..], [0xde, 0xc3]);
+    assert_eq!(on_disk[62..], [0xc3, 0xa9]);
 
     // and in bin
     session.keys("~iiiiiiiii<esc>").await;
