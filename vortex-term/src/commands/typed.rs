@@ -1631,6 +1631,13 @@ fn reload(cx: &mut compositor::Context, _args: Args, event: PromptEvent) -> anyh
     Ok(())
 }
 
+fn hex_view(cx: &mut compositor::Context, _args: Args, event: PromptEvent) -> anyhow::Result<()> {
+    if event != PromptEvent::Validate {
+        return Ok(());
+    }
+    super::hex::toggle(cx)
+}
+
 fn reload_all(cx: &mut compositor::Context, _args: Args, event: PromptEvent) -> anyhow::Result<()> {
     if event != PromptEvent::Validate {
         return Ok(());
@@ -2255,6 +2262,13 @@ pub(super) fn goto_line_number(
     args: Args,
     event: PromptEvent,
 ) -> anyhow::Result<()> {
+    // in the hex view (this fork), an offset: `:goto 0x1a4`, `:goto 420`
+    if doc!(cx.editor).is_hex() {
+        if event == PromptEvent::Validate {
+            super::hex::goto(cx.editor, &args[0])?;
+        }
+        return Ok(());
+    }
     match event {
         PromptEvent::Abort => abort_goto_line_number_preview(cx),
         PromptEvent::Validate => {
@@ -3725,6 +3739,17 @@ pub const TYPABLE_COMMAND_LIST: &[TypableCommand] = &[
         },
     },
     TypableCommand {
+        name: "hex",
+        aliases: &[],
+        doc: "Show the current file in the hex view, or back as text.",
+        fun: hex_view,
+        completer: CommandCompleter::none(),
+        signature: Signature {
+            positionals: (0, Some(0)),
+            ..Signature::DEFAULT
+        },
+    },
+    TypableCommand {
         name: "reload-all",
         aliases: &["rla"],
         doc: "Discard changes and reload all documents from the source files.",
@@ -3905,7 +3930,7 @@ pub const TYPABLE_COMMAND_LIST: &[TypableCommand] = &[
     TypableCommand {
         name: "goto",
         aliases: &["g"],
-        doc: "Goto line number.",
+        doc: "Goto line number (an offset in the hex view: 0x1a4 in hex, 420 in decimal).",
         fun: goto_line_number,
         completer: CommandCompleter::none(),
         signature: Signature {
@@ -4324,8 +4349,10 @@ fn execute_command_line(
         return Ok(());
     }
 
-    // If command is numeric, interpret as line number and go there.
-    if command.parse::<usize>().is_ok() && rest.trim().is_empty() {
+    // If command is numeric, interpret as line number and go there (an offset in the hex view,
+    // where `:0x1a4` goes to one in hex).
+    let hex_offset = command.starts_with("0x") && doc!(cx.editor).is_hex();
+    if (command.parse::<usize>().is_ok() || hex_offset) && rest.trim().is_empty() {
         let cmd = TYPABLE_COMMAND_MAP.get("goto").unwrap();
         return execute_command(cx, cmd, command, event);
     }
@@ -4738,7 +4765,7 @@ fn current_workspace(cx: &compositor::Context) -> std::path::PathBuf {
 
 /// Whether the currently focused document's workspace is trusted for git operations (gix
 /// `Trust::Full`).
-fn doc_trust_full(editor: &vortex_view::Editor) -> bool {
+pub(crate) fn doc_trust_full(editor: &vortex_view::Editor) -> bool {
     let (_, doc) = current_ref!(editor);
     editor
         .workspace_trust

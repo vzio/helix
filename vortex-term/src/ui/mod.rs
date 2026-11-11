@@ -3,6 +3,7 @@ pub mod diff_view;
 mod document;
 pub(crate) mod editor;
 pub mod explorer;
+pub mod hex_view;
 mod info;
 pub mod lsp;
 mod markdown;

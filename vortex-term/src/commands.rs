@@ -3,6 +3,7 @@ pub(crate) mod changes;
 pub(crate) mod dap;
 pub(crate) mod diff_view;
 pub(crate) mod git_log;
+pub(crate) mod hex;
 pub(crate) mod hunks;
 pub(crate) mod lsp;
 pub(crate) mod move_lines;

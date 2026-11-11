@@ -3388,6 +3388,7 @@ dependencies = [
  "kstring",
  "libc",
  "log",
+ "memchr",
  "notify",
  "parking_lot",
  "quickcheck",

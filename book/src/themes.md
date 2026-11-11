@@ -352,6 +352,14 @@ These scopes are used for theming the editor interface:
 | `ui.practice.status`              | The count of keys (`ui.text.info`)                                                             |
 | `ui.practice.solved`              | The result of a solved exercise (`diff.plus`, `info`)                                          |
 | `ui.practice.dim`                 | Secondary text and the bar before the goal (`ui.text.inactive`, `comment`)                     |
+| `ui.hex.null`                     | The null bytes in the hex view (`ui.text.inactive`, `comment`)                                 |
+| `ui.hex.printable`                | Printable ASCII bytes in the hex view (`function`)                                             |
+| `ui.hex.whitespace`               | ASCII whitespace bytes in the hex view (`string`)                                              |
+| `ui.hex.control`                  | The other ASCII control bytes in the hex view (`constant`)                                     |
+| `ui.hex.other`                    | Bytes past ASCII, 0x80 to 0xff, in the hex view (`ui.text`)                                    |
+| `ui.hex.prefix`                   | The `0x` of the offsets in the hex view (`ui.text.inactive`, `comment`)                        |
+| `ui.hex.offset`                   | The digits of the offsets in the hex view (`ui.linenr`)                                        |
+| `ui.hex.match`                    | Search matches in the hex view (`ui.highlight`, `ui.selection`)                                |
 | `ui.window`                       | Borderlines separating splits                                                                  |
 | `ui.terminal`                     | The terminal panel (default: `ui.background`)                                                  |
 | `ui.help`                         | Description box for commands                                                                   |

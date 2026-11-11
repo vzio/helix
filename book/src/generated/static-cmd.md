@@ -307,6 +307,7 @@
 | `move_lines_down` | Move selected lines down | normal: `` Mj ``, `` M<down> ``, select: `` Mj ``, `` M<down> `` |
 | `blame_line` | Show the git blame of the current line |  |
 | `toggle_inline_blame` | Toggle inline git blame | normal: `` <space>B ``, select: `` <space>B `` |
+| `yank_diagnostic` | Yank the diagnostic under the cursor, or else the line's commit hash, to the clipboard | normal: `` <space>i ``, select: `` <space>i `` |
 | `commit_picker` | Open the git commit log picker | normal: `` <space>l ``, select: `` <space>l `` |
 | `toggle_explorer` | Open the file tree at the workspace root, revealing the current file | normal: `` <space>E ``, select: `` <space>E `` |
 | `toggle_explorer_root` | Open the file tree at the workspace root | normal: `` <space>e ``, select: `` <space>e `` |
