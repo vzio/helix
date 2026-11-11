@@ -2167,6 +2167,11 @@ impl Editor {
             }
             Action::HorizontalSplit | Action::VerticalSplit => {
                 let focus_lost = self.tree.try_get(self.tree.focus).map(|view| view.doc);
+                let split_from = self
+                    .tree
+                    .try_get(self.tree.focus)
+                    .filter(|v| id == v.doc)
+                    .map(|v| v.id);
                 // copy the current view, unless there is no view yet
                 let view = self
                     .tree
@@ -2185,6 +2190,12 @@ impl Editor {
                 // initialize selection for view
                 let doc = doc_mut!(self, &id);
                 doc.ensure_view_init(view_id);
+                // the hex view (this fork): the new view starts where the other one is
+                if let (Some(from), Some(hex)) = (split_from, doc.hex_mut()) {
+                    let mut cursor = hex.cursor(from);
+                    cursor.overwrite = false;
+                    *hex.cursor_mut(view_id) = cursor;
+                }
                 doc.mark_as_focused();
                 focus_lost
             }

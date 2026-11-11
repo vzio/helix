@@ -100,6 +100,9 @@ type DrawPreview<T, D> = Box<dyn Fn(&T, &D, &Editor, Rect, &mut Surface)>;
 /// File path and range of lines (used to align and highlight lines)
 pub type FileLocation<'a> = (PathOrId<'a>, Option<(usize, usize)>);
 
+/// How much of a binary file its preview shows: more rows than a preview has.
+const BINARY_PREVIEW_BYTES: u64 = 16 * 1024;
+
 pub enum CachedPreview {
     Document(Box<Document>),
     Directory(Vec<(String, bool)>),
@@ -1183,9 +1186,14 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
                                 self.read_buffer.clear();
                                 Ok(is_binary)
                             })?;
-                            // the hex view reads only the start, whatever the size
+                            // its start in the hex view, whatever the size (read now, so that
+                            // the cache keeps no file open)
                             if is_binary {
-                                let hex = helix_view::hex::HexBuffer::open(&path)?;
+                                let mut start = Vec::new();
+                                std::fs::File::open(&path)?
+                                    .take(BINARY_PREVIEW_BYTES)
+                                    .read_to_end(&mut start)?;
+                                let hex = helix_view::hex::HexBuffer::from_bytes(start);
                                 return Ok(CachedPreview::Binary(Box::new(hex)));
                             }
                             if metadata.len() > MAX_FILE_SIZE_FOR_PREVIEW {
