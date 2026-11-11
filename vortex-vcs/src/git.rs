@@ -212,6 +212,69 @@ pub fn file_at_commit(
     to_worktree(&repo, file, oid).map(Some)
 }
 
+/// The contents of the files of the range of commits from `oldest` to `newest`, for its list of
+/// changes: for each `(old path, new path)` of `files`, in order, calls `f` with its index, the
+/// contents of the old path in the first parent of `oldest` and of the new path in `newest`
+/// (`None` where the commit doesn't have the file, or it can't be read), until `f` returns
+/// `false`. The repository, the trees and the filters are read once for all of them, where
+/// [`file_at_commit`] reads them for each file.
+pub fn for_each_range_file(
+    cwd: &Path,
+    trust_full: bool,
+    oldest: &str,
+    newest: &str,
+    files: &[(PathBuf, PathBuf)],
+    mut f: impl FnMut(usize, Option<Vec<u8>>, Option<Vec<u8>>) -> bool,
+) -> Result<()> {
+    let repo = open_repo(cwd, trust_full)?.to_thread_local();
+    let work_dir = repo
+        .workdir()
+        .context("repo has no worktree")?
+        .to_path_buf();
+    let oldest = repo.find_commit(ObjectId::from_hex(oldest.as_bytes())?)?;
+    let parent_tree = match oldest.parent_ids().next() {
+        Some(parent) => Some(
+            parent
+                .object()
+                .with_context(|| missing_parent(&oldest))?
+                .into_commit()
+                .tree()?,
+        ),
+        None => None,
+    };
+    let tree = repo
+        .find_commit(ObjectId::from_hex(newest.as_bytes())?)?
+        .tree()?;
+    let (mut pipeline, _) = repo.filter_pipeline(None)?;
+    let mut read = |tree: Option<&gix::Tree<'_>>, file: &Path| -> Option<Vec<u8>> {
+        let rela_path = file.strip_prefix(&work_dir).ok()?;
+        let entry = tree?.lookup_entry_by_path(rela_path).ok()??;
+        if !matches!(
+            entry.mode().kind(),
+            EntryKind::Blob | EntryKind::BlobExecutable
+        ) {
+            return None;
+        }
+        let data = repo.find_object(entry.object_id()).ok()?.detach().data;
+        // the same conversions (and filters, when trusted) as `to_worktree`
+        let rela_path = gix::path::try_into_bstr(rela_path).ok()?;
+        let mut outcome = pipeline
+            .convert_to_worktree(&data, rela_path.as_ref(), Delay::Forbid)
+            .ok()?;
+        let mut buf = Vec::with_capacity(data.len());
+        outcome.read_to_end(&mut buf).ok()?;
+        Some(buf)
+    };
+    for (index, (old_path, new_path)) in files.iter().enumerate() {
+        let old = read(parent_tree.as_ref(), old_path);
+        let new = read(Some(&tree), new_path);
+        if !f(index, old, new) {
+            break;
+        }
+    }
+    Ok(())
+}
+
 fn missing_parent(commit: &Commit) -> String {
     format!(
         "the parent of {} is not in the repository (shallow clone?)",

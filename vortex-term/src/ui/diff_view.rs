@@ -457,6 +457,8 @@ pub type ListFiles = Rc<dyn Fn() -> Vec<(FileChange, bool)>>;
 pub type OpenFile = Rc<dyn Fn(&mut Editor, &FileChange) -> anyhow::Result<DiffView>>;
 /// Puts the cursor of the list on a file, see [`FileNav::select`].
 pub type SelectFile = Rc<dyn Fn(&mut Compositor, &FileChange)>;
+/// Tells the list the diff was closed, see [`FileNav::closed`].
+pub type Closed = Rc<dyn Fn(&mut Compositor, &mut Context)>;
 
 /// The other files of the entry a diff was opened from (the uncommitted changes, a commit or a
 /// range), for `n`/`N` to go on to the next or previous file's hunks.
@@ -470,6 +472,9 @@ pub struct FileNav {
     pub open: OpenFile,
     /// Puts the cursor of the list on a file, when `n`/`N` go to it.
     pub select: SelectFile,
+    /// Called once the diff is closed (`q`, `Esc`...) and the list is shown again; not when it
+    /// closes itself after deleting its file, whose message stays.
+    pub closed: Option<Closed>,
 }
 
 /// A question the next key answers.
@@ -938,7 +943,10 @@ impl DiffView {
             // nothing left to show
             Ok(message) => {
                 editor.set_status(message);
-                Self::close()
+                // not `close`: the list's own message would hide this one
+                EventResult::Consumed(Some(Box::new(|compositor: &mut Compositor, _| {
+                    compositor.remove(ID);
+                })))
             }
             Err(err) => {
                 editor.set_error(err.to_string());
@@ -990,16 +998,21 @@ impl DiffView {
             .or_else(|| self.rows.iter().rev().find_map(|row| row.right))
     }
 
-    fn close() -> EventResult {
-        EventResult::Consumed(Some(Box::new(|compositor: &mut Compositor, _| {
+    /// Closes the view, back to the list it was opened from (see [`FileNav::closed`]).
+    fn close(&self) -> EventResult {
+        let closed = self.nav.as_ref().and_then(|nav| nav.closed.clone());
+        EventResult::Consumed(Some(Box::new(move |compositor: &mut Compositor, cx| {
             compositor.remove(ID);
+            if let Some(closed) = closed {
+                closed(compositor, cx);
+            }
         })))
     }
 
     /// Closes the view and opens the file at the line shown at the top.
     fn open_file(&mut self) -> EventResult {
         let Some(path) = self.path.clone() else {
-            return Self::close();
+            return self.close();
         };
         let line = self.current_right_line().unwrap_or(0);
         let on_open = self.on_open.take();
@@ -1042,8 +1055,8 @@ impl DiffView {
 
         let ctrl = key.modifiers.contains(KeyModifiers::CONTROL);
         match key.code {
-            KeyCode::Char('q') | KeyCode::Esc => return Self::close(),
-            KeyCode::Char('c') if ctrl => return Self::close(),
+            KeyCode::Char('q') | KeyCode::Esc => return self.close(),
+            KeyCode::Char('c') if ctrl => return self.close(),
             KeyCode::Enter => return self.open_file(),
             KeyCode::Char('d') if ctrl => self.scroll_by(half_page),
             KeyCode::Char('u') if ctrl => self.scroll_by(-half_page),

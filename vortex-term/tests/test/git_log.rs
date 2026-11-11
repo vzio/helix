@@ -574,7 +574,7 @@ async fn a_query_hides_the_dividers() {
 }
 
 /// The range label of the status line, oldest..newest.
-fn range(oldest: &str, newest: &str, commits: usize) -> String {
+pub(super) fn range(oldest: &str, newest: &str, commits: usize) -> String {
     format!("{}..{} ({commits} commits)", id(oldest), id(newest))
 }
 

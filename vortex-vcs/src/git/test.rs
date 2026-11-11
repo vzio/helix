@@ -362,6 +362,41 @@ fn commit_log_lists_changes_and_contents() {
     assert_eq!(at(&format!("{root}^"), &a), None);
     assert_eq!(at(&third, &repo.join("new.txt")), None);
 
+    // all the files of a range at once: the same contents as one by one
+    let (b, c, new) = (repo.join("b.txt"), repo.join("c.txt"), repo.join("new.txt"));
+    let files = [(a.clone(), a.clone()), (b, c), (new.clone(), new)];
+    let mut read = Vec::new();
+    git::for_each_range_file(repo, true, &second, &third, &files, |i, old, new| {
+        read.push((i, old, new));
+        true
+    })
+    .unwrap();
+    assert_eq!(
+        read,
+        [
+            (0, Some(b"a\n".to_vec()), Some(b"changed\n".to_vec())),
+            (
+                1,
+                Some(b"b\nb\nb\nb\n".to_vec()),
+                Some(b"b\nb\nb\nb\n".to_vec())
+            ),
+            (2, None, None),
+        ]
+    );
+    for (old, new) in &files {
+        let (old, new) = (at(&format!("{second}^"), old), at(&third, new));
+        assert!(read.iter().any(|(_, o, n)| (o, n) == (&old, &new)));
+    }
+    // from the root commit, the old side is empty; stopping early reads no more
+    let mut count = 0;
+    git::for_each_range_file(repo, true, &root, &root, &files, |_, old, _| {
+        assert_eq!(old, None);
+        count += 1;
+        false
+    })
+    .unwrap();
+    assert_eq!(count, 1);
+
     let summaries = std::sync::Mutex::new(Vec::new());
     git::for_each_log_entry(repo, true, |entry| {
         if let crate::LogEntry::Commit(commit) = entry.unwrap() {

@@ -357,22 +357,15 @@ pub(crate) fn commit_file_rows(
     file_group(change, None, body, hunks)
 }
 
-/// The rows of the changes of commits: `contents` gives the two versions of a file (`None`
-/// where it doesn't exist).
-pub(crate) fn commit_rows(
-    changes: Vec<FileChange>,
+/// The rows of a file changed by commits, from its two versions (`None` where it doesn't
+/// exist): a lockfile as `config` says.
+pub(crate) fn commit_group(
+    change: &FileChange,
+    before: Option<&[u8]>,
+    after: Option<&[u8]>,
     config: &ChangesConfig,
-    contents: impl Fn(&FileChange) -> (Option<Vec<u8>>, Option<Vec<u8>>),
 ) -> Vec<ChangeRow> {
-    let groups = changes
-        .into_iter()
-        .map(|change| {
-            let (before, after) = contents(&change);
-            let lockfile = config.is_lockfile(change.path());
-            commit_file_rows(&change, before.as_deref(), after.as_deref(), lockfile)
-        })
-        .collect();
-    sort_groups(groups)
+    commit_file_rows(change, before, after, config.is_lockfile(change.path()))
 }
 
 /// The rows of the files, sorted by path with the lockfiles last. Each group starts with the
@@ -881,6 +874,22 @@ pub(crate) mod tests {
             listed(&rows),
             ["── a.rs → b.rs  1 hunk  +1 -1", "-+ b.rs:1"]
         );
+    }
+
+    /// The rows of the changes of commits: `contents` gives the two versions of a file.
+    fn commit_rows(
+        changes: Vec<FileChange>,
+        config: &ChangesConfig,
+        contents: impl Fn(&FileChange) -> (Option<Vec<u8>>, Option<Vec<u8>>),
+    ) -> Vec<ChangeRow> {
+        let groups = changes
+            .iter()
+            .map(|change| {
+                let (before, after) = contents(change);
+                commit_group(change, before.as_deref(), after.as_deref(), config)
+            })
+            .collect();
+        sort_groups(groups)
     }
 
     #[test]
