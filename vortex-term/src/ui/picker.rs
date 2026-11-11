@@ -320,6 +320,12 @@ pub struct Picker<T: 'static + Send + Sync, D: 'static> {
     goto: bool,
     /// Items listed before the others for some queries, see [`Picker::with_preferred`].
     preferred: Option<Preferred<T>>,
+    /// The rows when they aren't the matcher's: with preferred items, or with a query in a
+    /// picker with groups (see [`Picker::with_groups`]).
+    order: Option<Vec<ListedRow>>,
+    /// `w`/`b` in normal mode move between the groups of dividers, see
+    /// [`Picker::with_section_keys`].
+    section_keys: bool,
 }
 
 /// Items listed first for some queries (this fork): the commits whose hash starts with a
@@ -329,12 +335,9 @@ struct Preferred<T> {
     applies: fn(&str) -> bool,
     /// Whether an item is preferred for the primary query.
     prefer: fn(&T, &str) -> bool,
-    /// The rows while some items are preferred: the preferred items, then the others that
-    /// match the query in the matcher's order.
-    order: Option<Vec<ListedRow>>,
 }
 
-/// A row while some items are preferred.
+/// A row when the rows aren't the matcher's.
 #[derive(Clone, Copy)]
 enum ListedRow {
     /// The item at this index among all the items.
@@ -347,13 +350,11 @@ enum ListedRow {
 /// borrowed mutably meanwhile).
 fn rows_of<'a, T: Send + Sync + 'static>(
     matcher: &'a Nucleo<T>,
-    preferred: &'a Option<Preferred<T>>,
+    order: &'a Option<Vec<ListedRow>>,
 ) -> Rows<'a, T> {
     Rows {
         snapshot: matcher.snapshot(),
-        order: preferred
-            .as_ref()
-            .and_then(|preferred| preferred.order.as_deref()),
+        order: order.as_deref(),
     }
 }
 
@@ -507,6 +508,8 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
             mode: None,
             goto: false,
             preferred: None,
+            order: None,
+            section_keys: false,
         }
     }
 
@@ -587,26 +590,34 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
         applies: fn(&str) -> bool,
         prefer: fn(&T, &str) -> bool,
     ) -> Self {
-        self.preferred = Some(Preferred {
-            applies,
-            prefer,
-            order: None,
-        });
+        self.preferred = Some(Preferred { applies, prefer });
         self
     }
 
     /// The rows, as they are listed.
     fn rows(&self) -> Rows<'_, T> {
-        rows_of(&self.matcher, &self.preferred)
+        rows_of(&self.matcher, &self.order)
+    }
+
+    /// Lists the rows again, for the query and the items there are now: with the preferred
+    /// items first, or by group, or as the matcher has them.
+    fn update_order(&mut self) {
+        self.order = None;
+        self.update_preferred();
+        if self.order.is_none() {
+            self.update_groups();
+        }
+        if self.order.is_some() {
+            self.cursor = self.cursor.min(self.rows().count().saturating_sub(1));
+        }
     }
 
     /// Finds the preferred items again, for the query and the items there are now.
     fn update_preferred(&mut self) {
         let query = self.primary_query();
-        let Some(preferred) = &mut self.preferred else {
+        let Some(preferred) = &self.preferred else {
             return;
         };
-        preferred.order = None;
         if !(preferred.applies)(&query) {
             return;
         }
@@ -635,8 +646,52 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
                 .filter(|(_, item)| !first_items.contains(&(item.data as *const T)))
                 .map(|(position, _)| ListedRow::Matched(position as u32)),
         );
-        preferred.order = Some(order);
-        self.cursor = self.cursor.min(self.rows().count().saturating_sub(1));
+        self.order = Some(order);
+    }
+
+    /// With a query, lists the rows of a picker with groups in the order they were added, each
+    /// divider before the entries of its group that match, and only if some do.
+    fn update_groups(&mut self) {
+        let Some(dividers) = &self.dividers else {
+            return;
+        };
+        let Some(is_entry) = &dividers.groups else {
+            return;
+        };
+        let snapshot = self.matcher.snapshot();
+        if snapshot.pattern().is_empty() {
+            return;
+        }
+        let matched: HashSet<*const T> = snapshot
+            .matched_items(..)
+            .map(|item| item.data as *const T)
+            .collect();
+        let mut order = Vec::new();
+        // the divider of the group being read, until an entry of it matches
+        let mut divider = None;
+        for index in 0..snapshot.item_count() {
+            let Some(item) = snapshot.get_item(index) else {
+                continue;
+            };
+            let is_match = matched.contains(&(item.data as *const T));
+            if dividers.title(item.data, &self.editor_data).is_some() {
+                if is_entry(item.data) {
+                    // a group of its own
+                    divider = None;
+                    if is_match {
+                        order.push(ListedRow::Item(index));
+                    }
+                } else {
+                    divider = Some(index);
+                }
+            } else if is_match {
+                if let Some(divider) = divider.take() {
+                    order.push(ListedRow::Item(divider));
+                }
+                order.push(ListedRow::Item(index));
+            }
+        }
+        self.order = Some(order);
     }
 
     /// The owner of the picker filters and orders the items itself: editing the prompt doesn't
@@ -685,6 +740,8 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
         }
         self.cursor = selected.min(count.saturating_sub(1));
         self.matcher.tick(10);
+        // the rows of the new items, for the owner looking for one of them right away
+        self.update_order();
     }
 
     /// Pressing `key` runs `handler` on the selected item and closes the picker.
@@ -719,9 +776,31 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
     ) -> Self {
         self.dividers = Some(Dividers {
             title_fn: Box::new(divider),
+            groups: None,
             scanned: 0,
             count: 0,
         });
+        self
+    }
+
+    /// The dividers (see [`Picker::with_dividers`], which must be called first) head groups:
+    /// the entries after each, up to the next divider. With a query, the rows stay in the order
+    /// they were added instead of the matcher's, and a divider is listed while any entry of its
+    /// group matches (its own text doesn't matter). A divider for which `is_entry` returns true
+    /// is a group of its own, without entries: it is drawn as a divider, but the cursor stops on
+    /// it, it is counted as an item and it matches the query by its own text.
+    pub fn with_groups(mut self, is_entry: impl Fn(&T) -> bool + 'static) -> Self {
+        if let Some(dividers) = &mut self.dividers {
+            dividers.groups = Some(Box::new(is_entry));
+        }
+        self
+    }
+
+    /// In normal mode (see [`Picker::with_modes`]), `w` moves the cursor to the first entry of
+    /// the next group of dividers and `b` to the first entry of the group it is in, or of the
+    /// previous group when it is there already. They don't wrap around the ends of the list.
+    pub fn with_section_keys(mut self) -> Self {
+        self.section_keys = true;
         self
     }
 
@@ -793,11 +872,55 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
         self.rows().get(index).map(|item| item.data)
     }
 
-    /// Whether `item` is a divider, see [`Picker::with_dividers`].
+    /// Whether `item` is a divider that the cursor skips, see [`Picker::with_dividers`] and
+    /// [`Picker::with_groups`].
     fn is_divider_item(&self, item: &T) -> bool {
         self.dividers
             .as_ref()
+            .is_some_and(|dividers| dividers.skips(item, &self.editor_data))
+    }
+
+    /// Whether `item` is drawn as a divider, the cursor stopping on it or not.
+    fn is_drawn_as_divider(&self, item: &T) -> bool {
+        self.dividers
+            .as_ref()
             .is_some_and(|dividers| dividers.title(item, &self.editor_data).is_some())
+    }
+
+    /// Moves the cursor to the first entry of the next group (`Forward`), or of the group it is
+    /// in or else the previous one (`Backward`), see [`Picker::with_section_keys`].
+    pub fn move_to_section(&mut self, direction: Direction) {
+        let rows = self.rows();
+        let len = rows.count();
+        let divider_at = |at: u32| {
+            rows.get(at)
+                .is_some_and(|item| self.is_drawn_as_divider(item.data))
+        };
+        let entry_at = |at: u32| {
+            rows.get(at)
+                .is_some_and(|item| !self.is_divider_item(item.data))
+        };
+        // the first entry of the group that starts at `divider`
+        let first_entry = |divider: u32| (divider..len).find(|&at| entry_at(at));
+        let target = match direction {
+            Direction::Forward => ((self.cursor + 1)..len)
+                .find(|&at| divider_at(at))
+                .and_then(first_entry),
+            Direction::Backward => {
+                let group = (0..=self.cursor.min(len.saturating_sub(1)))
+                    .rev()
+                    .find(|&at| divider_at(at));
+                match group.and_then(first_entry) {
+                    Some(first) if first < self.cursor => Some(first),
+                    _ => group
+                        .and_then(|group| (0..group).rev().find(|&at| divider_at(at)))
+                        .and_then(first_entry),
+                }
+            }
+        };
+        if let Some(target) = target {
+            self.cursor = target;
+        }
     }
 
     /// If the cursor is on a divider, moves it in `direction` to the first entry, wrapping around
@@ -835,7 +958,7 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
         let total = snapshot.item_count();
         for index in dividers.scanned..total {
             if let Some(item) = snapshot.get_item(index) {
-                dividers.count += dividers.title(item.data, &self.editor_data).is_some() as u32;
+                dividers.count += dividers.skips(item.data, &self.editor_data) as u32;
             }
         }
         dividers.scanned = total;
@@ -849,12 +972,13 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
         let Some(dividers) = &self.dividers else {
             return (rows.count(), snapshot.item_count());
         };
-        // dividers have no text, so they only match while there's no query (or a negated one)
+        // dividers have no text, so they only match while there's no query (or a negated one),
+        // or while an entry of their group does
         let matching = if snapshot.pattern().is_empty() {
             dividers.count
         } else {
             rows.range(0..rows.count())
-                .filter(|item| dividers.title(item.data, &self.editor_data).is_some())
+                .filter(|item| dividers.skips(item.data, &self.editor_data))
                 .count() as u32
         };
         (
@@ -1095,19 +1219,14 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
 
     fn render_picker(&mut self, area: Rect, surface: &mut Surface, cx: &mut Context) {
         let status = self.matcher.tick(10);
+        self.update_order();
         if status.changed {
-            self.cursor = self.cursor.min(
-                self.matcher
-                    .snapshot()
-                    .matched_item_count()
-                    .saturating_sub(1),
-            )
+            self.cursor = self.cursor.min(self.rows().count().saturating_sub(1));
         }
-        self.update_preferred();
         self.update_dividers();
         let (matched_count, item_count) = self.counts();
         let snapshot = self.matcher.snapshot();
-        let rows_of_items = rows_of(&self.matcher, &self.preferred);
+        let rows_of_items = rows_of(&self.matcher, &self.order);
 
         let text_style = cx.editor.theme.get("ui.text");
         let selected = cx.editor.theme.get("ui.text.focus");
@@ -1329,15 +1448,18 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
                 {
                     let width = row.width as usize;
                     let used = 4 + title.width();
-                    let line = format!("── {title} {}", "─".repeat(width.saturating_sub(used)));
+                    // a divider the cursor stops on, under it, has the cursor's marker
+                    let under_cursor = i as u32 == cursor;
+                    let start = if under_cursor { " > " } else { "── " };
+                    let rule = "─".repeat(width.saturating_sub(used));
+                    let line = format!("{start}{title} {rule}");
+                    let style = if under_cursor {
+                        text_style.patch(divider_style).patch(selected)
+                    } else {
+                        text_style.patch(divider_style)
+                    };
                     surface.clear_with(row, text_style);
-                    surface.set_stringn(
-                        row.x,
-                        row.y,
-                        &line,
-                        width,
-                        text_style.patch(divider_style),
-                    );
+                    surface.set_stringn(row.x, row.y, &line, width, style);
                 } else if i as u32 != cursor && self.marked.as_ref().is_some_and(|f| f(item.data)) {
                     surface.set_style(row, marked_style);
                 }
@@ -1602,6 +1724,8 @@ impl<I: 'static + Send + Sync, D: 'static + Send + Sync> Component for Picker<I,
             key!('g') if normal => self.goto = true,
             key!('G') if normal => self.to_end(),
             key!('s') if normal => self.mode = Some(PickerMode::Filter),
+            key!('w') if normal && self.section_keys => self.move_to_section(Direction::Forward),
+            key!('b') if normal && self.section_keys => self.move_to_section(Direction::Backward),
             key!(Esc) if normal && !self.prompt.line().is_empty() => {
                 self.set_query_line(String::new(), ctx.editor);
             }
@@ -1730,6 +1854,9 @@ impl<T: 'static + Send + Sync, D> Drop for Picker<T, D> {
 /// The dividers of a picker, see [`Picker::with_dividers`].
 struct Dividers<T, D> {
     title_fn: DividerTitle<T, D>,
+    /// Whether a divider is an entry, when the dividers head groups (see
+    /// [`Picker::with_groups`]).
+    groups: Option<IsEntry<T>>,
     /// How many items (in the order they were added) are counted in `count` already.
     scanned: u32,
     /// How many of them are dividers.
@@ -1741,9 +1868,16 @@ impl<T, D> Dividers<T, D> {
     fn title<'a>(&self, item: &'a T, data: &'a D) -> Option<Cow<'a, str>> {
         (self.title_fn)(item, data)
     }
+
+    /// Whether `item` is a divider that the cursor skips: not an entry.
+    fn skips(&self, item: &T, data: &D) -> bool {
+        self.title(item, data).is_some()
+            && !self.groups.as_ref().is_some_and(|is_entry| is_entry(item))
+    }
 }
 
 type PickerCallback<T> = Box<dyn Fn(&mut Context, &T, Action)>;
 type PickerKeyHandler<T> = Box<dyn Fn(&mut Context, &T)>;
 type PickerMarked<T> = Box<dyn Fn(&T) -> bool>;
+type IsEntry<T> = Box<dyn Fn(&T) -> bool>;
 type DividerTitle<T, D> = Box<dyn for<'a> Fn(&'a T, &'a D) -> Option<Cow<'a, str>>>;

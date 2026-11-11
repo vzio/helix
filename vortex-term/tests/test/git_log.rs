@@ -733,50 +733,21 @@ async fn the_range_covers_the_commits_the_query_hides() {
         .wait_for_screen("the files", |rows| on_screen(rows, "f2.txt"))
         .await;
     assert_eq!(
-        session.files(),
-        [
-            "+ added f2.txt",
-            "+ added f3.txt",
-            "+ added f4.txt",
-            "+ added m3.txt"
-        ]
+        session.list(),
+        new_files(&["f2.txt", "f3.txt", "f4.txt", "m3.txt"])
     );
 }
 
-impl Session {
-    /// The rows of the picker of files: change and path.
-    pub(super) fn files(&self) -> Vec<String> {
-        let frame = self.frame();
-        assert!(frame[2].contains("change"), "{frame:#?}");
-        frame[3..]
-            .iter()
-            .map(|row| {
-                row.trim_start_matches(" > ")
-                    .split_whitespace()
-                    .collect::<Vec<_>>()
-                    .join(" ")
-            })
-            .filter(|row| !row.is_empty())
-            .collect()
-    }
-}
-
-/// What `git diff --name-status` says about a range, as the rows of the picker of files.
-fn git_files(base: &str, tip: &str) -> Vec<String> {
-    let diff = git(
-        &vortex_stdx::env::current_working_dir(),
-        "",
-        &["diff", "--name-status", "-M50%", base, tip],
-    );
-    diff.lines()
-        .map(|line| {
-            let (kind, path) = line.split_once('\t').unwrap();
-            match kind {
-                "A" => format!("+ added {path}"),
-                "M" => format!("~ modified {path}"),
-                "D" => format!("- deleted {path}"),
-                other => panic!("{other}"),
-            }
+/// The rows of a list of changes of commits that add these files, which have one line each: a
+/// divider and a hunk for each.
+pub(super) fn new_files(paths: &[&str]) -> Vec<String> {
+    paths
+        .iter()
+        .flat_map(|path| {
+            [
+                format!("── {path} (new)  1 hunk  +1"),
+                format!("++ {path}:1"),
+            ]
         })
         .collect()
 }
@@ -793,10 +764,15 @@ async fn enter_on_a_range_lists_the_combined_change_and_diffs_it() {
         .await;
     // the change from the parent of the oldest commit to the newest one (f3, f4 and what the
     // merge brought: m3)
-    let expected = git_files(&format!("{}^", id(COMMITS[2])), &id(COMMITS[0]));
-    assert_eq!(expected.len(), 3);
-    assert_eq!(session.files(), expected);
-    assert_eq!(status(&session.app), range(COMMITS[2], COMMITS[0], 3));
+    let expected = new_files(&["f3.txt", "f4.txt", "m3.txt"]);
+    assert_eq!(session.list(), expected);
+    assert_eq!(
+        status(&session.app),
+        format!(
+            "{}: 3 changes in 3 files, +3",
+            range(COMMITS[2], COMMITS[0], 3)
+        )
+    );
 
     // the diff of a file, with the base on the left and the newest commit on the right
     session.keys("<ret>").await;
@@ -815,10 +791,17 @@ async fn enter_on_a_range_lists_the_combined_change_and_diffs_it() {
 
     // and back to the commit picker, with the range still selected
     session.keys("q").await;
-    assert_eq!(session.files(), expected);
+    assert_eq!(session.list(), expected);
     session.keys("<esc>").await;
     assert_eq!(session.marked(), &COMMITS[1..3]);
-    assert_eq!(status(&session.app), range(COMMITS[2], COMMITS[0], 3));
+    // (the status line keeps what the list said)
+    assert_eq!(
+        status(&session.app),
+        format!(
+            "{}: 3 changes in 3 files, +3",
+            range(COMMITS[2], COMMITS[0], 3)
+        )
+    );
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -831,10 +814,7 @@ async fn a_range_from_the_root_commit() {
     session
         .wait_for_screen("the files", |rows| on_screen(rows, "m3.txt"))
         .await;
-    assert_eq!(
-        session.files(),
-        ["+ added m1.txt", "+ added m2.txt", "+ added m3.txt"]
-    );
+    assert_eq!(session.list(), new_files(&["m1.txt", "m2.txt", "m3.txt"]));
     session.keys("<ret>").await;
     let left = format!("{}^: (new file)", id(COMMITS[7]));
     let right = format!("{}: m1.txt", id(COMMITS[5]));
@@ -857,10 +837,14 @@ async fn enter_on_one_commit_is_what_it_was() {
     session
         .wait_for_screen("the files", |rows| on_screen(rows, "m3.txt"))
         .await;
-    assert_eq!(session.files(), ["+ added m3.txt"]);
+    assert_eq!(session.list(), new_files(&["m3.txt"]));
     assert_eq!(
         status(&session.app),
-        format!("{} {}", id(COMMITS[1]), COMMITS[1])
+        format!(
+            "{}: 1 change in 1 file, +1 · {}",
+            id(COMMITS[1]),
+            COMMITS[1]
+        )
     );
     session.keys("<ret>").await;
     let left = format!("{}^: (new file)", id(COMMITS[1]));
@@ -879,7 +863,11 @@ async fn enter_on_one_commit_is_what_it_was() {
         .await;
     assert_eq!(
         status(&session.app),
-        format!("{} {}", id(COMMITS[1]), COMMITS[1])
+        format!(
+            "{}: 1 change in 1 file, +1 · {}",
+            id(COMMITS[1]),
+            COMMITS[1]
+        )
     );
     // (Esc closes the files, then leaves extend mode)
     session.keys("<esc><esc>").await;
@@ -889,7 +877,7 @@ async fn enter_on_one_commit_is_what_it_was() {
     session
         .wait_for_screen("the files", |rows| on_screen(rows, "m1.txt"))
         .await;
-    assert_eq!(session.files(), ["+ added m1.txt"]);
+    assert_eq!(session.list(), new_files(&["m1.txt"]));
     session.keys("<ret>").await;
     let left = format!("{}^: (new file)", id(COMMITS[7]));
     session
@@ -1171,10 +1159,15 @@ async fn enter_on_a_range_made_with_w_lists_the_combined_change() {
     session
         .wait_for_screen("the files", |rows| on_screen(rows, "f3.txt"))
         .await;
-    let expected = git_files(&format!("{}^", id(COMMITS[2])), &id(COMMITS[0]));
-    assert_eq!(expected.len(), 3);
-    assert_eq!(session.files(), expected);
-    assert_eq!(status(&session.app), range(COMMITS[2], COMMITS[0], 3));
+    let expected = new_files(&["f3.txt", "f4.txt", "m3.txt"]);
+    assert_eq!(session.list(), expected);
+    assert_eq!(
+        status(&session.app),
+        format!(
+            "{}: 3 changes in 3 files, +3",
+            range(COMMITS[2], COMMITS[0], 3)
+        )
+    );
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -1534,5 +1527,8 @@ async fn the_commit_of_the_hash_is_listed_first_and_opens() {
     session
         .wait_for_screen("the commit", |rows| on_screen(rows, "m1.txt"))
         .await;
-    assert_eq!(status(&session.app), format!("{} {oldest}", id(oldest)));
+    assert_eq!(
+        status(&session.app),
+        format!("{}: 1 change in 1 file, +1 · {oldest}", id(oldest))
+    );
 }

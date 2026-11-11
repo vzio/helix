@@ -23,164 +23,24 @@ use vortex_vcs::staging::{self, touches, LineHunk};
 use vortex_vcs::{DiffProviderRegistry, FileChange};
 use vortex_view::{
     editor::{Action, ChangesConfig},
-    graphics::{Rect, Style},
+    graphics::Rect,
     DocumentId, Editor,
 };
 use parking_lot::Mutex;
-use tui::{
-    buffer::Buffer as Surface,
-    text::{Span, Spans},
-};
+use tui::buffer::Buffer as Surface;
 
-use super::changes::{line_counts, LockfileLines, NavFiles};
+use super::changes::{
+    self, file_group, hunks, line_counts, nav_files, select_row, sort_groups, text, Body,
+    ChangeRow, Marks, NavFiles, RowData, Totals, What,
+};
 use super::diff_view;
 use crate::compositor::{self, Component, Compositor, Context, Event, EventResult};
 use crate::job::Callback;
 use crate::live::{Live, Pending, RepoWatch};
 use crate::ui::{
     overlay::{overlaid, Overlay},
-    picker, Picker, PickerColumn,
+    picker, Picker,
 };
-use crate::{ctrl, key};
-
-/// Lines of context around a hunk in the preview.
-const CONTEXT: usize = 3;
-
-/// Where the change of a row is. Any combination: a hunk can be staged, changed again on disk
-/// since, and edited again in the buffer.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-pub(crate) struct Marks {
-    /// In the index: HEAD and the index differ there.
-    pub(crate) staged: bool,
-    /// On disk and not in the index: the index and the file differ there.
-    pub(crate) unstaged: bool,
-    /// In the buffer and not on disk: the file and its modified buffer differ there.
-    pub(crate) unsaved: bool,
-}
-
-impl Marks {
-    /// The letters in their columns: `SM•`, `S  `, ` M•`...
-    fn symbols(self) -> [&'static str; 3] {
-        [
-            if self.staged { "S" } else { " " },
-            if self.unstaged { "M" } else { " " },
-            if self.unsaved { "•" } else { " " },
-        ]
-    }
-
-    /// `staged, unsaved`.
-    fn describe(self) -> String {
-        [
-            (self.staged, "staged"),
-            (self.unstaged, "unstaged"),
-            (self.unsaved, "unsaved"),
-        ]
-        .iter()
-        .filter(|(on, _)| *on)
-        .map(|(_, name)| *name)
-        .collect::<Vec<_>>()
-        .join(", ")
-    }
-
-    /// Only in the buffer: Enter opens the buffer rather than the diff.
-    fn only_unsaved(self) -> bool {
-        self.unsaved && !self.staged && !self.unstaged
-    }
-}
-
-/// What a row is.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) enum What {
-    /// A hunk. `lines` are the lines it has now, from 0, in the buffer when the file is open
-    /// (else in the file): what the right side of its diff shows. An empty range is where lines
-    /// were removed.
-    Hunk {
-        lines: Range<u32>,
-        preview: Arc<HunkPreview>,
-    },
-    /// A lockfile, collapsed to one row.
-    Lockfile(LockfileLines),
-    Binary,
-    /// A change without changed lines: an empty new file, a change of mode, or a change staged
-    /// and then undone in the working tree.
-    File,
-}
-
-/// The lines of a hunk with some context, for the preview.
-#[derive(Debug, PartialEq, Eq)]
-pub(crate) struct HunkPreview {
-    pub(crate) lines: Vec<(PreviewLine, String)>,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum PreviewLine {
-    Context,
-    Removed,
-    Added,
-}
-
-/// A row of the uncommitted changes.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct ChangeRow {
-    /// The change of the file. A file with only unsaved edits is `Modified`, or `Untracked` if
-    /// it isn't on disk yet.
-    pub(crate) change: FileChange,
-    pub(crate) marks: Marks,
-    pub(crate) what: What,
-}
-
-impl ChangeRow {
-    /// The first line of the row, from 0 (0 for a whole file).
-    pub(crate) fn line(&self) -> u32 {
-        match &self.what {
-            What::Hunk { lines, .. } => lines.start,
-            _ => 0,
-        }
-    }
-
-    fn is_lockfile(&self) -> bool {
-        matches!(self.what, What::Lockfile(_))
-    }
-}
-
-/// The text of a version of a file (`None` when it doesn't exist), or `Err` when it is binary.
-fn text(bytes: Option<&[u8]>) -> Result<Option<&str>, ()> {
-    match bytes {
-        None => Ok(None),
-        Some(bytes) if bytes.contains(&0) => Err(()),
-        Some(bytes) => std::str::from_utf8(bytes).map(Some).map_err(|_| ()),
-    }
-}
-
-/// The lines of `text` without their line endings.
-fn lines(text: &str) -> Vec<&str> {
-    text.split_inclusive('\n')
-        .map(|line| line.trim_end_matches('\n').trim_end_matches('\r'))
-        .collect()
-}
-
-/// The preview of `hunk` of the diff from `before` to `after`.
-fn preview(before: &[&str], after: &[&str], hunk: &LineHunk) -> HunkPreview {
-    let (start, end) = (hunk.after.start as usize, hunk.after.end as usize);
-    let mut lines = Vec::new();
-    let mut push = |kind, text: &[&str]| {
-        lines.extend(text.iter().map(|line| (kind, line.to_string())));
-    };
-    push(
-        PreviewLine::Context,
-        &after[start.saturating_sub(CONTEXT)..start],
-    );
-    push(
-        PreviewLine::Removed,
-        &before[hunk.before.start as usize..hunk.before.end as usize],
-    );
-    push(PreviewLine::Added, &after[start..end]);
-    push(
-        PreviewLine::Context,
-        &after[end..(end + CONTEXT).min(after.len())],
-    );
-    HunkPreview { lines }
-}
 
 /// The versions of a file, `None` where it has none.
 #[derive(Clone, Copy, Default)]
@@ -194,8 +54,8 @@ pub(crate) struct Versions<'a> {
     pub(crate) buffer: Option<&'a str>,
 }
 
-/// The rows of a changed file: its hunks from HEAD to the buffer (or the disk), each with
-/// where its change is.
+/// The rows of a changed file: its divider, then its hunks from HEAD to the buffer (or the
+/// disk), each with where its change is.
 pub(crate) fn file_rows(change: &FileChange, versions: Versions, lockfile: bool) -> Vec<ChangeRow> {
     let Versions {
         head,
@@ -215,21 +75,15 @@ pub(crate) fn file_rows(change: &FileChange, versions: Versions, lockfile: bool)
         // listed by git all the same (a change of mode): on disk
         file_marks.unstaged = true;
     }
-    let row = |what| {
-        vec![ChangeRow {
-            change: change.clone(),
-            marks: file_marks,
-            what,
-        }]
-    };
+    let alone = |body| file_group(change, Some(file_marks), body, Vec::new());
     if lockfile {
-        return row(What::Lockfile(line_counts(
+        return alone(Body::Lockfile(line_counts(
             head.unwrap_or_default(),
             disk.unwrap_or_default(),
         )));
     }
     let (Ok(head), Ok(index), Ok(disk)) = (text(head), text(index), text(disk)) else {
-        return row(What::Binary);
+        return alone(Body::Binary);
     };
     let (head, index, disk) = (
         head.unwrap_or_default(),
@@ -237,9 +91,9 @@ pub(crate) fn file_rows(change: &FileChange, versions: Versions, lockfile: bool)
         disk.unwrap_or_default(),
     );
     let work = buffer.unwrap_or(disk);
-    let hunks = staging::line_hunks(head, work);
+    let hunks = hunks(change, head, work);
     if hunks.is_empty() {
-        return row(What::File);
+        return alone(Body::Unchanged);
     }
 
     let staged = staging::line_hunks(head, index);
@@ -251,10 +105,10 @@ pub(crate) fn file_rows(change: &FileChange, versions: Versions, lockfile: bool)
         ),
         None => (Vec::new(), Vec::new()),
     };
-    let (before, after) = (lines(head), lines(work));
-    hunks
-        .iter()
-        .map(|hunk| {
+    let hunks = hunks
+        .into_iter()
+        .map(|(line_hunk, row)| {
+            let hunk = &line_hunk;
             // the lines of the hunk in the file on disk
             let on_disk = map_lines(&hunk.after, &to_disk);
             let mut marks = Marks {
@@ -267,16 +121,10 @@ pub(crate) fn file_rows(change: &FileChange, versions: Versions, lockfile: bool)
                 marks.unsaved = file_marks.unsaved;
                 marks.unstaged = !file_marks.unsaved;
             }
-            ChangeRow {
-                change: change.clone(),
-                marks,
-                what: What::Hunk {
-                    lines: hunk.after.clone(),
-                    preview: Arc::new(preview(&before, &after, hunk)),
-                },
-            }
+            (row, Some(marks))
         })
-        .collect()
+        .collect();
+    file_group(change, Some(file_marks), Body::Hunks, hunks)
 }
 
 /// The lines of the new text that `lines` of the old text are at, given the `hunks` of the
@@ -307,34 +155,6 @@ pub(crate) fn map_lines(lines: &Range<u32>, hunks: &[LineHunk]) -> Range<u32> {
     };
     let start = map(lines.start, false);
     start..map(lines.end, true).max(start)
-}
-
-/// Sorts the rows by path, with the lockfiles last, then by line.
-pub(crate) fn sort_rows(rows: &mut [ChangeRow]) {
-    rows.sort_by(|a, b| {
-        let key = |row: &ChangeRow| {
-            (
-                row.is_lockfile(),
-                row.change.path().to_path_buf(),
-                row.line(),
-            )
-        };
-        key(a).cmp(&key(b))
-    });
-}
-
-/// The files of `rows` for `n`/`N` in their diffs, in the order of the list.
-fn nav_files(rows: &[ChangeRow]) -> NavFiles {
-    let mut files: NavFiles = Vec::new();
-    for row in rows {
-        if files
-            .last()
-            .is_none_or(|(change, _)| change.path() != row.change.path())
-        {
-            files.push((row.change.clone(), row.is_lockfile()));
-        }
-    }
-    files
 }
 
 /// The root of the working tree `cwd` is in (`cwd` outside of one).
@@ -401,7 +221,7 @@ impl Source {
             .into_iter()
             .map(|buffer| (buffer.path, buffer.text.to_string()))
             .collect();
-        let mut rows = Vec::new();
+        let mut groups = Vec::new();
         for change in changes {
             let (base_path, path) = diff_view::paths_of(&change);
             // once a rename is committed, the new path is the one in HEAD
@@ -424,7 +244,7 @@ impl Source {
                 buffer: buffer.as_deref(),
             };
             let lockfile = self.config.is_lockfile(change.path());
-            rows.extend(file_rows(&change, versions, lockfile));
+            groups.push(file_rows(&change, versions, lockfile));
         }
         // the files without changes on disk (or ignored by git): their unsaved edits, from what
         // is on disk
@@ -444,148 +264,10 @@ impl Source {
                 disk: disk.as_deref(),
                 buffer: Some(&buffer),
             };
-            rows.extend(file_rows(&change, versions, false));
+            groups.push(file_rows(&change, versions, false));
         }
-        sort_rows(&mut rows);
-        Ok(rows)
+        Ok(sort_groups(groups))
     }
-}
-
-/// The styles of the rows and of the preview.
-pub(crate) struct RowData {
-    cwd: PathBuf,
-    staged: Style,
-    unstaged: Style,
-    unsaved: Style,
-    quiet: Style,
-    added: Style,
-    removed: Style,
-}
-
-impl RowData {
-    fn new(editor: &Editor, cwd: PathBuf) -> Self {
-        let theme = &editor.theme;
-        Self {
-            cwd,
-            staged: theme.get("diff.plus"),
-            unstaged: theme.get("diff.delta"),
-            unsaved: theme.get("warning"),
-            quiet: theme
-                .try_get("ui.text.inactive")
-                .unwrap_or_else(|| theme.get("comment")),
-            added: theme.get("diff.plus"),
-            removed: theme.get("diff.minus"),
-        }
-    }
-
-    /// The marks of a row, each letter in its color.
-    fn marks(&self, marks: Marks) -> Spans<'static> {
-        let styles = [self.staged, self.unstaged, self.unsaved];
-        Spans::from(
-            marks
-                .symbols()
-                .into_iter()
-                .zip(styles)
-                .map(|(symbol, style)| Span::styled(symbol, style))
-                .collect::<Vec<_>>(),
-        )
-    }
-
-    fn relative(&self, path: &Path) -> String {
-        path.strip_prefix(&self.cwd)
-            .unwrap_or(path)
-            .display()
-            .to_string()
-    }
-
-    /// `src/main.rs:10-12`, with what happened to the file when it isn't just modified.
-    pub(crate) fn location(&self, row: &ChangeRow) -> String {
-        let path = self.relative(row.change.path());
-        let place = match &row.what {
-            What::Hunk { lines, .. } => match lines.len() {
-                // the place of removed lines: the line before them
-                0 => format!("{path}:{}", lines.start.max(1)),
-                1 => format!("{path}:{}", lines.start + 1),
-                _ => format!("{path}:{}-{}", lines.start + 1, lines.end),
-            },
-            _ => path,
-        };
-        let note = match (&row.change, &row.what) {
-            (_, What::Lockfile(LockfileLines::Counts { added, removed })) => {
-                format!(" (+{added} -{removed})")
-            }
-            (_, What::Lockfile(LockfileLines::Binary)) | (_, What::Binary) => " (binary)".into(),
-            (FileChange::Untracked { .. }, _) => " (untracked)".into(),
-            (FileChange::Added { .. }, _) => " (added)".into(),
-            (FileChange::Deleted { .. }, _) => " (deleted)".into(),
-            (FileChange::Conflict { .. }, _) => " (conflict)".into(),
-            (FileChange::Renamed { from_path, .. }, _) => {
-                format!(" (renamed from {})", self.relative(from_path))
-            }
-            (FileChange::Modified { .. }, _) => String::new(),
-        };
-        place + note.as_str()
-    }
-}
-
-/// Draws the preview of `row`: where it is, then its hunk with a few lines of context.
-fn draw_preview(
-    row: &ChangeRow,
-    data: &RowData,
-    editor: &Editor,
-    area: Rect,
-    surface: &mut Surface,
-) {
-    let text = editor.theme.get("ui.text");
-    let width = area.width as usize;
-    let mut y = area.y;
-    let mut line = |surface: &mut Surface, text: &str, style: Style| {
-        if y < area.bottom() {
-            surface.set_stringn(area.x, y, text, width, style);
-            y += 1;
-        }
-    };
-    let title = format!("{} · {}", data.location(row), row.marks.describe());
-    line(surface, &title, text);
-    line(surface, "", text);
-    match &row.what {
-        What::Hunk { preview, .. } => {
-            for (kind, content) in &preview.lines {
-                let (prefix, style) = match kind {
-                    PreviewLine::Context => (' ', text),
-                    PreviewLine::Removed => ('-', data.removed),
-                    PreviewLine::Added => ('+', data.added),
-                };
-                let content = content.replace('\t', "    ");
-                line(surface, &format!("{prefix} {content}"), style);
-            }
-        }
-        What::Lockfile(_) => line(surface, "A lockfile: Enter shows its diff.", data.quiet),
-        What::Binary => line(surface, "A binary file.", data.quiet),
-        What::File => line(surface, "No lines changed.", data.quiet),
-    }
-}
-
-/// Puts the cursor of `picker` on the row of `path` at `line`, or else on the first row of
-/// `path`. Returns whether it found one.
-fn select_row(picker: &mut Picker<ChangeRow, RowData>, path: &Path, line: Option<u32>) -> bool {
-    // the matched rows are ready (unless there are many)
-    let mut first = None;
-    let mut i = 0;
-    while let Some(row) = picker.matched_item(i) {
-        if row.change.path() == path {
-            if line.is_none_or(|line| row.line() == line) {
-                picker.set_cursor_index(i);
-                return true;
-            }
-            first.get_or_insert(i);
-        }
-        i += 1;
-    }
-    if let Some(first) = first {
-        picker.set_cursor_index(first);
-    }
-    first.is_some()
 }
 
 /// The list of the uncommitted changes, which follows the working tree while `live` sees it
@@ -731,31 +413,22 @@ pub(crate) fn open(cx: &mut compositor::Context, cwd: PathBuf, watch: Option<Arc
     });
 }
 
-/// `Uncommitted changes: 5 changes in 2 files, 1 unsaved`.
+/// `Uncommitted changes: 5 changes in 2 files, +12 -3, 1 unsaved`.
 fn summary(rows: &[ChangeRow]) -> String {
     if rows.is_empty() {
         return "No uncommitted changes".into();
     }
-    let plural = |n: usize, one: &str, many: &str| match n {
-        1 => format!("1 {one}"),
-        n => format!("{n} {many}"),
-    };
-    let files = nav_files(rows).len();
-    let unsaved = rows.iter().filter(|row| row.marks.unsaved).count();
-    let mut summary = format!(
-        "Uncommitted changes: {} in {}",
-        plural(rows.len(), "change", "changes"),
-        plural(files, "file", "files"),
-    );
-    if unsaved > 0 {
-        summary += &format!(", {unsaved} unsaved");
+    let totals = Totals::of(rows);
+    let mut summary = format!("Uncommitted changes: {}", totals.describe());
+    if totals.unsaved > 0 {
+        summary += &format!(", {} unsaved", totals.unsaved);
     }
     summary
 }
 
-/// The picker of the uncommitted changes. Enter opens the diff of the file at the hunk, or the
-/// buffer at a change that is only in the buffer; `C-s`/`C-v`... open the file at the hunk,
-/// closing the commit log.
+/// The list of the uncommitted changes. Enter opens the diff of the file at the hunk (at its
+/// first hunk on a divider), or the buffer at a change that is only in the buffer;
+/// `C-s`/`C-v`... open the file at the hunk, closing the commit log.
 fn changes_picker(
     editor: &Editor,
     cwd: PathBuf,
@@ -763,31 +436,22 @@ fn changes_picker(
     watch: Option<Arc<RepoWatch>>,
     files: Arc<Mutex<NavFiles>>,
 ) -> Picker<ChangeRow, RowData> {
-    let columns = [
-        PickerColumn::new("marks", |row: &ChangeRow, data: &RowData| {
-            data.marks(row.marks).into()
-        }),
-        PickerColumn::new("change", |row: &ChangeRow, data: &RowData| {
-            let location = data.location(row);
-            if row.is_lockfile() {
-                Span::styled(location, data.quiet).into()
-            } else {
-                location.into()
-            }
-        }),
-    ];
-    let data = RowData::new(editor, cwd);
     let enter = move |cx: &mut Context, row: &ChangeRow| {
-        if let (true, What::Hunk { lines, .. }) = (row.marks.only_unsaved(), &row.what) {
-            open_at(cx.editor, row.change.path(), lines.start, Action::Replace);
-            // the list (which stays open for the diffs) and the commit log
-            return close_log(cx, 2);
-        }
-        let change = row.change.clone();
         let line = match &row.what {
-            What::Hunk { lines, .. } => Some(lines.start),
-            _ => None,
+            What::Hunk(hunk) if row.marks.is_some_and(Marks::only_unsaved) => {
+                open_at(
+                    cx.editor,
+                    row.change.path(),
+                    hunk.lines.start,
+                    Action::Replace,
+                );
+                // the list (which stays open for the diffs) and the commit log
+                return close_log(cx, 2);
+            }
+            What::Hunk(hunk) => Some(hunk.lines.start),
+            What::File(_) => None,
         };
+        let change = row.change.clone();
         let live = watch.clone().map(Live::new);
         let files = files.clone();
         cx.jobs.callback(async move {
@@ -809,20 +473,18 @@ fn changes_picker(
             Ok(Callback::EditorCompositor(Box::new(call)))
         });
     };
-    Picker::new(columns, 1, rows, data, |cx, row: &ChangeRow, action| {
+    let open = |cx: &mut Context, row: &ChangeRow, action| {
         // the file as it is now, at the change, closing the commit log below too
         open_at(cx.editor, row.change.path(), row.line(), action);
         close_log(cx, 1);
-    })
-    .with_drawn_preview(draw_preview)
-    .with_modes()
-    .with_stacked_key_handler(key!(Enter), enter.clone())
-    .with_stacked_key_handler(ctrl!('g'), enter)
+    };
+    changes::picker(editor, cwd, rows, true, enter, open)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::commands::changes::{tests::listed, PreviewLine};
 
     fn modified(path: &str) -> FileChange {
         FileChange::Modified {
@@ -830,19 +492,13 @@ mod tests {
         }
     }
 
-    /// The location and the marks of each row.
+    /// Each row as listed (a divider's title after `── `, a hunk's signs and location), with
+    /// its marks.
     fn summary(rows: &[ChangeRow]) -> Vec<(String, String)> {
-        let data = RowData {
-            cwd: PathBuf::from("/r"),
-            staged: Style::default(),
-            unstaged: Style::default(),
-            unsaved: Style::default(),
-            quiet: Style::default(),
-            added: Style::default(),
-            removed: Style::default(),
-        };
-        rows.iter()
-            .map(|row| (data.location(row), row.marks.symbols().concat()))
+        listed(rows)
+            .into_iter()
+            .zip(rows)
+            .map(|(listed, row)| (listed, row.marks.unwrap().symbols().concat()))
             .collect()
     }
 
@@ -862,8 +518,8 @@ mod tests {
         file_rows(change, versions, false)
     }
 
-    fn row(location: &str, marks: &str) -> (String, String) {
-        (location.to_string(), marks.to_string())
+    fn row(listed: &str, marks: &str) -> (String, String) {
+        (listed.to_string(), marks.to_string())
     }
 
     const HEAD: &str = "a\nb\nc\nd\ne\nf\ng\nh\n";
@@ -877,16 +533,17 @@ mod tests {
         assert_eq!(
             summary(&rows),
             [
-                row("x.txt:2", "S  "),
-                row("x.txt:6", "SM "),
-                row("x.txt:8", " M ")
+                row("── x.txt  3 hunks  +3 -3  2 staged", "SM "),
+                row("-+ x.txt:2", "S  "),
+                row("-+ x.txt:6", "SM "),
+                row("-+ x.txt:8", " M ")
             ]
         );
-        let What::Hunk { preview, .. } = &rows[0].what else {
+        let What::Hunk(hunk) = &rows[1].what else {
             panic!("not a hunk");
         };
         assert_eq!(
-            preview.lines,
+            hunk.preview.lines,
             [
                 (PreviewLine::Context, "a".to_string()),
                 (PreviewLine::Removed, "b".to_string()),
@@ -909,9 +566,10 @@ mod tests {
         assert_eq!(
             summary(&rows),
             [
-                row("x.txt:1-2", "  •"),
-                row("x.txt:6", "SM•"),
-                row("x.txt:10", "  •"),
+                row("── x.txt  3 hunks  +4 -2  1 staged  3 unsaved", "SM•"),
+                row("+  x.txt:1-2", "  •"),
+                row("-+ x.txt:6", "SM•"),
+                row("-+ x.txt:10", "  •"),
             ]
         );
     }
@@ -922,7 +580,13 @@ mod tests {
         let disk = "a\nb\nC\nd\ne\nf\ng\nh\n";
         let buffer = "a\nb\nC\nD\ne\nf\ng\nh\n";
         let rows = rows(&modified("/r/x.txt"), HEAD, HEAD, disk, Some(buffer));
-        assert_eq!(summary(&rows), [row("x.txt:3-4", " M•")]);
+        assert_eq!(
+            summary(&rows),
+            [
+                row("── x.txt  1 hunk  +2 -2  1 unsaved", " M•"),
+                row("-+ x.txt:3-4", " M•")
+            ]
+        );
     }
 
     #[test]
@@ -935,7 +599,13 @@ mod tests {
             ..Versions::default()
         };
         let rows = file_rows(&untracked, versions, false);
-        assert_eq!(summary(&rows), [row("new.md:1-2 (untracked)", " M ")]);
+        assert_eq!(
+            summary(&rows),
+            [
+                row("── new.md (untracked)  1 hunk  +2", " M "),
+                row("++ new.md:1-2", " M ")
+            ]
+        );
 
         let deleted = FileChange::Deleted {
             path: "/r/old.md".into(),
@@ -945,7 +615,13 @@ mod tests {
             ..Versions::default()
         };
         let rows = file_rows(&deleted, versions, false);
-        assert_eq!(summary(&rows), [row("old.md:1 (deleted)", "S  ")]);
+        assert_eq!(
+            summary(&rows),
+            [
+                row("── old.md (deleted)  1 hunk  -2  1 staged", "S  "),
+                row("-- old.md:1", "S  ")
+            ]
+        );
 
         let versions = Versions {
             head: Some(b"\0a"),
@@ -954,7 +630,7 @@ mod tests {
             buffer: None,
         };
         let rows = file_rows(&modified("/r/a.png"), versions, false);
-        assert_eq!(summary(&rows), [row("a.png (binary)", " M ")]);
+        assert_eq!(summary(&rows), [row("── a.png (binary)", " M ")]);
 
         let versions = Versions {
             head: Some(b"a\nb\n"),
@@ -963,12 +639,18 @@ mod tests {
             buffer: Some("a\nB\nc\nd\n"),
         };
         let rows = file_rows(&modified("/r/Cargo.lock"), versions, true);
-        assert_eq!(summary(&rows), [row("Cargo.lock (+2 -1)", "S •")]);
+        assert_eq!(
+            summary(&rows),
+            [row("── Cargo.lock  +2 -1  staged  unsaved", "S •")]
+        );
 
         // staged, then undone on disk
         let undone = rows_of(&modified("/r/u.txt"), "a\n", "b\n", "a\n");
-        assert_eq!(undone[0].what, What::File);
-        assert_eq!(summary(&undone), [row("u.txt", "SM ")]);
+        assert_eq!(
+            summary(&undone),
+            [row("── u.txt (no lines changed)  staged", "SM ")]
+        );
+        assert!(undone[0].is_entry());
     }
 
     #[test]
@@ -978,7 +660,10 @@ mod tests {
             to_path: "/r/b.txt".into(),
         };
         let rows = rows_of(&renamed, "x\n", "x\n", "x\n");
-        assert_eq!(summary(&rows), [row("b.txt (renamed from a.txt)", "S  ")]);
+        assert_eq!(
+            summary(&rows),
+            [row("── a.txt → b.txt (no lines changed)  staged", "S  ")]
+        );
     }
 
     fn rows_of(change: &FileChange, head: &str, index: &str, disk: &str) -> Vec<ChangeRow> {
@@ -998,36 +683,36 @@ mod tests {
     }
 
     #[test]
-    fn rows_are_sorted_with_lockfiles_last() {
-        let row_at = |path: &str, line: u32, what: Option<What>| ChangeRow {
-            change: modified(path),
-            marks: Marks {
-                unstaged: true,
-                ..Marks::default()
-            },
-            what: what.unwrap_or(What::Hunk {
-                lines: line..line + 1,
-                preview: Arc::new(HunkPreview { lines: Vec::new() }),
-            }),
-        };
-        let mut rows = vec![
-            row_at(
-                "/r/Cargo.lock",
-                0,
-                Some(What::Lockfile(LockfileLines::Binary)),
+    fn files_are_sorted_with_lockfiles_last() {
+        let groups = vec![
+            file_rows(
+                &modified("/r/Cargo.lock"),
+                Versions {
+                    head: Some(b"a\n"),
+                    index: Some(b"a\n"),
+                    disk: Some(b"b\n"),
+                    buffer: None,
+                },
+                true,
             ),
-            row_at("/r/b.rs", 4, None),
-            row_at("/r/a.rs", 9, None),
-            row_at("/r/b.rs", 1, None),
+            rows_of(
+                &modified("/r/b.rs"),
+                "a\nb\nc\nd\ne\n",
+                "a\nb\nc\nd\ne\n",
+                "A\nb\nc\nd\nE\n",
+            ),
+            rows_of(&modified("/r/a.rs"), "a\n", "a\n", "b\n"),
         ];
-        sort_rows(&mut rows);
+        let rows = sort_groups(groups);
         assert_eq!(
-            summary(&rows),
+            listed(&rows),
             [
-                row("a.rs:10", " M "),
-                row("b.rs:2", " M "),
-                row("b.rs:5", " M "),
-                row("Cargo.lock (binary)", " M "),
+                "── a.rs  1 hunk  +1 -1",
+                "-+ a.rs:1",
+                "── b.rs  2 hunks  +2 -2",
+                "-+ b.rs:1",
+                "-+ b.rs:5",
+                "── Cargo.lock  +1 -1",
             ]
         );
         assert_eq!(
@@ -1041,21 +726,9 @@ mod tests {
                 ("/r/Cargo.lock", true)
             ]
         );
-    }
-
-    #[test]
-    fn describing_marks() {
-        let marks = Marks {
-            staged: true,
-            unstaged: false,
-            unsaved: true,
-        };
-        assert_eq!(marks.describe(), "staged, unsaved");
-        assert!(!marks.only_unsaved());
-        assert!(Marks {
-            unsaved: true,
-            ..Marks::default()
-        }
-        .only_unsaved());
+        assert_eq!(
+            super::summary(&rows),
+            "Uncommitted changes: 4 changes in 3 files, +4 -4"
+        );
     }
 }

@@ -299,8 +299,8 @@ impl Default for ExplorerConfig {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case", default, deny_unknown_fields)]
 pub struct ChangesConfig {
-    /// File names (not paths) of lockfiles: in the lists of changed files they are collapsed to
-    /// one quiet row with their line counts, after the other files.
+    /// File names (not paths) of lockfiles: in the lists of changes they are collapsed to their
+    /// divider, with their line counts, after the other files.
     pub lockfiles: Vec<String>,
 }
 
@@ -488,7 +488,7 @@ pub struct Config {
     pub explorer: ExplorerConfig,
     /// Inline git blame (fork feature).
     pub inline_blame: InlineBlameConfig,
-    /// The lists of changed files: the uncommitted changes and the commits (fork feature).
+    /// The lists of changes: the uncommitted changes and the commits (fork feature).
     pub changes: ChangesConfig,
     /// Configuration of the statusline elements
     pub statusline: StatusLineConfig,

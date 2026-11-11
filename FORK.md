@@ -64,7 +64,7 @@ Each feature lives in its own modules, to keep rebasing on upstream cheap:
 | Diff view | `vortex-term/src/ui/diff_view.rs`, `vortex-term/src/commands/diff_view.rs` |
 | Hunk actions, `n`/`N` across files | `vortex-term/src/commands/hunks.rs` (stage, unstage, revert), `vortex-vcs/src/staging.rs` (the texts of the index and of the working tree after an action), `vortex-vcs/src/git/stage.rs` (reading and writing one entry of the index), the `Actions` and `FileNav` of the diff view, `base` of `:practice` exercises, `vortex-term/tests/test/hunks.rs` |
 | Commit log | `vortex-term/src/commands/git_log.rs`, `vortex-vcs/src/commit.rs`, `vortex-vcs/src/git/log.rs` |
-| Uncommitted changes, live views | `vortex-term/src/commands/uncommitted.rs` (the list of uncommitted hunks, their marks, unsaved edits), `vortex-term/src/commands/changes.rs` (the files of a commit, lockfiles), `with_drawn_preview` in `vortex-term/src/ui/picker.rs` (a preview drawn by its owner), `vortex-term/src/live.rs` (the shared watch, background refreshes), `vortex-view/src/watcher.rs` (the reusable watcher), `RepoState` and `log_entries` in `vortex-vcs/src/lib.rs`, `[editor.changes]` in `vortex-view/src/editor.rs`, `vortex-term/tests/test/uncommitted.rs` |
+| Uncommitted changes, live views | `vortex-term/src/commands/uncommitted.rs` (the list of uncommitted hunks, their marks, unsaved edits), `vortex-term/src/commands/changes.rs` (the lists of changes of the uncommitted changes and of commits: hunk rows, file dividers, `+`/`-` marks, lockfiles), `with_groups` and `with_section_keys` in `vortex-term/src/ui/picker.rs` (dividers that head groups, `w`/`b` between them), `with_drawn_preview` in `vortex-term/src/ui/picker.rs` (a preview drawn by its owner), `vortex-term/src/live.rs` (the shared watch, background refreshes), `vortex-view/src/watcher.rs` (the reusable watcher), `RepoState` and `log_entries` in `vortex-vcs/src/lib.rs`, `[editor.changes]` in `vortex-view/src/editor.rs`, `vortex-term/tests/test/uncommitted.rs`, `vortex-term/tests/test/change_lists.rs` |
 | Files changed on disk | `vortex-term/src/handlers/disk.rs`, the disk state of `Document` in `vortex-view/src/document.rs`, `vortex-term/tests/test/stale_buffers.rs` |
 | Conflict diagnostics | `vortex-vcs/src/conflict.rs` (finding the blocks), `conflicted_files` in `vortex-vcs/src/git.rs` (the unmerged files), `vortex-term/src/handlers/conflicts.rs` (when to look, the documents' state), `vortex-term/tests/test/conflicts.rs` |
 | Staged files, commit diffs | `vortex-vcs/src/git.rs`, `vortex-vcs/src/lib.rs`, `vortex-vcs/src/status.rs` |
@@ -78,7 +78,8 @@ Each feature lives in its own modules, to keep rebasing on upstream cheap:
 Hooks into core files: commands and keys in `vortex-term/src/commands.rs`,
 `vortex-term/src/commands/typed.rs` and `vortex-term/src/keymap/default.rs`; `C-g`, the hooks the
 file tree needs (an external filter, replacing the items, the query), the ones of the commit log
-(dividers, marked rows), the opt-in modal mode both use (`Picker::with_modes`: normal mode where the
+(dividers, marked rows), the ones of the lists of changes (dividers that head groups and
+filter with them, `w`/`b` between groups), the opt-in modal mode both use (`Picker::with_modes`: normal mode where the
 letters are keys, filter mode where they are typed) and the cursor accessors in
 `vortex-term/src/ui/picker.rs`;
 `[editor.explorer]` and `[editor.inline-blame]` in `vortex-view/src/editor.rs`. Inline blame also
@@ -180,9 +181,10 @@ can be read whole. `w` switches between wrapping and horizontal scrolling.
 
 A picker of the commits reachable from HEAD, with their short hash, date, author and summary. The
 commits are in sections by branch, newest first in each, each section under a divider with the
-name of the branch. Choosing a commit lists the files it changed, and choosing a file opens the
-[side by side diff](#side-by-side-git-diff) of that file in the commit: its version in the
-commit's parent on the left, in the commit on the right. Several commits can be selected, to
+name of the branch. Choosing a commit lists its changes, one row per hunk under a divider per
+file (see [Lists of changes](#lists-of-changes)), and choosing a hunk opens the
+[side by side diff](#side-by-side-git-diff) of that file in the commit at that hunk: its version
+in the commit's parent on the left, in the commit on the right. Several commits can be selected, to
 list and diff their combined change.
 
 ### Sections
@@ -228,7 +230,7 @@ theme scope `ui.picker.divider` if the theme has it, else `ui.text.inactive`, el
 | `space l`, `:git-log` | Open the commit picker, in normal mode, with the cursor on its first row, the [uncommitted changes](#uncommitted-changes-live). The status line shows `s filter, v extend, w/b section, enter files`. |
 | `s` | Filter mode: typing filters by summary, and by hash: a query of 4 hex digits or more (`a1b2c3`) lists the commits whose hash starts with it first, then the commits whose summary matches it. `%commit`, `%author`, `%date` filter by the other columns. `Esc` goes back to normal mode and keeps the query. |
 | `j`/`k`, `Down`/`Up`, `C-n`/`C-p`, `Tab`/`S-Tab`, `C-d`/`C-u`/`PageDown`/`PageUp`, `gg`/`ge`/`G`, `Home`/`End` | Move. The keys that aren't letters work in filter mode too. |
-| `Enter` in the commit picker | List the files changed by the commit, or by the selected commits, or the uncommitted changes (one row per hunk), on top of the commit picker. The status line shows the commit or the range. |
+| `Enter` in the commit picker | List the changes of the commit, or of the selected commits, or the uncommitted changes, on top of the commit picker: one row per hunk, under a divider per file ([Lists of changes](#lists-of-changes)). The status line shows the commit or the range and the totals: `a1b2c3d: 12 changes in 4 files, +80 -31 · Fix the parser`. |
 | `v`, `A-v` | Toggle extend mode: while it's on, every movement extends the selection from the commit where it started to the commit under the cursor. `A-v` works in filter mode too. |
 | `w`, `e` | Extend the selection down (older) to the oldest commit of the section the cursor is in, and put the cursor on it. Pressed again they do nothing, they never go past the divider. |
 | `b` | Extend the selection up (newer) to the newest commit of the section the cursor is in, and put the cursor on it. |
@@ -236,10 +238,10 @@ theme scope `ui.picker.divider` if the theme has it, else `ui.text.inactive`, el
 | `A-s` | Select all the commits of the section the cursor is in ("diff the entire branch"). |
 | `Esc` | In normal mode: if several commits are selected or extend mode is on, select the commit under the cursor alone and leave extend mode; else clear the query if there is one; else close the picker. In filter mode: back to normal mode. |
 | `q`, `C-c` | Close the picker. |
-| `Enter`, `C-g` in the files picker | Open the diff of the file, on top of the files picker. |
-| `C-s` / `C-v` in the files picker | Open the file as it is now in a split, closing both pickers. |
-| `q`, `Esc` in the diff | Back to the files picker. |
-| `Esc` in the files picker | Back to the commit picker. |
+| `Enter`, `C-g` in the list of changes | Open the diff of the file at the hunk, on top of the list. |
+| `C-s` / `C-v` in the list of changes | Open the file as it is now in a split, closing both pickers. |
+| `q`, `Esc` in the diff | Back to the list of changes. |
+| `Esc` in the list of changes | Back to the commit picker. |
 | `Enter` in the diff | Open the file as it is now, at the current hunk, closing both pickers. |
 
 The diff keys are the same as in the [side by side diff](#side-by-side-git-diff). Renames are
@@ -280,6 +282,61 @@ in front when extend mode is on:
 - One commit, selected alone, is listed and diffed as it always was: against its first parent, the
   root commit against nothing.
 
+### Lists of changes
+
+The changes of a commit, of a range, and the [uncommitted changes](#uncommitted-changes-live) are
+listed in the same shape: one row per hunk, grouped under a divider per file.
+
+```
+   edit change
+── gone.txt (deleted)  1 hunk  -1 ───────────────────
+   --   gone.txt:1
+── logo.png (binary) ────────────────────────────────
+── src/lib.rs (new)  1 hunk  +2 ─────────────────────
+   ++   src/lib.rs:1-2
+── src/main.rs  3 hunks  +3 -3 ──────────────────────
+   -+   src/main.rs:3
+   -    src/main.rs:9
+   +    src/main.rs:20
+── src/old.rs → src/new.rs  1 hunk  +1 ──────────────
+   +    src/new.rs:4
+── Cargo.lock  +2 -1 ────────────────────────────────
+```
+
+- **Dividers** are drawn like the commit log's (`ui.picker.divider`, else `ui.text.inactive`, else
+  `comment`), with the file's counts: hunks, lines added and removed and, in the uncommitted
+  changes, how many hunks are staged and unsaved. Zero counts are left out. A renamed file shows
+  `old → new`; a new, deleted or untracked file says so: `(new)`, `(deleted)`, `(untracked)`.
+- **Files without hunk rows** are a divider alone: [lockfiles](#lockfiles), with their counts,
+  last; binary files, `(binary)`; files without changed lines (an empty new file, a change of
+  mode), `(new, empty)` or `(no lines changed)`. The cursor stops on these dividers, which are
+  drawn with its `>` marker when it is on them, and Enter opens their diff.
+- **The `edit` column** says what a hunk does, `-` in the color of `diff.minus` and `+` in the
+  color of `diff.plus`, as the signs of the diff view:
+
+  | Mark | The hunk |
+  | --- | --- |
+  | `+` | only adds lines |
+  | `-` | only removes lines |
+  | `-+` | removes and adds lines |
+  | `++` | is in a file that is created (new or untracked) |
+  | `--` | is in a file that is deleted |
+
+  In the uncommitted changes it comes after the `S`/`M`/`•` marks of where the change is.
+- **Rows** say where the hunk is, `src/main.rs:12-14` (removed lines: the line before them).
+  Files are sorted by path, lockfiles last, and hunks by line.
+
+| Keys | Action |
+| --- | --- |
+| `j`/`k` (and the other movements) | Move from hunk to hunk, skipping the dividers of files that have hunk rows. |
+| `w`, `b` | The first hunk of the next file; the first hunk of the file the cursor is in, or of the previous file when it is there already. They don't wrap around. |
+| `s` | Filter: a hunk matches by its row (`src/main.rs:12-14`), so a query matching a path lists all the hunks of that file. A divider is listed while any of its hunks match, and hidden otherwise; the rows stay in their order. `%edit ++`, and `%marks S` in the uncommitted changes, filter by the other columns. |
+| `Enter`, `C-g` | The diff of the file at the hunk, where `n`/`N` go through the hunks of every file of the list. On a divider without hunk rows: its diff. |
+
+The preview shows the hunk with a few lines of context, under its place, its counts and, in the
+uncommitted changes, its marks: `src/main.rs:5 · +1 -1 · staged`. A divider's preview shows the
+first hunk of its file.
+
 ### Limitations
 
 - Merge commits are compared with their first parent only. In a range, the same goes for the
@@ -307,16 +364,21 @@ in front when extend mode is on:
 
 The [commit log](#git-commit-log) starts with a row for what isn't committed yet, above the first
 divider: `Uncommitted changes (3 files, 1 unsaved)`. Enter on it lists every change that isn't
-committed, one row per hunk, with where the change is:
+committed, in the shape of the [lists of changes](#lists-of-changes), one row per hunk under a
+divider per file, with where the change is:
 
 ```
-  marks change
-  S     src/main.rs:12-14
-   M•   src/main.rs:40
-  SM    src/lib.rs:3
-    •   src/new_idea.rs:1-6 (untracked)
-   M    notes.md:1-20 (untracked)
-   M    Cargo.lock (+340 -12)
+   marks edit change
+── notes.md (untracked)  1 hunk  +20 ────────────────
+    M    ++   notes.md:1-20
+── src/lib.rs  1 hunk  +1 -1  1 staged ──────────────
+   SM    -+   src/lib.rs:3
+── src/main.rs  2 hunks  +4 -1  1 staged  1 unsaved ─
+   S     +    src/main.rs:12-14
+    M•   -+   src/main.rs:40
+── src/new_idea.rs (untracked)  1 hunk  +6  1 unsaved
+     •   ++   src/new_idea.rs:1-6
+── Cargo.lock  +340 -12 ─────────────────────────────
 ```
 
 - `S`: the change is in the index (staged).
@@ -331,25 +393,28 @@ buffer whose file has no other change (or isn't on disk yet, or is ignored by gi
 unsaved edits against the file on disk. Lines are those of the buffer when it is open, as in the
 right side of the diff.
 
-The list is a modal picker like the log: `j`/`k` move, `s` filters (by the `change` column; `%marks
-S` by the marks). The preview draws the hunk with a few lines of context. Rows are sorted by path,
-then by line, with lockfiles last.
+The list is a modal picker like the log, with the keys of the
+[lists of changes](#lists-of-changes): `j`/`k` move, `w`/`b` jump between files, `s` filters (by
+the `change` column; `%marks S` by the marks). The preview draws the hunk with a few lines of
+context. Rows are sorted by path, then by line, with lockfiles last.
 
-- **Enter** opens the diff of the file at that hunk, where `s`/`u`/`r` stage, unstage and revert it
+- **Enter** opens the diff of the file at that hunk (on a divider without hunk rows, its diff), where `s`/`u`/`r` stage, unstage and revert it
   ([hunk actions](#stage-unstage-and-revert-hunks)) and `n`/`N` go through the hunks of every file
   of the list.
 - On a change that is only in the buffer (`•` alone), Enter opens the buffer at its first line
   instead, closing the log.
 - `C-s`, `C-v` and the like open the file at the change, closing the log.
 
-The status line says how much there is: `Uncommitted changes: 6 changes in 5 files, 2 unsaved`.
+The status line says how much there is: `Uncommitted changes: 6 changes in 5 files, +80 -31, 2
+unsaved` (a file without hunk rows is one change).
 
 While the commit log, or anything opened from it, is open, the working tree is watched, and what
 is on screen follows it:
 
 - the count of the first row;
 - the list of uncommitted changes, also while buffers are edited: the cursor stays on the same
-  change (the same file and line), or in the same file, or at the same place when it is gone;
+  hunk (the same file and line), or on the first change of the same file, or at the same place
+  when the file is gone;
 - the diff of an uncommitted file: the line at the top of the screen stays there, and so does the
   horizontal scroll. A diff with no changes left stays open, empty, with `no changes` in the
   footer;
@@ -367,16 +432,15 @@ views closes.
 ### Lockfiles
 
 In the lists of changes, of a commit or uncommitted, lockfiles are never hidden, but each is
-one quiet row (`ui.text.inactive`) with the lines it adds and removes, after the other files. The
-files of a commit:
+a divider alone, without hunk rows, with the lines it adds and removes, after the other files:
 
 ```
-  ~ modified  src/main.rs
-  + untracked notes.md
-  ~ modified  Cargo.lock (+340 -12)
+── src/main.rs  1 hunk  +2 -1 ───────────────────────
+   -+   src/main.rs:12-13
+── Cargo.lock  +340 -12 ─────────────────────────────
 ```
 
-Enter on it opens its diff like any file. The other files are sorted by path. Which files are
+The cursor stops on it, and Enter opens its diff like any file. The other files are sorted by path. Which files are
 lockfiles is set by their name in `[editor.changes]`:
 
 ```toml
@@ -390,10 +454,14 @@ A binary lockfile (`bun.lockb`) shows `(binary)` instead of counts.
 ### Limitations
 
 - The uncommitted changes are one row per hunk, but a hunk is still staged whole, from its diff.
+- The changes of a commit or range are read when the list opens, every file of them: a commit
+  that changes thousands of files takes a moment to list.
+- The cursor never rests on the divider of a file that has hunk rows, as in the commit log: the
+  file's first hunk is where `w`/`b` go, and Enter there opens the diff at it.
 - A buffer with unsaved edits is listed by its path: a buffer without a file (a scratch buffer)
   isn't.
 - Only the commit log's views update live. The changed files picker (`space g`) and `space =` don't,
-  and the files of a commit don't need to.
+  and the changes of a commit don't need to.
 - A directory that a `.gitignore` edit stops ignoring isn't watched until it is created again.
 - Symlinked directories are not followed.
 
