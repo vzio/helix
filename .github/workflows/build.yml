@@ -57,7 +57,8 @@ jobs:
           grammar-cache-version: ${{ env.GRAMMAR_CACHE_VERSION }}
 
       - name: Run cargo test
-        run: cargo test --workspace
+        # every failing test of the platform, not only the first crate's
+        run: cargo test --workspace --no-fail-fast
 
       - name: Run cargo integration-test
         run: cargo integration-test

@@ -122,11 +122,10 @@ jobs:
       - name: Build release binary
         run: cargo build --profile opt --locked --target ${{ matrix.target }}
 
+      # Built from source: the prebuilt binary needs a newer glibc than ubuntu-22.04 has.
       - name: Install cargo-deb
         if: matrix.build == 'x86_64-linux'
-        uses: taiki-e/install-action@16b05812d776ae1dfaabc8277e421fb6d2506419 # v2.82.7
-        with:
-          tool: cargo-deb
+        run: cargo install cargo-deb --locked
 
       - name: Build Deb
         shell: bash
