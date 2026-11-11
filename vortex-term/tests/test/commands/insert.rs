@@ -314,11 +314,11 @@ async fn insert_newline_continue_line_comment() -> anyhow::Result<()> {
 async fn test_open_above() -> anyhow::Result<()> {
     // `O` is pressed in the first line
     test((
-        indoc! {"Helix #[is|]# cool"},
+        indoc! {"Vortex #[is|]# cool"},
         ":lang markdown<ret>O",
         indoc! {"\
             #[\n|]#
-            Helix is cool
+            Vortex is cool
         "},
     ))
     .await?;
@@ -360,10 +360,10 @@ async fn test_open_above() -> anyhow::Result<()> {
             ····b#[t|]#w.
         "}
         .replace("·", " "),
-        ":lang markdown<ret>Ohelix",
+        ":lang markdown<ret>Ovortex",
         indoc! {"\
             I use
-            ····helix#[\n|]#
+            ····vortex#[\n|]#
             ····btw.
         "}
         .replace("·", " "),
@@ -377,13 +377,13 @@ async fn test_open_above() -> anyhow::Result<()> {
 async fn test_open_above_with_multiple_cursors() -> anyhow::Result<()> {
     // the primary cursor is also in the top line
     test((
-        indoc! {"#[H|]#elix
+        indoc! {"#[V|]#ortex
             #(i|)#s
             #(c|)#ool"},
         "O",
         indoc! {
             "#[\n|]#
-            Helix
+            Vortex
             #(\n|)#
             is
             #(\n|)#
@@ -395,14 +395,14 @@ async fn test_open_above_with_multiple_cursors() -> anyhow::Result<()> {
 
     // now with some additional indentation
     test((
-        indoc! {"····#[H|]#elix
+        indoc! {"····#[V|]#ortex
             ····#(i|)#s
             ····#(c|)#ool"}
         .replace("·", " "),
         ":indent-style 4<ret>O",
         indoc! {
             "····#[\n|]#
-            ····Helix
+            ····Vortex
             ····#(\n|)#
             ····is
             ····#(\n|)#
@@ -438,11 +438,11 @@ async fn test_open_above_with_multiple_cursors() -> anyhow::Result<()> {
 async fn test_open_below_with_multiple_cursors() -> anyhow::Result<()> {
     // the primary cursor is also in the top line
     test((
-        indoc! {"#[H|]#elix
+        indoc! {"#[V|]#ortex
             #(i|)#s
             #(c|)#ool"},
         "o",
-        indoc! {"Helix
+        indoc! {"Vortex
             #[\n|]#
             is
             #(\n|)#
@@ -455,13 +455,13 @@ async fn test_open_below_with_multiple_cursors() -> anyhow::Result<()> {
 
     // now with some additional indentation
     test((
-        indoc! {"····#[H|]#elix
+        indoc! {"····#[V|]#ortex
             ····#(i|)#s
             ····#(c|)#ool"}
         .replace("·", " "),
         ":indent-style 4<ret>o",
         indoc! {
-            "····Helix
+            "····Vortex
             ····#[\n|]#
             ····is
             ····#(\n|)#

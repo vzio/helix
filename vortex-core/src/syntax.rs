@@ -14,8 +14,6 @@ use anyhow::{Context, Result};
 use arc_swap::{ArcSwap, Guard};
 use config::{Configuration, FileType, LanguageConfiguration, LanguageServerConfiguration};
 use foldhash::HashSet;
-use vortex_loader::grammar::get_language;
-use vortex_stdx::rope::RopeSliceExt as _;
 use ropey::RopeSlice;
 use std::sync::OnceLock;
 use tree_house::{
@@ -27,6 +25,8 @@ use tree_house::{
     },
     Error, InjectionLanguageMarker, LanguageConfig as SyntaxConfig, Layer,
 };
+use vortex_loader::grammar::get_language;
+use vortex_stdx::rope::RopeSliceExt as _;
 
 use crate::{indent::IndentQuery, tree_sitter, ChangeSet, Language};
 
@@ -391,8 +391,8 @@ impl Loader {
     pub fn language_for_shebang(&self, text: RopeSlice) -> Option<Language> {
         // NOTE: this is slightly different than the one for injection markers in tree-house. It
         // is anchored at the beginning.
-        use vortex_stdx::rope::Regex;
         use std::sync::LazyLock;
+        use vortex_stdx::rope::Regex;
         const SHEBANG: &str = r"^#!\s*(?:\S*[/\\](?:env\s+(?:\-\S+\s+)*)?)?([^\s\.\d]+)";
         static SHEBANG_REGEX: LazyLock<Regex> = LazyLock::new(|| Regex::new(SHEBANG).unwrap());
 

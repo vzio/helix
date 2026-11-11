@@ -4,6 +4,8 @@ use std::time::Duration;
 
 use arc_swap::ArcSwap;
 use futures_util::Future;
+use tokio::task::JoinSet;
+use tokio::time::{timeout_at, Instant};
 use vortex_core::completion::CompletionProvider;
 use vortex_core::syntax::config::LanguageServerFeature;
 use vortex_event::{cancelable_future, TaskController, TaskHandle};
@@ -14,8 +16,6 @@ use vortex_stdx::rope::RopeSliceExt;
 use vortex_view::document::{Mode, SavePoint};
 use vortex_view::handlers::completion::{CompletionEvent, ResponseContext};
 use vortex_view::{Document, DocumentId, Editor, ViewId};
-use tokio::task::JoinSet;
-use tokio::time::{timeout_at, Instant};
 
 use crate::compositor::Compositor;
 use crate::config::Config;

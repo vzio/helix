@@ -41,7 +41,7 @@ async fn main_impl() -> Result<i32> {
 {}
 
 USAGE:
-    hx [FLAGS] [files]...
+    vx [FLAGS] [files]...
 
 ARGS:
     <files>...    Set the input file to use, position can also be specified via file[:row[:col]]
@@ -77,7 +77,11 @@ FLAGS:
     }
 
     if args.display_version {
-        println!("helix {}", VERSION_AND_GIT_HASH);
+        println!(
+            "vortex {} (based on {})",
+            VERSION_AND_GIT_HASH,
+            vortex_loader::upstream::VERSION
+        );
         std::process::exit(0);
     }
 
@@ -133,8 +137,9 @@ FLAGS:
         }
     };
 
-    let workspace_trust =
-        vortex_loader::workspace_trust::WorkspaceTrust::new((&config.editor.workspace_trust).into());
+    let workspace_trust = vortex_loader::workspace_trust::WorkspaceTrust::new(
+        (&config.editor.workspace_trust).into(),
+    );
 
     let lang_loader =
         vortex_core::config::user_lang_loader(&workspace_trust).unwrap_or_else(|err| {
@@ -148,7 +153,11 @@ FLAGS:
 
     // TODO: use the thread local executor to spawn the application task separately from the work pool
     let mut app = Application::new(args, config, lang_loader, workspace_trust)
-        .context("unable to start Helix")?;
+        .context("unable to start Vortex")?;
+    if let Some(hint) = vortex_loader::upstream::config_hint() {
+        log::info!("{hint}");
+        app.editor.set_status(hint);
+    }
     let mut events = app.event_stream();
 
     let exit_code = app.run(&mut events).await?;

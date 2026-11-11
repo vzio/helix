@@ -3,15 +3,15 @@ use crate::{align_view, Align, Editor};
 use anyhow::bail;
 use dap::requests::DisconnectArguments;
 use dap::requests::ThreadsArguments;
+use log::{error, warn};
+use serde_json::{json, Value};
+use std::fmt::Write;
+use std::path::PathBuf;
 use vortex_core::Selection;
 use vortex_dap::{
     self as dap, registry::DebugAdapterId, Client, ConnectionType, Payload, Request, ThreadId,
 };
 use vortex_lsp::block_on;
-use log::{error, warn};
-use serde_json::{json, Value};
-use std::fmt::Write;
-use std::path::PathBuf;
 
 #[macro_export]
 macro_rules! debugger {

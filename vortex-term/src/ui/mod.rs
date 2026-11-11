@@ -23,8 +23,6 @@ use crate::filter_picker_entry;
 use crate::job::{self, Callback};
 pub use completion::Completion;
 pub use editor::EditorView;
-use vortex_stdx::rope;
-use vortex_view::theme::Style;
 pub use markdown::Markdown;
 pub use menu::Menu;
 pub use picker::{Column as PickerColumn, FileLocation, Picker};
@@ -33,9 +31,11 @@ pub use prompt::{Prompt, PromptEvent};
 pub use select::Select;
 pub use spinner::{ProgressSpinners, Spinner};
 pub use text::Text;
+use vortex_stdx::rope;
+use vortex_view::theme::Style;
 
-use vortex_view::Editor;
 use tui::text::{Span, Spans};
+use vortex_view::Editor;
 
 use std::path::Path;
 use std::{error::Error, path::PathBuf};
@@ -249,7 +249,7 @@ pub fn file_picker(editor: &Editor, root: PathBuf) -> FilePicker {
         .max_depth(config.file_picker.max_depth)
         .filter_entry(move |entry| filter_picker_entry(entry, &absolute_root, dedup_symlinks))
         .add_custom_ignore_filename(vortex_loader::config_dir().join("ignore"))
-        .add_custom_ignore_filename(".helix/ignore")
+        .add_custom_ignore_filename(".vortex/ignore")
         .types(get_excluded_types())
         .build()
         .filter_map(|entry| {
@@ -383,7 +383,7 @@ fn directory_content(root: &Path, editor: &Editor) -> Result<Vec<(PathBuf, bool)
         .git_exclude(config.file_explorer.git_exclude)
         .max_depth(Some(1))
         .add_custom_ignore_filename(vortex_loader::config_dir().join("ignore"))
-        .add_custom_ignore_filename(".helix/ignore")
+        .add_custom_ignore_filename(".vortex/ignore")
         .types(get_excluded_types())
         .build()
         .filter_map(|entry| {
@@ -427,16 +427,16 @@ fn get_child_if_single_dir(path: &Path) -> Option<PathBuf> {
 pub mod completers {
     use super::Utf8PathBuf;
     use crate::ui::prompt::Completion;
+    use std::borrow::Cow;
+    use std::collections::BTreeSet;
+    use std::sync::LazyLock;
+    use tui::text::Span;
     use vortex_core::command_line::{self, Tokenizer};
     use vortex_core::fuzzy::fuzzy_match;
     use vortex_core::syntax::config::LanguageServerFeature;
     use vortex_view::document::SCRATCH_BUFFER_NAME;
     use vortex_view::theme;
     use vortex_view::{editor::Config, Editor};
-    use std::borrow::Cow;
-    use std::collections::BTreeSet;
-    use std::sync::LazyLock;
-    use tui::text::Span;
 
     pub type Completer = fn(&Editor, &str) -> Vec<Completion>;
 

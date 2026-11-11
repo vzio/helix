@@ -9,6 +9,7 @@ use std::{
 use anyhow::Ok;
 use arc_swap::access::Access;
 
+use tokio::time::Instant;
 use vortex_event::{register_hook, send_blocking};
 use vortex_view::{
     document::Mode,
@@ -16,7 +17,6 @@ use vortex_view::{
     handlers::{AutoSaveEvent, Handlers},
     Editor,
 };
-use tokio::time::Instant;
 
 use crate::{
     commands, compositor,

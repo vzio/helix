@@ -20,8 +20,8 @@ use vortex_vcs::DiffProviderRegistry;
 
 use futures_util::stream::select_all::SelectAll;
 use futures_util::StreamExt;
-use vortex_lsp::{Call, LanguageServerId};
 use tokio_stream::wrappers::UnboundedReceiverStream;
+use vortex_lsp::{Call, LanguageServerId};
 
 use std::{
     borrow::Cow,
@@ -477,7 +477,7 @@ pub struct Config {
     /// Whether to instruct the LSP to replace the entire word when applying a completion
     /// or to only insert new text
     pub completion_replace: bool,
-    /// `true` if helix should automatically add a line comment token if you're currently in a comment
+    /// `true` if vortex should automatically add a line comment token if you're currently in a comment
     /// and press `enter`.
     pub continue_comments: bool,
     /// Whether to display infoboxes. Defaults to true.
@@ -591,10 +591,10 @@ impl Default for WorkspaceTrustConfig {
 pub enum ImplicitTrustLevelConfig {
     /// Don't trust anything implicitly — prompt for every new workspace.
     None,
-    /// Trust Helix-launched server processes (LSP and DAP) implicitly. Workspace-local config and
+    /// Trust Vortex-launched server processes (LSP and DAP) implicitly. Workspace-local config and
     /// git full-trust still require explicit `:workspace-trust`. This is the default — language
     /// servers are configured globally, so auto-starting them in fresh workspaces matches user
-    /// expectations while the workspace-controlled `.helix/` config still requires opt-in.
+    /// expectations while the workspace-controlled `.vortex/` config still requires opt-in.
     #[default]
     Servers,
     /// Trust everything implicitly. Explicit excludes still win.
@@ -2400,7 +2400,7 @@ impl Editor {
             doc.mark_as_focused();
         }
 
-        // an `hx` in the terminal panel waited on it (`git commit`): back to the panel
+        // a `vx` in the terminal panel waited on it (`git commit`): back to the panel
         if self.terminal.document_closed(doc_id) {
             self.terminal.focus();
         }

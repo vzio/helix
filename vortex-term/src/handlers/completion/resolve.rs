@@ -1,8 +1,8 @@
 use std::sync::Arc;
 
-use vortex_lsp::lsp;
 use tokio::sync::mpsc::Sender;
 use tokio::time::{Duration, Instant};
+use vortex_lsp::lsp;
 
 use vortex_event::{send_blocking, AsyncHook, TaskController, TaskHandle};
 use vortex_view::Editor;

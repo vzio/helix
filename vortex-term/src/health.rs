@@ -1,6 +1,4 @@
 use crate::config::{Config, ConfigLoadError};
-use vortex_core::config::{default_lang_config, user_lang_config};
-use vortex_loader::grammar::load_runtime_file;
 use std::{
     collections::HashSet,
     io::{IsTerminal, Write},
@@ -9,6 +7,8 @@ use termina::{
     style::{ColorSpec, StyleExt as _, Stylized},
     Terminal as _,
 };
+use vortex_core::config::{default_lang_config, user_lang_config};
+use vortex_loader::grammar::load_runtime_file;
 
 #[derive(Copy, Clone)]
 pub enum TsFeature {

@@ -8,7 +8,6 @@ use arc_swap::{
     access::{DynAccess, DynGuard},
     ArcSwap,
 };
-use vortex_view::{document::Mode, info::Info, input::KeyEvent};
 use indexmap::IndexMap;
 use macros::key;
 use serde::Deserialize;
@@ -18,6 +17,7 @@ use std::{
     ops::{Deref, DerefMut},
     sync::Arc,
 };
+use vortex_view::{document::Mode, info::Info, input::KeyEvent};
 
 #[derive(Debug, Clone, Default, Deserialize)]
 pub struct KeyTrieNode {
@@ -384,9 +384,9 @@ mod tests {
     use super::*;
     use crate::commands::MappableCommand;
     use arc_swap::access::Constant;
+    use indexmap::indexmap;
     use vortex_core::hashmap;
     use vortex_view::input::{KeyCode, KeyEvent, KeyModifiers};
-    use indexmap::indexmap;
 
     #[test]
     #[should_panic]

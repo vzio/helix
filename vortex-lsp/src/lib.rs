@@ -7,18 +7,18 @@ mod transport;
 use arc_swap::ArcSwap;
 pub use client::Client;
 pub use futures_executor::block_on;
-pub use vortex_lsp_types as lsp;
 pub use jsonrpc::Call;
 use log::warn;
 pub use lsp::{Position, Url};
+pub use vortex_lsp_types as lsp;
 
 use futures_util::stream::select_all::SelectAll;
+use slotmap::SlotMap;
+use tokio::sync::mpsc::UnboundedReceiver;
 use vortex_core::syntax::config::{
     LanguageConfiguration, LanguageServerConfiguration, LanguageServerFeatures, RootMarkers,
 };
 use vortex_stdx::path;
-use slotmap::SlotMap;
-use tokio::sync::mpsc::UnboundedReceiver;
 
 use std::{
     collections::HashMap,
@@ -118,7 +118,9 @@ pub mod util {
                 vortex_core::diagnostic::DiagnosticTag::Unnecessary => {
                     lsp::DiagnosticTag::UNNECESSARY
                 }
-                vortex_core::diagnostic::DiagnosticTag::Deprecated => lsp::DiagnosticTag::DEPRECATED,
+                vortex_core::diagnostic::DiagnosticTag::Deprecated => {
+                    lsp::DiagnosticTag::DEPRECATED
+                }
             })
             .collect();
 
@@ -176,10 +178,10 @@ pub mod util {
         // Note that the end of the line here is **before** the line terminator
         // so we must use `line_end_char_index` instead of `doc.line_to_char(pos_line + 1)`
         //
-        // FIXME: Helix does not fully comply with the LSP spec for line terminators.
+        // FIXME: Vortex does not fully comply with the LSP spec for line terminators.
         // The LSP standard requires that line terminators are ['\n', '\r\n', '\r'].
-        // Without the unicode-linebreak feature disabled, the `\r` terminator is not handled by helix.
-        // With the unicode-linebreak feature, helix recognizes multiple extra line break chars
+        // Without the unicode-linebreak feature disabled, the `\r` terminator is not handled by vortex.
+        // With the unicode-linebreak feature, vortex recognizes multiple extra line break chars
         // which means that positions will be decoded/encoded incorrectly in their presence
 
         let line = match offset_encoding {

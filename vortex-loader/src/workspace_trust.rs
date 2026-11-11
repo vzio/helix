@@ -1,11 +1,11 @@
 //! Workspace trust.
 //!
-//! Helix can load workspace-local configuration (`.helix/`) and launch language servers, both of
+//! Vortex can load workspace-local configuration (`.vortex/`) and launch language servers, both of
 //! which can execute arbitrary code. By default these are gated behind explicit user trust granted
 //! per-workspace.
 //!
 //! Trust is granted with `:workspace-trust` (or the popup) and revoked with `:workspace-untrust`.
-//! A grant snapshots a hash of every file under `.helix/`. If those files change later the
+//! A grant snapshots a hash of every file under `.vortex/`. If those files change later the
 //! workspace becomes [`TrustStatus::Stale`] and local config is no longer loaded until the user
 //! re-runs `:workspace-trust`. Language servers continue to launch under stale trust because the
 //! binaries are configured globally and were not part of the changed surface.
@@ -23,7 +23,7 @@
 //! ```
 //!
 //! `hash` is omitted for excluded entries. The "one file per workspace" shape is safe under
-//! multiple concurrent helix instances writing trust for *different* workspaces (different
+//! multiple concurrent vortex instances writing trust for *different* workspaces (different
 //! filenames). Two instances racing to trust the same workspace converge to identical content.
 //!
 //! ## Trusted globs (discouraged)
@@ -33,7 +33,7 @@
 //! time. A workspace whose path matches one of these globs is implicitly trusted for everything.
 //!
 //! This is deliberately weaker than an explicit `:workspace-trust` grant and is discouraged: it
-//! bypasses the `.helix/` hash pin (changes to local config are never re-checked) and it trusts any
+//! bypasses the `.vortex/` hash pin (changes to local config are never re-checked) and it trusts any
 //! repository that happens to land under a matching directory, including ones cloned there later. An
 //! explicit exclude still wins over a matching glob.
 
@@ -58,7 +58,7 @@ pub enum TrustQuery {
     Lsp,
     /// Query debug adapter permissions
     Dap,
-    /// Query whether `.helix/` config can be loaded
+    /// Query whether `.vortex/` config can be loaded
     LocalConfig,
     /// Query whether git integration can trust the .git/config
     Git,
@@ -70,7 +70,7 @@ pub enum TrustStatus {
     Trusted,
     /// No trust decision has been made (and no implicit trust applies).
     Untrusted,
-    /// Workspace was previously trusted, but the `.helix/` tree has changed since the grant — the
+    /// Workspace was previously trusted, but the `.vortex/` tree has changed since the grant — the
     /// user should re-trust before local config is re-loaded. LSP launches may still proceed under
     /// stale trust because they use the (unchanged) globally-configured binaries.
     Stale,
@@ -96,7 +96,7 @@ impl TrustStatus {
 pub enum ImplicitTrustLevel {
     /// Prompt for every workspace.
     None,
-    /// Helix-launched server processes (LSP and DAP) start implicitly. Workspace-local config and
+    /// Vortex-launched server processes (LSP and DAP) start implicitly. Workspace-local config and
     /// git `Trust::Full` still require explicit trust.
     ///
     /// Default: language servers are how most people use the editor and the binaries are global
@@ -157,7 +157,7 @@ pub struct WorkspaceTrust {
 #[derive(Clone, Copy)]
 struct CacheEntry {
     status: TrustStatus,
-    /// Whether `.helix/config.toml` or `.helix/languages.toml` exists in the workspace at the time
+    /// Whether `.vortex/config.toml` or `.vortex/languages.toml` exists in the workspace at the time
     /// of the first uncached query. Snapshotted to keep [`WorkspaceTrust::workspace_restricted`]
     /// off the syscall path on repeat calls (statusline indicator runs per render).
     has_local_config: bool,
@@ -172,7 +172,7 @@ impl WorkspaceTrust {
     }
 
     /// A trust state that grants every capability. Use for non-interactive contexts (CLI grammar
-    /// build, `hx --health`) where prompting isn't meaningful.
+    /// build, `vx --health`) where prompting isn't meaningful.
     pub fn fully_trusted() -> Self {
         Self::new(Config {
             level: ImplicitTrustLevel::Insecure,
@@ -191,7 +191,7 @@ impl WorkspaceTrust {
     }
 
     /// Replace the configuration in-place. Clears the trust cache so the next query re-reads from
-    /// disk. This catches external mutations to `.helix/` that happened while helix was running
+    /// disk. This catches external mutations to `.vortex/` that happened while vortex was running
     /// (the editor's in-memory cache would otherwise keep returning a stale `Trusted` even though
     /// `compute_workspace_hash` would now produce a different digest). Used by `:config-reload`.
     ///
@@ -205,7 +205,7 @@ impl WorkspaceTrust {
 
     /// Raw on-disk trust status for `workspace`, ignoring implicit-trust-level shortcuts and the
     /// `demote_for_query` mapping. Use this when you need to distinguish *Stale* (was trusted,
-    /// `.helix/` changed) from *Untrusted* (never trusted)
+    /// `.vortex/` changed) from *Untrusted* (never trusted)
     pub fn status(&self, workspace: &Path) -> TrustStatus {
         self.entry(workspace).status
     }
@@ -305,7 +305,7 @@ impl WorkspaceTrust {
             || !self.query(workspace, TrustQuery::Dap).is_trusted()
     }
 
-    /// Mark `workspace` trusted. Snapshots the current `.helix/` hash.
+    /// Mark `workspace` trusted. Snapshots the current `.vortex/` hash.
     pub fn trust(&self, workspace: &Path) {
         let hash = compute_workspace_hash(workspace);
         let has_local_config = has_local_config(workspace);
@@ -364,12 +364,12 @@ impl WorkspaceTrust {
 }
 
 fn has_local_config(workspace: &Path) -> bool {
-    workspace.join(".helix").join("config.toml").exists()
-        || workspace.join(".helix").join("languages.toml").exists()
+    workspace.join(".vortex").join("config.toml").exists()
+        || workspace.join(".vortex").join("languages.toml").exists()
 }
 
 fn demote_for_query(status: TrustStatus, query: TrustQuery) -> TrustStatus {
-    // Stale workspaces have their `.helix/` config changed since trust was granted. LSP launches
+    // Stale workspaces have their `.vortex/` config changed since trust was granted. LSP launches
     // still rely on globally-configured binaries that weren't part of the changed surface, so they
     // remain Trusted; other queries demote to Untrusted until the user re-trusts.
     match (status, query) {
@@ -397,7 +397,7 @@ fn load_status(workspace: &Path) -> TrustStatus {
 // ---------- on-disk format ----------
 //
 // `data_dir()/workspace_trust/<sha256(canonical_workspace_path)>` is a small key-value file. The
-// filename derives from the path, so concurrent helix instances writing trust for *different*
+// filename derives from the path, so concurrent vortex instances writing trust for *different*
 // workspaces never touch the same file. The original path is stored inside as a sanity check and
 // for `cat workspace_trust/*` debugging.
 
@@ -509,17 +509,17 @@ fn remove_entry(workspace: &Path) {
 
 // ---------- hashing ----------
 
-/// SHA-256 of all files under `.helix/`, used to detect changes to local config after trust was
-/// granted. Returns `None` if `.helix/` is absent or has no files, so a workspace with no local
+/// SHA-256 of all files under `.vortex/`, used to detect changes to local config after trust was
+/// granted. Returns `None` if `.vortex/` is absent or has no files, so a workspace with no local
 /// config can still be trusted.
 pub fn compute_workspace_hash(workspace: &Path) -> Option<String> {
-    let helix_dir = workspace.join(".helix");
-    if !helix_dir.is_dir() {
+    let vortex_dir = workspace.join(".vortex");
+    if !vortex_dir.is_dir() {
         return None;
     }
 
     let mut files: Vec<PathBuf> = Vec::new();
-    walk(&helix_dir, &mut files);
+    walk(&vortex_dir, &mut files);
     if files.is_empty() {
         return None;
     }
@@ -527,7 +527,7 @@ pub fn compute_workspace_hash(workspace: &Path) -> Option<String> {
 
     let mut hasher = Sha256::new();
     for file in &files {
-        let rel = file.strip_prefix(&helix_dir).unwrap_or(file);
+        let rel = file.strip_prefix(&vortex_dir).unwrap_or(file);
         hash_field(&mut hasher, rel.to_string_lossy().as_bytes());
         match fs::read(file) {
             Ok(bytes) => hash_field(&mut hasher, &bytes),
@@ -563,7 +563,7 @@ fn walk(dir: &Path, out: &mut Vec<PathBuf>) {
         } else if direct.is_file() {
             out.push(path);
         } else if direct.is_symlink() {
-            // Symlinks to files (extremely common: dotfiles managers symlink `.helix/config.toml`
+            // Symlinks to files (extremely common: dotfiles managers symlink `.vortex/config.toml`
             // to an external location). Follow once via `fs::metadata` which traverses links, then
             // include the file in the hash so mutations to the *target* are still detected.
             if let Ok(target) = fs::metadata(&path) {
@@ -589,14 +589,14 @@ mod test {
     }
 
     #[test]
-    fn hash_changes_when_helix_dir_changes() {
+    fn hash_changes_when_vortex_dir_changes() {
         let dir = tempfile::tempdir().unwrap();
         let workspace = dir.path();
 
         let empty = compute_workspace_hash(workspace);
-        assert_eq!(empty, None, ".helix/ absent should hash to None");
+        assert_eq!(empty, None, ".vortex/ absent should hash to None");
 
-        write_file(&workspace.join(".helix").join("config.toml"), "a = 1");
+        write_file(&workspace.join(".vortex").join("config.toml"), "a = 1");
         let h1 = compute_workspace_hash(workspace).expect("has files");
         assert!(h1.starts_with("sha256:"));
 
@@ -605,12 +605,12 @@ mod test {
         assert_eq!(h1, h1b);
 
         // Different content → different hash
-        write_file(&workspace.join(".helix").join("config.toml"), "a = 2");
+        write_file(&workspace.join(".vortex").join("config.toml"), "a = 2");
         let h2 = compute_workspace_hash(workspace).expect("has files");
         assert_ne!(h1, h2);
 
         // Added file → different hash
-        write_file(&workspace.join(".helix").join("languages.toml"), "");
+        write_file(&workspace.join(".vortex").join("languages.toml"), "");
         let h3 = compute_workspace_hash(workspace).expect("has files");
         assert_ne!(h2, h3);
     }
@@ -632,11 +632,11 @@ mod test {
         let workspace = dir.path();
 
         let trust = WorkspaceTrust::new(Config::default());
-        // Untrusted + no .helix/ → indicator should hide.
+        // Untrusted + no .vortex/ → indicator should hide.
         assert!(!trust.workspace_restricted(workspace));
 
-        // Untrusted + .helix/config.toml exists → indicator should show.
-        write_file(&workspace.join(".helix").join("config.toml"), "a = 1");
+        // Untrusted + .vortex/config.toml exists → indicator should show.
+        write_file(&workspace.join(".vortex").join("config.toml"), "a = 1");
         // Bust the cache so the new file is picked up.
         trust.untrust(workspace);
         assert!(trust.workspace_restricted(workspace));
@@ -647,7 +647,7 @@ mod test {
 
         // After mutation (and revoking the cached entry to simulate fresh load), workspace becomes
         // Stale → indicator should show again.
-        write_file(&workspace.join(".helix").join("config.toml"), "a = 2");
+        write_file(&workspace.join(".vortex").join("config.toml"), "a = 2");
         trust.inner.lock().remove(workspace);
         assert!(trust.workspace_restricted(workspace));
     }
@@ -655,20 +655,20 @@ mod test {
     #[test]
     fn set_config_invalidates_cache_so_stale_is_detected() {
         // Regression: prior to this fix the editor's WorkspaceTrust cache held a `Trusted` entry
-        // after `:workspace-trust` was run. If the user (or another process) modified `.helix/`
-        // while helix was running, subsequent queries kept returning Trusted even though
+        // after `:workspace-trust` was run. If the user (or another process) modified `.vortex/`
+        // while vortex was running, subsequent queries kept returning Trusted even though
         // `Config::load_default`'s transient WorkspaceTrust would correctly see Stale. Reloading
         // config now clears the cache so the editor sees the new state on the next query.
         let dir = tempfile::tempdir().unwrap();
         let workspace = dir.path();
-        write_file(&workspace.join(".helix").join("config.toml"), "a = 1");
+        write_file(&workspace.join(".vortex").join("config.toml"), "a = 1");
 
         let mut trust = WorkspaceTrust::new(Config::default());
         trust.trust(workspace);
         assert_eq!(trust.status(workspace), TrustStatus::Trusted);
 
-        // External mutation while helix is running.
-        write_file(&workspace.join(".helix").join("config.toml"), "a = 2");
+        // External mutation while vortex is running.
+        write_file(&workspace.join(".vortex").join("config.toml"), "a = 2");
 
         // Without a refresh, the cache still says Trusted.
         assert_eq!(trust.status(workspace), TrustStatus::Trusted);
@@ -683,7 +683,7 @@ mod test {
     #[cfg(unix)]
     #[test]
     fn hash_includes_symlinked_config_file() {
-        // Regression: `.helix/config.toml` is commonly a symlink to an external location (dotfiles
+        // Regression: `.vortex/config.toml` is commonly a symlink to an external location (dotfiles
         // managers). The old `walk` only matched `is_dir() | is_file()`, so symlinks fell through
         // and were excluded from the hash entirely — trust was granted with an effectively empty
         // hash and config mutations went undetected.
@@ -694,8 +694,8 @@ mod test {
         let external = dir.path().join("external_config.toml");
         write_file(&external, "a = 1");
 
-        fs::create_dir_all(workspace.join(".helix")).unwrap();
-        symlink(&external, workspace.join(".helix").join("config.toml")).unwrap();
+        fs::create_dir_all(workspace.join(".vortex")).unwrap();
+        symlink(&external, workspace.join(".vortex").join("config.toml")).unwrap();
 
         let h1 = compute_workspace_hash(workspace).expect("symlink should be hashed");
 
@@ -718,12 +718,12 @@ mod test {
         // because the \0 separators were indistinguishable from content.
         let dir1 = tempfile::tempdir().unwrap();
         let split = dir1.path();
-        write_file(&split.join(".helix").join("foo.toml"), "a");
-        write_file(&split.join(".helix").join("bar.toml"), "b");
+        write_file(&split.join(".vortex").join("foo.toml"), "a");
+        write_file(&split.join(".vortex").join("bar.toml"), "b");
 
         let dir2 = tempfile::tempdir().unwrap();
         let merged = dir2.path();
-        write_file(&merged.join(".helix").join("foo.toml"), "a\0bar.toml\0b");
+        write_file(&merged.join(".vortex").join("foo.toml"), "a\0bar.toml\0b");
 
         let h1 = compute_workspace_hash(split).expect("split has files");
         let h2 = compute_workspace_hash(merged).expect("merged has files");
@@ -805,21 +805,21 @@ mod test {
 
     #[test]
     fn workspace_restricted_detects_stale() {
-        // Regression: a previously-trusted workspace whose .helix/ has since been modified must be
+        // Regression: a previously-trusted workspace whose .vortex/ has since been modified must be
         // reported as restricted (so the indicator and stale-hint can fire). The old code piped
         // Stale through `demote_for_query` and matched Untrusted, which made the `Stale` arm of
         // `workspace_restricted` unreachable.
         let dir = tempfile::tempdir().unwrap();
         let workspace = dir.path();
-        write_file(&workspace.join(".helix").join("config.toml"), "a = 1");
+        write_file(&workspace.join(".vortex").join("config.toml"), "a = 1");
 
         let trust = WorkspaceTrust::new(Config::default());
         trust.trust(workspace);
         assert!(!trust.workspace_restricted(workspace));
         assert_eq!(trust.status(workspace), TrustStatus::Trusted);
 
-        // Mutate `.helix/` and bust the in-memory cache to force a re-read.
-        write_file(&workspace.join(".helix").join("config.toml"), "a = 2");
+        // Mutate `.vortex/` and bust the in-memory cache to force a re-read.
+        write_file(&workspace.join(".vortex").join("config.toml"), "a = 2");
         trust.inner.lock().remove(workspace);
 
         assert_eq!(trust.status(workspace), TrustStatus::Stale);

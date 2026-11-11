@@ -65,12 +65,12 @@ criterion = { version = "0.8", default-features = false, features = ["cargo_benc
 quickcheck = { version = "1", default-features = false }
 
 [workspace.package]
-version = "25.7.1"
+version = "0.1.0"
 edition = "2021"
 authors = ["Blaž Hrastnik <blaz@mxxn.io>"]
 categories = ["editor"]
-repository = "https://github.com/helix-editor/helix"
-homepage = "https://helix-editor.com"
+repository = "https://github.com/vzio/vortex"
+homepage = "https://github.com/vzio/vortex"
 license = "MPL-2.0"
 rust-version = "1.90"
 

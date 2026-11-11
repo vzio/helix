@@ -10,7 +10,7 @@ mod test {
 
         let does_indentation_work = 1;
 
-        // Assignment / destructuring RHS continued on the next line. helix
+        // Assignment / destructuring RHS continued on the next line. vortex
         // deliberately indents these continuations only when reindenting an
         // already-complete expression (an opinionated binary/assignment rule);
         // typing a newline after `=` does not indent the RHS, because the value

@@ -1,9 +1,9 @@
+use tui::buffer::Buffer;
 use vortex_core::Position;
 use vortex_view::{
     graphics::{CursorKind, Rect},
     Editor,
 };
-use tui::buffer::Buffer;
 
 use crate::compositor::{Component, Context, Event, EventResult};
 

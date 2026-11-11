@@ -15,7 +15,7 @@ light = "catppuccin_latte"
 
 ## Creating a theme
 
-Create a file with the name of your theme as the file name (i.e `mytheme.toml`) and place it in your `themes` directory (i.e `~/.config/helix/themes` or `%AppData%\helix\themes` on Windows). The directory might have to be created beforehand.
+Create a file with the name of your theme as the file name (i.e `mytheme.toml`) and place it in your `themes` directory (i.e `~/.config/vortex/themes` or `%AppData%\vortex\themes` on Windows). The directory might have to be created beforehand.
 
 > 💡 The names "default" and "base16_default" are reserved for built-in themes
 > and cannot be overridden by user-defined themes.
@@ -46,7 +46,7 @@ If the key contains a dot `'.'`, it must be quoted to prevent it being parsed as
 
 Color values must be either a [CSS hex RGB string](https://developer.mozilla.org/en-US/docs/Web/CSS/Reference/Values/hex-color) or a name declared in the [`palette`](#color-palettes).
 
-> 💡 Note that Helix doesn't support transparency (alpha channel).
+> 💡 Note that Vortex doesn't support transparency (alpha channel).
 
 For inspiration, you can find the default `theme.toml`
 [here](https://github.com/helix-editor/helix/blob/master/theme.toml) and

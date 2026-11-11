@@ -1,5 +1,5 @@
 //! Extensions to the standard library. A collection of helper functions
-//! used throughout helix.
+//! used throughout vortex.
 
 pub mod env;
 pub mod faccess;

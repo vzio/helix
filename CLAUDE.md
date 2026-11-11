@@ -1,9 +1,17 @@
-# Working on this fork
+# Working on Vortex
 
-This is [vzio/helix](https://github.com/vzio/helix), upstream
-[Helix](https://github.com/helix-editor/helix) plus the features in [FORK.md](FORK.md). Read
-FORK.md first: it lists every fork feature, where its code lives and which core files it hooks
-into.
+This is [vzio/vortex](https://github.com/vzio/vortex): Vortex, a personal fork of
+[Helix](https://github.com/helix-editor/helix), upstream Helix plus the features in
+[FORK.md](FORK.md). Read FORK.md first: it lists every fork feature, where its code lives and
+which core files it hooks into.
+
+- **README.md is the owner's.** Agents never edit it.
+- **Never send Vortex issues or PRs upstream** (`helix-editor/helix`) or to any other fork.
+- **Upstream keeps its name** where the text is about upstream: credits, links to upstream
+  issues and PRs, license and copyright notices, CHANGELOG.md (upstream's history up to the fork
+  point). Everything else says Vortex and `vx`; the guard test `vortex-term/tests/name_guard.rs`
+  fails on any other mention of upstream's name or binary, and its allowlist says where they
+  may appear.
 
 ## The rule
 
@@ -81,12 +89,12 @@ naive = "llll...a;<esc>..."             # brute force without the feature, earli
 
 - Use literal strings (`'''`) for code, so backslashes stay as they are.
 - **start / goal**: realistic text (code in several languages, config files, logs, prose), at most
-  16 lines of at most 50 characters. `start` may mark the selection with Helix's test markup
+  16 lines of at most 50 characters. `start` may mark the selection with Vortex's test markup
   (`#[|x]#` primary, `#(|y)#` secondary); without it the cursor is on the first character. The goal
   is compared exactly (text only, not selections), so both usually end with a newline.
 - **Solved** means the text equals `goal` in normal mode, checked after every key: a solution that
   types text ends with `<esc>`, and it must not reach the goal before its last key.
-- **Keys** use Helix's macro notation (`<esc>`, `<ret>`, `<space>`, `<C-w>`, `<A-o>`); a literal
+- **Keys** use Vortex's macro notation (`<esc>`, `<ret>`, `<space>`, `<C-w>`, `<A-o>`); a literal
   `<` or `>` is `<lt>` or `<gt>`. Every key event is one keystroke. Par is computed, never written.
 - Shell commands (`|`) only in the `shell` chapter, with POSIX tools (`sort`, `uniq`, `tr`, `cut`,
   `nl`, `rev`); the replay test skips that chapter on Windows.
@@ -147,7 +155,7 @@ one, and a new line is indented like the last. Replay rather than reason.
   changes.
 - **FORK.md.** Every feature gets a section (usage, behaviour, limitations) and a row in the code
   layout table; ported work gets a credit with links to the original PR and its author.
-- **PRs go to the fork only:** `vzio/helix`, base `master`. Never open PRs against upstream
+- **PRs go to the fork only:** `vzio/vortex`, base `main`. Never open PRs against upstream
   (`helix-editor/helix`) or any other fork. The PR title and description are the squash commit
   message, so write them as one. One feature or fix per PR.
 - **Checks** before pushing, all clean:

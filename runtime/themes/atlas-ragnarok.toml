@@ -3,9 +3,9 @@
 # https://github.com/AyoubTadlaoui/atlas-ragnarok
 #
 # Install:
-#   mkdir -p ~/.config/helix/themes
-#   cp atlas-ragnarok.toml ~/.config/helix/themes/
-#   # add `theme = "atlas-ragnarok"` to ~/.config/helix/config.toml
+#   mkdir -p ~/.config/vortex/themes
+#   cp atlas-ragnarok.toml ~/.config/vortex/themes/
+#   # add `theme = "atlas-ragnarok"` to ~/.config/vortex/config.toml
 
 # ─── Syntax ──────────────────────────────────────────────────────────────────
 "attribute"                     = "thunder_bright"

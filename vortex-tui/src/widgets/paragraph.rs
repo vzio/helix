@@ -7,9 +7,9 @@ use crate::{
         Block, Widget,
     },
 };
+use std::iter;
 use vortex_core::unicode::width::UnicodeWidthStr;
 use vortex_view::graphics::{Rect, Style};
-use std::iter;
 
 fn get_line_offset(line_width: u16, text_area_width: u16, alignment: Alignment) -> u16 {
     match alignment {

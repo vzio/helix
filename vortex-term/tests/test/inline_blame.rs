@@ -6,6 +6,7 @@ use std::{
     time::{Duration, Instant},
 };
 
+use tokio_stream::wrappers::UnboundedReceiverStream;
 use vortex_term::{application::Application, config::Config, keymap::KeyTrie};
 use vortex_view::{
     blame::{BlameState, LineBlameResult},
@@ -13,7 +14,6 @@ use vortex_view::{
     editor::{InlineBlameConfig, InlineBlameShow},
     input::parse_macro,
 };
-use tokio_stream::wrappers::UnboundedReceiverStream;
 
 #[cfg(windows)]
 use crossterm::event::{Event, KeyEvent};

@@ -2,7 +2,7 @@
 name = "vortex-term"
 description = "A post-modern text editor."
 include = ["src/**/*", "README.md"]
-default-run = "hx"
+default-run = "vx"
 version.workspace = true
 authors.workspace = true
 edition.workspace = true
@@ -14,20 +14,19 @@ homepage.workspace = true
 
 [package.metadata.deb]
 # generate a .deb in target/debian/ with the command: cargo deb --no-build
-name = "helix"
+name = "vortex"
 assets = [
-  { source = "target/release/hx", dest = "/usr/lib/helix/", mode = "755" },
-  { source = "../contrib/hx_launcher.sh", dest = "/usr/bin/hx", mode = "755" },
-  { source = "../runtime/*", dest = "/usr/lib/helix/runtime/", mode = "644" },
-  { source = "../runtime/grammars/*", dest = "/usr/lib/helix/runtime/grammars/", mode = "644" }, # to avoid sources/
-  { source = "../runtime/queries/**/*", dest = "/usr/lib/helix/runtime/queries/", mode = "644" },
-  { source = "../runtime/themes/**/*", dest = "/usr/lib/helix/runtime/themes/", mode = "644" },
-  { source = "../README.md", dest = "/usr/share/doc/helix/", mode = "644" },
-  { source = "../contrib/completion/hx.bash", dest = "/usr/share/bash-completion/completions/hx", mode = "644" },
-  { source = "../contrib/completion/hx.fish", dest = "/usr/share/fish/vendor_completions.d/hx.fish", mode = "644" },
-  { source = "../contrib/completion/hx.zsh", dest = "/usr/share/zsh/vendor-completions/_hx", mode = "644" },
-  { source = "../contrib/Helix.desktop", dest = "/usr/share/applications/Helix.desktop", mode = "644" },
-  { source = "../contrib/helix.png", dest = "/usr/share/icons/hicolor/256x256/apps/helix.png", mode = "644" },
+  { source = "target/release/vx", dest = "/usr/lib/vortex/", mode = "755" },
+  { source = "../contrib/vx_launcher.sh", dest = "/usr/bin/vx", mode = "755" },
+  { source = "../runtime/*", dest = "/usr/lib/vortex/runtime/", mode = "644" },
+  { source = "../runtime/grammars/*", dest = "/usr/lib/vortex/runtime/grammars/", mode = "644" }, # to avoid sources/
+  { source = "../runtime/queries/**/*", dest = "/usr/lib/vortex/runtime/queries/", mode = "644" },
+  { source = "../runtime/themes/**/*", dest = "/usr/lib/vortex/runtime/themes/", mode = "644" },
+  { source = "../README.md", dest = "/usr/share/doc/vortex/", mode = "644" },
+  { source = "../contrib/completion/vx.bash", dest = "/usr/share/bash-completion/completions/vx", mode = "644" },
+  { source = "../contrib/completion/vx.fish", dest = "/usr/share/fish/vendor_completions.d/vx.fish", mode = "644" },
+  { source = "../contrib/completion/vx.zsh", dest = "/usr/share/zsh/vendor-completions/_vx", mode = "644" },
+  { source = "../contrib/Vortex.desktop", dest = "/usr/share/applications/Vortex.desktop", mode = "644" },
 ]
 
 [features]
@@ -39,7 +38,7 @@ git = ["vortex-vcs/git"]
 bench = []
 
 [[bin]]
-name = "hx"
+name = "vx"
 path = "src/main.rs"
 
 [dependencies]
@@ -105,6 +104,7 @@ vortex-loader = { path = "../vortex-loader" }
 [dev-dependencies]
 smallvec = "1.15"
 indoc = "2.0.6"
+regex = "1"
 tempfile.workspace = true
 same-file = "1.0.1"
 criterion.workspace = true

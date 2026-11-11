@@ -240,7 +240,7 @@ mod line_ending_tests {
         assert_eq!(auto_detect_line_ending(&Rope::from_str("hello")), None);
         assert_eq!(auto_detect_line_ending(&Rope::from_str("")), None);
         assert_eq!(
-            auto_detect_line_ending(&Rope::from_str("hello\nhelix\r\n")),
+            auto_detect_line_ending(&Rope::from_str("hello\nvortex\r\n")),
             Some(LineEnding::LF)
         );
         assert_eq!(

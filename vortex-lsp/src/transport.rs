@@ -226,7 +226,7 @@ impl Transport {
             ServerMessage::Call(jsonrpc::Call::MethodCall(ref method_call))
                 if self.shutdown_requested.load(Ordering::Acquire) =>
             {
-                // After helix sends shutdown the application event loop is no longer
+                // After vortex sends shutdown the application event loop is no longer
                 // consuming server-to-client requests. Respond with null success so the
                 // server is not left waiting for a reply before it sends the shutdown
                 // response. Sending an error is intentionally avoided: servers based on

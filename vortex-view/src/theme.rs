@@ -5,12 +5,12 @@ use std::{
 };
 
 use anyhow::{anyhow, Result};
-use vortex_core::{hashmap, syntax::Highlight};
-use vortex_loader::merge_toml_values;
 use log::warn;
 use serde::{Deserialize, Deserializer};
 use std::sync::LazyLock;
 use toml::{map::Map, Value};
+use vortex_core::{hashmap, syntax::Highlight};
+use vortex_loader::merge_toml_values;
 
 use crate::graphics::UnderlineStyle;
 pub use crate::graphics::{Color, Modifier, Style};

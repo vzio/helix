@@ -1,8 +1,8 @@
 //! Input event handling, currently backed by termina.
 use anyhow::{anyhow, Error};
-use vortex_core::unicode::{segmentation::UnicodeSegmentation, width::UnicodeWidthStr};
 use serde::de::{self, Deserialize, Deserializer};
 use std::fmt;
+use vortex_core::unicode::{segmentation::UnicodeSegmentation, width::UnicodeWidthStr};
 
 pub use crate::keyboard::{KeyCode, KeyModifiers, MediaKeyCode, ModifierKeyCode};
 

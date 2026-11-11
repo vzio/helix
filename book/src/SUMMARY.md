@@ -1,6 +1,6 @@
 # Summary
 
-[Helix](./title-page.md)
+[Vortex](./title-page.md)
 
 - [Installation](./install.md)
   - [Package Managers](./package-managers.md)

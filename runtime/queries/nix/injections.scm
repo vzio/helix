@@ -4,7 +4,7 @@
  (#set! injection.language "comment"))
 
 ; Mark arbitrary languages via a preceding comment.
-; Helix does not use upstream's #gsub! predicates here, so the comment text is
+; Vortex does not use upstream's #gsub! predicates here, so the comment text is
 ; passed through as-is.
 ((((comment) @injection.language) .
   (indented_string_expression (string_fragment) @injection.content))
@@ -459,6 +459,6 @@
  (#match? @_func "(^|\\.)write(Text|Script(Bin)?)$")
  (#set! injection.combined))
 
-; Let Helix infer a language from a shebang at the start of an indented string.
+; Let Vortex infer a language from a shebang at the start of an indented string.
 ((indented_string_expression (string_fragment) @injection.shebang @injection.content)
  (#set! injection.combined))

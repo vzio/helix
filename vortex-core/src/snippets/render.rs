@@ -2,9 +2,9 @@ use std::borrow::Cow;
 use std::ops::{Index, IndexMut};
 use std::sync::Arc;
 
-use vortex_stdx::Range;
 use ropey::{Rope, RopeSlice};
 use smallvec::SmallVec;
+use vortex_stdx::Range;
 
 use crate::indent::{normalize_indentation, IndentStyle};
 use crate::movement::Direction;

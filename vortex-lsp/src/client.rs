@@ -11,13 +11,6 @@ use crate::lsp::{
     DidChangeWorkspaceFoldersParams, OneOf, PositionEncodingKind, SignatureHelp, Url,
     WorkspaceFolder, WorkspaceFoldersChangeEvent,
 };
-use vortex_core::{
-    find_workspace,
-    syntax::config::{LanguageServerFeature, RootMarkers},
-    ChangeSet, Rope,
-};
-use vortex_loader::VERSION_AND_GIT_HASH;
-use vortex_stdx::path;
 use parking_lot::Mutex;
 use serde::Deserialize;
 use serde_json::Value;
@@ -39,6 +32,13 @@ use tokio::{
         Notify, OnceCell,
     },
 };
+use vortex_core::{
+    find_workspace,
+    syntax::config::{LanguageServerFeature, RootMarkers},
+    ChangeSet, Rope,
+};
+use vortex_loader::VERSION_AND_GIT_HASH;
+use vortex_stdx::path;
 
 fn workspace_for_uri(uri: lsp::Url) -> WorkspaceFolder {
     lsp::WorkspaceFolder {
@@ -765,7 +765,7 @@ impl Client {
             },
             trace: None,
             client_info: Some(lsp::ClientInfo {
-                name: String::from("helix"),
+                name: String::from("vortex"),
                 version: Some(String::from(VERSION_AND_GIT_HASH)),
             }),
             locale: None, // TODO
@@ -818,7 +818,7 @@ impl Client {
     }
 
     /// Resolves once the `exit` notification has been written to the server's stdin
-    /// (i.e. helix's *outbound* write completed — independent of how slow the server
+    /// (i.e. vortex's *outbound* write completed — independent of how slow the server
     /// is, since it doesn't wait for any server response).
     pub async fn wait_shutdown_flushed(&self) {
         self.shutdown_flushed.notified().await;

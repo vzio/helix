@@ -9,7 +9,7 @@
     (#set! injection.language "php-only"))
 
 ((parameter) @injection.content
-    (#set! injection.include-children) ; You may need this, depending on your editor e.g Helix
+    (#set! injection.include-children) ; You may need this, depending on your editor e.g Vortex
     (#set! injection.language "php-only"))
 
 ; ; Livewire attributes

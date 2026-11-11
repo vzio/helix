@@ -1,7 +1,7 @@
 use crate::text::StyledGrapheme;
+use unicode_segmentation::UnicodeSegmentation;
 use vortex_core::line_ending::str_is_line_ending;
 use vortex_core::unicode::width::UnicodeWidthStr;
-use unicode_segmentation::UnicodeSegmentation;
 
 const NBSP: &str = "\u{00a0}";
 const NNBSP: &str = "\u{202f}";

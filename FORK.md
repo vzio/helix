@@ -1,8 +1,17 @@
-# Fork features
+# Vortex
 
-This fork ([vzio/helix](https://github.com/vzio/helix)) is upstream
-[Helix](https://github.com/helix-editor/helix) plus the features below. Everything else works and
-is documented exactly as in the [Helix documentation](https://docs.helix-editor.com/).
+Vortex ([vzio/vortex](https://github.com/vzio/vortex)) is a personal fork of
+[Helix](https://github.com/helix-editor/helix): upstream Helix as of
+[ba40e5474](https://github.com/helix-editor/helix/commit/ba40e547426b0f9896c8bdc699a4ab11f2b37dbc)
+(25.07.1, see [History](#history)) plus the features below. It doesn't sync with upstream anymore.
+Everything else works as described in the [Helix documentation](https://docs.helix-editor.com/),
+under Vortex's own names: the binary is `vx`, the config is in `~/.config/vortex/` (a workspace's
+in `.vortex/`), the log is `~/.cache/vortex/vortex.log` and the variables are `VORTEX_*`
+(`VORTEX_RUNTIME`, ...). Vortex never reads upstream Helix's directories; when it has no config of its
+own but upstream's exists, it says once at startup how to copy it.
+
+README.md is the owner's (agents don't edit it). Vortex issues and PRs stay in this repository:
+never send them upstream.
 
 Every feature, original or ported, ships with at least one `:practice` exercise (see
 [Practice](#practice), and [CLAUDE.md](CLAUDE.md) for how to write one).
@@ -15,7 +24,7 @@ The git diff viewer and the file explorer are ported from
 - [PR #2](https://github.com/marcos-venicius/helix/pull/2): side by side git diff view, staged
   files in the changed files picker
 - [PR #3](https://github.com/marcos-venicius/helix/pull/3): file explorer side panel (in this
-  fork it has become an overlay built on Helix's picker, see [File tree overlay](#file-tree-overlay))
+  fork it has become an overlay built on Vortex's picker, see [File tree overlay](#file-tree-overlay))
 - [PR #4](https://github.com/marcos-venicius/helix/pull/4): git commit log picker with per-commit
   diffs, `C-g` in the changed files picker
 - Later fixes from his `marcos` branch: diff view soft wrap (`9ccc1e16a`, `f1d06509a`), explorer
@@ -25,18 +34,44 @@ The git diff viewer and the file explorer are ported from
 His commits are cherry-picked with their authorship kept. The design changes in this fork: the
 explorer is on `space e` (at the workspace root) and `space E` (revealing the current file),
 replacing upstream's file explorer picker on those keys, it is rooted at the workspace root rather
-than the working directory, and it is a modal overlay built on Helix's picker rather than a side
+than the working directory, and it is a modal overlay built on Vortex's picker rather than a side
 panel.
 
-Inline git blame is ported from Helix
+Inline git blame is ported from upstream Helix
 [PR #13133](https://github.com/helix-editor/helix/pull/13133) by Nik Revenco (nik-rev), which
 hadn't landed upstream when it was ported. It is adapted to current master and reworked so that
 blame is computed entirely in the background (see [Inline git blame](#inline-git-blame)).
 
-Moving lines up and down is a rewrite, not a port, but it started from two earlier attempts: Helix
-[PR #4545](https://github.com/helix-editor/helix/pull/4545) by sireliah (never merged) and the
+Moving lines up and down is a rewrite, not a port, but it started from two earlier attempts:
+upstream Helix [PR #4545](https://github.com/helix-editor/helix/pull/4545) by sireliah (never merged) and the
 bug-fixed version of it in omentic's [helix-ext](https://github.com/omentic/helix-ext) fork. See
 [Move lines](#move-lines).
+
+## History
+
+The history starts with one root commit, "Branched from upstream Helix ba40e5474 (25.7.1)":
+upstream's tree at that commit, with the mechanical part of the rename already applied (the
+`helix-<crate>/` directories and crate names became `vortex-<crate>`, Rust paths `helix_<crate>`
+became `vortex_<crate>`). Upstream's history isn't included (it is in
+[helix-editor/helix](https://github.com/helix-editor/helix), and CHANGELOG.md is upstream's up to
+the fork point). Every later commit is this fork's own, rewritten with the same mechanical rename;
+the history before the rewrite is kept under the tag `pre-vortex-master`. The rest of the rename
+(the `vx` binary, directories, variables, prose) is the single commit "feat!: rename Helix to Vortex",
+listed in [`.git-blame-ignore-revs`](.git-blame-ignore-revs) so that blame skips it: git with
+`git config blame.ignoreRevsFile .git-blame-ignore-revs` (once per clone), GitHub's blame view,
+and Vortex's own inline blame (which reads that file, or git's `blame.ignoreRevsFile`).
+
+So a file this fork never changed has only the root commit in its history, once the ignored revs
+are left out. To check a file:
+
+```sh
+# the commits that changed it, except those in .git-blame-ignore-revs:
+# only the root commit means untouched upstream code
+git log --format='%H %s' -- FILE | grep -vFf <(grep -oE '^[0-9a-f]{40}' .git-blame-ignore-revs)
+
+# line by line (after the blame.ignoreRevsFile config above)
+git blame FILE
+```
 
 ## Contents
 
@@ -73,7 +108,7 @@ Each feature lives in its own modules, to keep rebasing on upstream cheap:
 | Inline blame | `vortex-vcs/src/git/blame.rs`, `vortex-vcs/src/blame_stub.rs`, `vortex-vcs/benches/blame.rs`, `vortex-stdx/src/time.rs`, `vortex-view/src/blame.rs`, `vortex-term/src/handlers/blame.rs`, `vortex-term/src/commands/blame.rs`, `vortex-term/src/ui/text_decorations/blame.rs` |
 | `x` on an empty line | `vortex-term/src/handlers/line_select.rs` |
 | Move lines | `vortex-term/src/commands/move_lines.rs` |
-| Terminal panel | `vortex-terminal/` (the shell: pty, emulator, OSC 133, bash/zsh integration), `vortex-view/src/terminal.rs` (panel state, `[editor.terminal]`), `vortex-term/src/terminal/` (drawing, focus, input encoding, the `hx` shim), `vortex-term/tests/test/terminal.rs` |
+| Terminal panel | `vortex-terminal/` (the shell: pty, emulator, OSC 133, bash/zsh integration), `vortex-view/src/terminal.rs` (panel state, `[editor.terminal]`), `vortex-term/src/terminal/` (drawing, focus, input encoding, the `vx` shim), `vortex-term/tests/test/terminal.rs` |
 | Hex view | `vortex-view/src/hex.rs` (the bytes: windowed reads, the overwritten bytes, undo, cursors, search, the row layout), `vortex-term/src/ui/hex_view.rs` (drawing, the statusline texts), `vortex-term/src/commands/hex.rs` (keys, mouse, prompts, `:hex`), `vortex-term/tests/test/hex_view.rs` |
 | Practice | `vortex-term/src/practice.rs`, `vortex-term/src/practice/`, `runtime/practice/`, `vortex-term/tests/test/practice.rs` |
 
@@ -97,7 +132,7 @@ The move mode label (`MOV`) is a generic `mode="..."` option of sticky nodes in 
 one entry in `typed.rs`, and opens its buffers with `Editor::new_file_from_document`, made public.
 
 The terminal panel changes core files directly (the fork no longer syncs with upstream): the
-`Editor::terminal` field and `close_document` (an awaited buffer closing answers `hx` and focuses
+`Editor::terminal` field and `close_document` (an awaited buffer closing answers `vx` and focuses
 the panel) in `vortex-view/src/editor.rs`, where `[editor.terminal]` also absorbed the debugger's
 `command`/`args`; the layout, the cursor and `Esc` in `ui/editor.rs`; the event routing in
 `Application::handle_terminal_events`; `toggle_terminal` in `commands.rs` and `keymap/default.rs`;
@@ -542,7 +577,7 @@ Open buffers are compared with their file when it matters, without a background 
 - after switching to another buffer (`ga`, the buffer picker, `:bn`, a jump, a split that shows
   another buffer...);
 - when the terminal regains focus, and when going back to the editor from the
-  [terminal panel](#terminal-panel) (`Ctrl-t`, a click, `hx`);
+  [terminal panel](#terminal-panel) (`Ctrl-t`, a click, `vx`);
 - right before writing (`:w`, `:wq`, `:x`, `:wa`, auto-save);
 - while the [uncommitted changes](#uncommitted-changes-live) are watched, on every change of a
   file.
@@ -562,7 +597,7 @@ whose file didn't exist when it was opened.
 
 ### Limitations
 
-- Nothing is checked while Helix is focused and idle, unless the uncommitted changes are watched:
+- Nothing is checked while Vortex is focused and idle, unless the uncommitted changes are watched:
   the check comes with the next buffer switch, focus or write.
 - Terminals that don't report focus (or tmux without `focus-events on`) only get the checks on
   switching and writing.
@@ -638,7 +673,7 @@ No bundled theme sets them, so conflicts look like errors with their own gutter 
   reported: only complete blocks are.
 - A conflict without markers (binary files, a file modified on one side and deleted on the
   other) has no diagnostic and no row in `space D`.
-- While Helix is focused and idle, with no live view open, a merge started from another terminal
+- While Vortex is focused and idle, with no live view open, a merge started from another terminal
   shows up with the next buffer switch or focus. A merge run in the [terminal panel](#terminal-panel)
   shows up when going back to the editor.
 - Nested repositories (a submodule inside the working directory) are only looked at for the files
@@ -659,7 +694,7 @@ as soon as they are `git add`ed. In this fork it lists every change compared to 
 
 A file tree that looks and works like the file picker (`space f`): the same overlay, the prompt line
 on top, the rows of the tree on the left and a preview of the selected file or directory on the
-right. It is built on Helix's own picker, so the overlay, the prompt and the preview are the
+right. It is built on Vortex's own picker, so the overlay, the prompt and the preview are the
 picker's. Like the file picker it hides the preview on narrow screens (below 73 columns), where the
 rows get the whole width; `C-t` hides and shows the preview.
 
@@ -683,7 +718,7 @@ The picker is still on `space .` (current buffer's directory) and in the command
 
 ### Usage
 
-Helix pickers send the letters typed to their prompt, but the tree needs them as keys, so it uses
+Vortex pickers send the letters typed to their prompt, but the tree needs them as keys, so it uses
 the modes of the picker (`Picker::with_modes`, which the [commit log](#git-commit-log) uses too).
 In normal mode (the one it opens in) the keys move in the tree and act on its entries, and the
 other letters do nothing; `s` enters filter mode, where the keys go to the prompt. The prompt shows its cursor in filter mode only.
@@ -732,7 +767,7 @@ Creating, renaming, moving and deleting go through the same code as `:move`, so 
 are notified (`willRename`, `didCreate`, ...). Open buffers follow renamed and moved files,
 including files inside a moved directory. Deleting a file closes its buffers, and deleting is
 refused when one of them has unsaved changes. Moves and renames never overwrite an existing file.
-The names for `a` and `r` are asked in Helix's usual prompt on the command line. After an operation
+The names for `a` and `r` are asked in Vortex's usual prompt on the command line. After an operation
 the tree stays open and shows the affected entry with the cursor on it (the filter is cleared if
 there was one, so that it can't hide the entry).
 
@@ -958,19 +993,20 @@ alternate screen); a click in the panel focuses it, a click in a split focuses t
 panel has no border or title of its own: it starts right below the statusline of the split above,
 which shows as inactive while the panel has the keys.
 
-### `hx` in the panel
+### `vx` in the panel
 
-The shell gets an `hx` first on its `PATH`, and `EDITOR`, `VISUAL` and `GIT_EDITOR` pointing to
-it, which never starts a nested Helix. It is the `hx` binary itself in a client mode, talking to
-this editor over a private Unix socket (`HELIX_TERMINAL_SOCKET`):
+The shell gets a `vx` first on its `PATH` (the only program the panel adds), and `EDITOR`,
+`VISUAL` and `GIT_EDITOR` set to `vx --wait` (its absolute path), which never starts a nested
+Vortex. It is the `vx` binary itself in a client mode, talking to
+this editor over a private Unix socket (`VORTEX_TERMINAL_SOCKET`):
 
-- `hx` alone focuses the editor (the panel stays shown).
-- `hx file[:line[:col]] ...` opens the files in the editor and focuses it.
+- `vx` alone focuses the editor (the panel stays shown).
+- `vx file[:line[:col]] ...` opens the files in the editor and focuses it.
 - As `$EDITOR` (`git commit`, `git rebase -i`, `crontab -e`...) it opens the file and waits until
   that buffer is closed. `:wq` or `:q` on it closes the buffer (not the split, nor the editor,
   even when it is the last one) and focuses the panel again; `:q!` closes it unsaved, so git
   aborts as usual on an empty message.
-- `hx --help`, `--version`, `--health` and `--grammar` run normally.
+- `vx --help`, `--version`, `--health` and `--grammar` run normally.
 
 ### Shell indicator
 
@@ -1018,7 +1054,7 @@ still work there.
 - Typed input waits for the shell to be ready: `:sh cmd` on a new shell holds `cmd` until the
   first prompt (bash and zsh drop what is typed while they start), 3 seconds at most.
 - Typing in the panel scrolls the view back down to the prompt.
-- Quitting Helix kills the shell (and what runs in it).
+- Quitting Vortex kills the shell (and what runs in it).
 
 ### Practice
 
@@ -1029,7 +1065,7 @@ with the POSIX tools the exercises may use no short text makes them beat typing 
 
 ### Limitations
 
-- Unix first: the `hx` shim (a Unix socket) and the status of shells without integration (the
+- Unix first: the `vx` shim (a Unix socket) and the status of shells without integration (the
   foreground process group) aren't available on Windows, where the panel itself should work
   (ConPTY) but is untested.
 - No keyboard scrolling of the scrollback (every key goes to the shell): use the mouse wheel.
@@ -1037,7 +1073,7 @@ with the POSIX tools the exercises may use no short text makes them beat typing 
   selection (usually with Shift held) or the shell's tools.
 - One shell, one panel: no tabs, no splits of the panel, no resizing it with the mouse.
 - The debugger's `runInTerminal` still uses the external terminal, not the panel.
-- `hx` in a shell started inside the panel over `ssh` or in a container doesn't reach this editor.
+- `vx` in a shell started inside the panel over `ssh` or in a container doesn't reach this editor.
 - A command typed with `:sh` while a full screen program runs goes to that program.
 
 ## Hex view
@@ -1054,7 +1090,7 @@ deletes a byte, and it never loads the file: a file of several GB opens at once.
 
 ### When it appears
 
-- Opening a file that looks binary (Helix's check: a NUL byte in its first KiB, or the signature of
+- Opening a file that looks binary (Vortex's check: a NUL byte in its first KiB, or the signature of
   a PDF or a PNG) shows it in the hex view, from any picker, `:open`, `gf` or the command line.
 - `:hex` shows the current file in the hex view, text files too, and `:hex` again shows it as text.
   It shows the file on disk, so a buffer with unsaved changes must be written (or reloaded) first,
@@ -1262,11 +1298,11 @@ as many keys.
 
 ### Progress
 
-Your best count per exercise is kept in `practice.toml` in Helix's data directory
-(`~/.local/share/helix/practice.toml` on Linux, `~/Library/Application Support/helix/` on macOS,
-`%AppData%\helix\` on Windows), never in the repository. An exercise is unsolved (`·`), solved
+Your best count per exercise is kept in `practice.toml` in Vortex's data directory
+(`~/.local/share/vortex/practice.toml` on Linux, `~/Library/Application Support/vortex/` on macOS,
+`%AppData%\vortex\` on Windows), never in the repository. An exercise is unsolved (`·`), solved
 (`✓`) or at or under par (`★`). The file is read when needed and written on every solve, so two
-Helix instances don't overwrite each other's results; if it can't be read, nothing is written to
+Vortex instances don't overwrite each other's results; if it can't be read, nothing is written to
 it and the statusline says why.
 
 ### Exercises

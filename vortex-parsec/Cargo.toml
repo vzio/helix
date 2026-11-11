@@ -1,6 +1,6 @@
 [package]
 name = "vortex-parsec"
-description = "Parser combinators for Helix"
+description = "Parser combinators for Vortex"
 include = ["src/**/*", "README.md"]
 version.workspace = true
 authors.workspace = true

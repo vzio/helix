@@ -1,4 +1,6 @@
 use futures_util::{stream::FuturesUnordered, FutureExt};
+use tokio_stream::StreamExt;
+use tui::{text::Span, widgets::Row};
 use vortex_lsp::{
     block_on,
     lsp::{
@@ -8,8 +10,6 @@ use vortex_lsp::{
     util::{diagnostic_to_lsp_diagnostic, lsp_range_to_range, range_to_lsp_range},
     Client, LanguageServerId, OffsetEncoding,
 };
-use tokio_stream::StreamExt;
-use tui::{text::Span, widgets::Row};
 
 use super::{align_view, push_jump, Align, Context, Editor};
 
@@ -786,8 +786,10 @@ pub(crate) fn code_actions_for_range(
                     .filter(|&diag| {
                         // conflicts (this fork) are the editor's own, no server knows them
                         diag.provider != DiagnosticProvider::Conflict
-                            && range
-                                .overlaps(&vortex_core::Range::new(diag.range.start, diag.range.end))
+                            && range.overlaps(&vortex_core::Range::new(
+                                diag.range.start,
+                                diag.range.end,
+                            ))
                     })
                     .map(|diag| diagnostic_to_lsp_diagnostic(doc.text(), diag, offset_encoding))
                     .collect(),
@@ -1529,13 +1531,15 @@ fn compute_inlay_hints_for_view(
             let inlay_hints_length_limit = doc.config.load().lsp.inlay_hints_length_limit;
 
             for hint in hints {
-                let char_idx =
-                    match vortex_lsp::util::lsp_pos_to_pos(doc_text, hint.position, offset_encoding)
-                    {
-                        Some(pos) => pos,
-                        // Skip inlay hints that have no "real" position
-                        None => continue,
-                    };
+                let char_idx = match vortex_lsp::util::lsp_pos_to_pos(
+                    doc_text,
+                    hint.position,
+                    offset_encoding,
+                ) {
+                    Some(pos) => pos,
+                    // Skip inlay hints that have no "real" position
+                    None => continue,
+                };
 
                 let mut label = match hint.label {
                     lsp::InlayHintLabel::String(s) => s,

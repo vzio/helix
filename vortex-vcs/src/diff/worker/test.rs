@@ -1,5 +1,5 @@
-use vortex_core::Rope;
 use tokio::task::JoinHandle;
+use vortex_core::Rope;
 
 use crate::diff::{DiffHandle, Hunk};
 

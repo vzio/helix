@@ -1,6 +1,6 @@
 ## Checklist
 
-Helix releases are versioned in the Calendar Versioning scheme:
+Vortex releases are versioned in the Calendar Versioning scheme:
 `YY.0M(.MICRO)`, for example, `22.05` for May of 2022, or in a patch release,
 `22.05.1`. In these instructions we'll use `<tag>` as a placeholder for the tag
 being published.
@@ -13,7 +13,7 @@ being published.
           patch release for 22.07 would be `22.7.1`.
         * Run `cargo check` and commit the resulting change to `Cargo.lock`
     * Add changelog notes to `CHANGELOG.md`
-    * Add new `<release>` entry in `contrib/Helix.appdata.xml` with release information according to the [AppStream spec](https://www.freedesktop.org/software/appstream/docs/sect-Metadata-Releases.html)
+    * Add new `<release>` entry in `contrib/Vortex.appdata.xml` with release information according to the [AppStream spec](https://www.freedesktop.org/software/appstream/docs/sect-Metadata-Releases.html)
 * Tag and push
     * Switch to master and pull
     * `git tag -s -m "<tag>" -a <tag> && git push origin <tag>` (note the `-s` which signs the tag)

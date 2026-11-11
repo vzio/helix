@@ -4,9 +4,9 @@ use std::sync::atomic::{self, AtomicUsize};
 use std::sync::Arc;
 use std::time::Duration;
 
-use vortex_event::{request_redraw, send_blocking, AsyncHook};
 use tokio::sync::mpsc::Sender;
 use tokio::time::Instant;
+use vortex_event::{request_redraw, send_blocking, AsyncHook};
 
 use crate::{Document, DocumentId, ViewId};
 

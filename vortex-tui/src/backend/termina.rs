@@ -1,10 +1,5 @@
 use std::io::{self, Write as _};
 
-use vortex_view::{
-    editor::KittyKeyboardProtocolConfig,
-    graphics::{CursorKind, Rect, UnderlineStyle},
-    theme::{self, Color, Modifier},
-};
 use termina::{
     escape::{
         csi::{self, Csi, SgrAttributes, SgrModifiers},
@@ -13,6 +8,11 @@ use termina::{
     },
     style::{CursorStyle, RgbColor},
     Event, OneBased, PlatformTerminal, Terminal as _, WindowSize,
+};
+use vortex_view::{
+    editor::KittyKeyboardProtocolConfig,
+    graphics::{CursorKind, Rect, UnderlineStyle},
+    theme::{self, Color, Modifier},
 };
 
 use crate::{buffer::Cell, terminal::Config};
@@ -82,7 +82,7 @@ pub struct TerminaBackend {
     /// The requested terminal background color, set in `Self::set_background_color`.
     background_color: Option<RgbColor>,
     /// The terminal emulator's background color. This is queried when claiming the terminal so
-    /// that custom colors set outside of Helix with OSC11 are restored when Helix exits.
+    /// that custom colors set outside of Vortex with OSC11 are restored when Vortex exits.
     original_background_color: Option<RgbColor>,
 }
 

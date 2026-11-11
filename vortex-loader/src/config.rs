@@ -11,7 +11,7 @@ pub fn default_lang_config() -> toml::Value {
 
 /// User configured languages.toml file, merged with the default config.
 ///
-/// Workspace-local `.helix/languages.toml` is merged in only when the current
+/// Workspace-local `.vortex/languages.toml` is merged in only when the current
 /// workspace is trusted for [`TrustQuery::LocalConfig`].
 pub fn user_lang_config(trust: &WorkspaceTrust) -> Result<toml::Value, toml::de::Error> {
     let global_config = crate::lang_config_file();

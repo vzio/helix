@@ -12,6 +12,7 @@
 
 use std::time::Duration;
 
+use tokio::{sync::Semaphore, time::Instant};
 use vortex_event::{register_hook, send_blocking};
 use vortex_loader::workspace_trust::TrustQuery;
 use vortex_vcs::{head_commit_id, BlameError, DiffProviderRegistry, FileBlame};
@@ -22,7 +23,6 @@ use vortex_view::{
     handlers::{BlameEvent, Handlers},
     DocumentId, Editor, ViewId,
 };
-use tokio::{sync::Semaphore, time::Instant};
 
 use crate::job;
 

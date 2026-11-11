@@ -16,17 +16,17 @@ use std::ops::Range;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
+use imara_diff::{Algorithm, Diff, InternedInput};
+use tui::{
+    buffer::Buffer as Surface,
+    text::{Span, Spans},
+};
 use vortex_vcs::staging::{self, LineHunk};
 use vortex_vcs::FileChange;
 use vortex_view::{
     editor::{Action, ChangesConfig},
     graphics::{Rect, Style},
     Editor,
-};
-use imara_diff::{Algorithm, Diff, InternedInput};
-use tui::{
-    buffer::Buffer as Surface,
-    text::{Span, Spans},
 };
 
 use crate::compositor::{Compositor, Context};

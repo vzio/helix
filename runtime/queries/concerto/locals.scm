@@ -3,7 +3,7 @@
 ; Helix-specific local scope/definition/reference tracking. For use in
 ; helix-editor/helix at runtime/queries/concerto/locals.scm
 ;
-; Helix uses the same @local.scope, @local.definition, and @local.reference
+; Vortex uses the same @local.scope, @local.definition, and @local.reference
 ; capture names as tree-sitter convention.
 
 ; Scopes

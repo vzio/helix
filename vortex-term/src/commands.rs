@@ -14,12 +14,6 @@ pub(crate) mod uncommitted;
 pub use blame::*;
 pub use dap::*;
 use futures_util::FutureExt;
-use vortex_event::status;
-use vortex_stdx::{
-    path::{self, find_paths},
-    rope::{self, RopeSliceExt},
-};
-use vortex_vcs::{FileChange, Hunk};
 pub use lsp::*;
 pub use move_lines::*;
 pub use syntax::*;
@@ -28,6 +22,12 @@ use tui::{
     widgets::Cell,
 };
 pub use typed::*;
+use vortex_event::status;
+use vortex_stdx::{
+    path::{self, find_paths},
+    rope::{self, RopeSliceExt},
+};
+use vortex_vcs::{FileChange, Hunk};
 
 use vortex_core::{
     char_idx_at_visual_offset,
@@ -96,9 +96,9 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use vortex_stdx::Url;
 use serde::de::{self, Deserialize, Deserializer};
 use std::sync::LazyLock;
+use vortex_stdx::Url;
 
 use grep_regex::RegexMatcherBuilder;
 use grep_searcher::{sinks, BinaryDetection, SearcherBuilder};
@@ -1498,7 +1498,7 @@ fn goto_file_impl(cx: &mut Context, action: Action) {
         let search_range = text.byte_slice(search_start..search_end);
         // we also allow paths that are next to the cursor (can be ambiguous but
         // rarely so in practice) so that gf on quoted/braced path works (not sure about this
-        // but apparently that is how gf has worked historically in helix)
+        // but apparently that is how gf has worked historically in vortex)
         let path = find_paths(search_range, true)
             .take_while(|range| search_start + range.start <= pos + 1)
             .find(|range| pos <= search_start + range.end)
@@ -1532,7 +1532,7 @@ fn goto_file_impl(cx: &mut Context, action: Action) {
     }
 }
 
-/// Opens the given url. If the URL points to a valid textual file it is open in helix.
+/// Opens the given url. If the URL points to a valid textual file it is open in vortex.
 /// Otherwise, the file is open using external program.
 fn open_url(cx: &mut Context, url: Url, action: Action) {
     let doc = doc!(cx.editor);
@@ -1589,7 +1589,7 @@ fn open_url_in_callback(
 ///
 /// Non-`file` URLs always open externally. `file` URLs are opened externally
 /// only when the target looks like a binary file (a non-textual file that can't
-/// be viewed in helix).
+/// be viewed in vortex).
 fn should_open_url_externally(url: &Url) -> bool {
     if url.scheme() != "file" {
         return true;
@@ -2682,7 +2682,7 @@ fn global_search(cx: &mut Context) {
                     filter_picker_entry(entry, &absolute_root, dedup_symlinks)
                 })
                 .add_custom_ignore_filename(vortex_loader::config_dir().join("ignore"))
-                .add_custom_ignore_filename(".helix/ignore")
+                .add_custom_ignore_filename(".vortex/ignore")
                 .build_parallel()
                 .run(|| {
                     let mut searcher = searcher.clone();
@@ -6856,7 +6856,7 @@ fn suspend(_cx: &mut Context) {
         // Unsafe is necessary since we are calling outside of Rust.
         let is_session_leader = unsafe { libc::getpid() == libc::getsid(0) };
 
-        // If helix is the session leader, there is nothing to suspend to, so skip
+        // If vortex is the session leader, there is nothing to suspend to, so skip
         if is_session_leader {
             return;
         }

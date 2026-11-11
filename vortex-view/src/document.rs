@@ -3,6 +3,8 @@ use arc_swap::access::DynAccess;
 use arc_swap::ArcSwap;
 use futures_util::future::BoxFuture;
 use futures_util::FutureExt;
+use std::sync::OnceLock;
+use thiserror;
 use vortex_core::auto_pairs::AutoPairs;
 use vortex_core::chars::char_is_word;
 use vortex_core::command_line::Token;
@@ -16,8 +18,6 @@ use vortex_event::TaskController;
 use vortex_lsp::util::lsp_pos_to_pos;
 use vortex_stdx::faccess::{copy_metadata, readonly};
 use vortex_vcs::{DiffHandle, DiffProviderRegistry};
-use std::sync::OnceLock;
-use thiserror;
 
 use ::parking_lot::Mutex;
 use serde::de::{self, Deserialize, Deserializer};
@@ -224,7 +224,7 @@ pub struct Document {
     path: Option<PathBuf>,
     relative_path: OnceLock<Option<PathBuf>>,
     /// Lazily-computed workspace root for this document (the ancestor that contains a `.git` /
-    /// `.svn` / `.jj` / `.helix`). Avoids per-call `find_workspace_in` ancestor walks for hot
+    /// `.svn` / `.jj` / `.vortex`). Avoids per-call `find_workspace_in` ancestor walks for hot
     /// consumers like the statusline trust indicator, LSP launch, and DAP launch. Taken in
     /// `set_path` so save-as recomputes.
     workspace_root: OnceLock<PathBuf>,
@@ -344,7 +344,7 @@ pub struct DocumentLink {
 ///
 /// Inlay hints are always `InlineAnnotation`s, not overlays or line-ones: LSP may choose to place
 /// them anywhere in the text and will sometime offer config options to move them where the user
-/// wants them but it shouldn't be Helix who decides that so we use the most precise positioning.
+/// wants them but it shouldn't be Vortex who decides that so we use the most precise positioning.
 ///
 /// The padding for inlay hints needs to be stored separately for before and after (the LSP spec
 /// uses 'left' and 'right' but not all text is left to right so let's be correct) padding because
@@ -2389,7 +2389,7 @@ impl Document {
     }
 
     /// The workspace root for this document — the nearest ancestor that contains a `.git`, `.svn`,
-    /// `.jj`, or `.helix`. Falls back to the current working directory's workspace when the
+    /// `.jj`, or `.vortex`. Falls back to the current working directory's workspace when the
     /// document has no path (scratch buffers). Lazily memoised on first call.
     pub fn workspace_root(&self) -> &Path {
         self.workspace_root
@@ -2550,7 +2550,8 @@ impl Document {
         }
         let text = self.text.clone();
         let text = text.slice(..);
-        let blocks = vortex_vcs::conflict::conflict_blocks(text.lines().map(std::borrow::Cow::from));
+        let blocks =
+            vortex_vcs::conflict::conflict_blocks(text.lines().map(std::borrow::Cow::from));
         let diagnostics = blocks.into_iter().map(|block| {
             let start = text.line_to_char(*block.lines.start());
             // to the end of the `>>>>>>>` line, without its line ending

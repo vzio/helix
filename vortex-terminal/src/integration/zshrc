@@ -1,26 +1,26 @@
 # Runs the user's own .zshrc, see .zshenv, then installs the hooks that emit OSC 133 markers:
 #   C: a command starts running      D;status: it finished      A: the prompt starts
-if [[ -n ${HELIX_USER_ZDOTDIR+x} ]]; then ZDOTDIR=$HELIX_USER_ZDOTDIR; else unset ZDOTDIR; fi
+if [[ -n ${VORTEX_USER_ZDOTDIR+x} ]]; then ZDOTDIR=$VORTEX_USER_ZDOTDIR; else unset ZDOTDIR; fi
 if [[ -r ${ZDOTDIR:-$HOME}/.zshrc ]]; then source "${ZDOTDIR:-$HOME}/.zshrc"; fi
-if [[ -n ${ZDOTDIR+x} ]]; then HELIX_USER_ZDOTDIR=$ZDOTDIR; else unset HELIX_USER_ZDOTDIR; fi
-ZDOTDIR=$HELIX_ZDOTDIR
+if [[ -n ${ZDOTDIR+x} ]]; then VORTEX_USER_ZDOTDIR=$ZDOTDIR; else unset VORTEX_USER_ZDOTDIR; fi
+ZDOTDIR=$VORTEX_ZDOTDIR
 
-__hx_precmd() {
-    local __hx_status=$?
-    printf '\e]133;D;%s\a\e]133;A\a' "$__hx_status"
-    return "$__hx_status"
+__vx_precmd() {
+    local __vx_status=$?
+    printf '\e]133;D;%s\a\e]133;A\a' "$__vx_status"
+    return "$__vx_status"
 }
-__hx_preexec() {
+__vx_preexec() {
     printf '\e]133;C\a'
 }
 autoload -Uz add-zsh-hook
-add-zsh-hook preexec __hx_preexec
+add-zsh-hook preexec __vx_preexec
 # First, to see the exit status of the command.
-add-zsh-hook precmd __hx_precmd
-precmd_functions=(__hx_precmd ${precmd_functions:#__hx_precmd})
+add-zsh-hook precmd __vx_precmd
+precmd_functions=(__vx_precmd ${precmd_functions:#__vx_precmd})
 
 # Done: give ZDOTDIR back to the user, unless .zlogin still has to be read.
 if [[ ! -o login ]]; then
-    if [[ -n ${HELIX_USER_ZDOTDIR+x} ]]; then ZDOTDIR=$HELIX_USER_ZDOTDIR; else unset ZDOTDIR; fi
-    unset HELIX_USER_ZDOTDIR HELIX_ZDOTDIR
+    if [[ -n ${VORTEX_USER_ZDOTDIR+x} ]]; then ZDOTDIR=$VORTEX_USER_ZDOTDIR; else unset ZDOTDIR; fi
+    unset VORTEX_USER_ZDOTDIR VORTEX_ZDOTDIR
 fi

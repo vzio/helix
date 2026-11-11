@@ -11,9 +11,9 @@ use vortex_view::{
 
 use crate::ui::ProgressSpinners;
 
-use vortex_view::editor::StatusLineElement as StatusLineElementID;
 use tui::buffer::Buffer as Surface;
 use tui::text::{Span, Spans};
+use vortex_view::editor::StatusLineElement as StatusLineElementID;
 
 pub struct RenderContext<'a> {
     pub editor: &'a Editor,
@@ -148,7 +148,9 @@ where
         vortex_view::editor::StatusLineElement::FileIndentStyle => render_file_indent_style,
         vortex_view::editor::StatusLineElement::FileType => render_file_type,
         vortex_view::editor::StatusLineElement::Diagnostics => render_diagnostics,
-        vortex_view::editor::StatusLineElement::WorkspaceDiagnostics => render_workspace_diagnostics,
+        vortex_view::editor::StatusLineElement::WorkspaceDiagnostics => {
+            render_workspace_diagnostics
+        }
         vortex_view::editor::StatusLineElement::Selections => render_selections,
         vortex_view::editor::StatusLineElement::Shell => render_shell,
         vortex_view::editor::StatusLineElement::PrimarySelectionLength => {

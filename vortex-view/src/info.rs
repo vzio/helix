@@ -1,6 +1,6 @@
 use crate::register::Registers;
-use vortex_core::unicode::width::UnicodeWidthStr;
 use std::{borrow::Cow, fmt::Write};
+use vortex_core::unicode::width::UnicodeWidthStr;
 
 #[derive(Debug)]
 /// Info box used in editor. Rendering logic will be in other crate.

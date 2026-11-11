@@ -7,6 +7,7 @@ use std::time::Duration;
 
 use vortex_vcs::DiffProviderRegistry;
 
+use tui::{buffer::Buffer as Surface, text::Span};
 use vortex_core::{movement::Direction, Position};
 use vortex_event::status;
 use vortex_vcs::{CommitInfo, LogEntry};
@@ -15,7 +16,6 @@ use vortex_view::{
     graphics::{CursorKind, Rect},
     Editor,
 };
-use tui::{buffer::Buffer as Surface, text::Span};
 
 use super::{changes, diff_view, uncommitted};
 use crate::compositor::{self, Component, Compositor, Event, EventResult};

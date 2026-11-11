@@ -3124,7 +3124,7 @@ checksum = "0b928f33d975fc6ad9f86c8f283853ad26bdd5b10b7f1542aa2fa15e2289105a"
 
 [[package]]
 name = "vortex-core"
-version = "25.7.1"
+version = "0.1.0"
 dependencies = [
  "anyhow",
  "arc-swap",
@@ -3160,7 +3160,7 @@ dependencies = [
 
 [[package]]
 name = "vortex-dap"
-version = "25.7.1"
+version = "0.1.0"
 dependencies = [
  "anyhow",
  "futures-executor",
@@ -3180,7 +3180,7 @@ dependencies = [
 
 [[package]]
 name = "vortex-dap-types"
-version = "25.7.1"
+version = "0.1.0"
 dependencies = [
  "serde",
  "serde_json",
@@ -3188,7 +3188,7 @@ dependencies = [
 
 [[package]]
 name = "vortex-event"
-version = "25.7.1"
+version = "0.1.0"
 dependencies = [
  "anyhow",
  "foldhash 0.2.0",
@@ -3201,7 +3201,7 @@ dependencies = [
 
 [[package]]
 name = "vortex-loader"
-version = "25.7.1"
+version = "0.1.0"
 dependencies = [
  "anyhow",
  "cc",
@@ -3220,7 +3220,7 @@ dependencies = [
 
 [[package]]
 name = "vortex-lsp"
-version = "25.7.1"
+version = "0.1.0"
 dependencies = [
  "anyhow",
  "arc-swap",
@@ -3254,11 +3254,11 @@ dependencies = [
 
 [[package]]
 name = "vortex-parsec"
-version = "25.7.1"
+version = "0.1.0"
 
 [[package]]
 name = "vortex-stdx"
-version = "25.7.1"
+version = "0.1.0"
 dependencies = [
  "bitflags 2.13.0",
  "dunce",
@@ -3278,7 +3278,7 @@ dependencies = [
 
 [[package]]
 name = "vortex-term"
-version = "25.7.1"
+version = "0.1.0"
 dependencies = [
  "anyhow",
  "arc-swap",
@@ -3299,6 +3299,7 @@ dependencies = [
  "open",
  "parking_lot",
  "pulldown-cmark",
+ "regex",
  "same-file",
  "serde",
  "serde_json",
@@ -3325,7 +3326,7 @@ dependencies = [
 
 [[package]]
 name = "vortex-terminal"
-version = "25.7.1"
+version = "0.1.0"
 dependencies = [
  "alacritty_terminal",
  "anyhow",
@@ -3339,7 +3340,7 @@ dependencies = [
 
 [[package]]
 name = "vortex-tui"
-version = "25.7.1"
+version = "0.1.0"
 dependencies = [
  "arrayvec",
  "bitflags 2.13.0",
@@ -3355,7 +3356,7 @@ dependencies = [
 
 [[package]]
 name = "vortex-vcs"
-version = "25.7.1"
+version = "0.1.0"
 dependencies = [
  "anyhow",
  "arc-swap",
@@ -3373,7 +3374,7 @@ dependencies = [
 
 [[package]]
 name = "vortex-view"
-version = "25.7.1"
+version = "0.1.0"
 dependencies = [
  "anyhow",
  "arc-swap",
@@ -3878,7 +3879,7 @@ dependencies = [
 
 [[package]]
 name = "xtask"
-version = "25.7.1"
+version = "0.1.0"
 dependencies = [
  "ropey",
  "toml",

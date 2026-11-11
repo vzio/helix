@@ -10,9 +10,9 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
+use parking_lot::Mutex;
 use vortex_view::watcher::{WatchConfig, Watcher};
 use vortex_view::Editor;
-use parking_lot::Mutex;
 
 use crate::job;
 

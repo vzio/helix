@@ -1,15 +1,13 @@
-//! `hx` inside the panel: instead of starting a nested Helix, it asks this editor to open its
-//! files (or just to take focus) over a Unix socket, and as `$EDITOR` waits until the buffer
-//! is closed.
+//! `vx` inside the panel: instead of starting a nested Vortex, it asks this editor to open its
+//! files (or just to take focus) over a Unix socket, and as `$EDITOR` (`vx --wait`) waits until
+//! the buffer is closed.
 use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
-/// Set in the shell's environment: the path of the socket. Its presence puts the `hx` binary
+/// Set in the shell's environment: the path of the socket. Its presence puts the `vx` binary
 /// in client mode.
-pub const SOCKET_ENV: &str = "HELIX_TERMINAL_SOCKET";
-/// Set by the `hx-editor` script: the client waits until the opened buffer is closed.
-pub const WAIT_ENV: &str = "HELIX_TERMINAL_WAIT";
+pub const SOCKET_ENV: &str = "VORTEX_TERMINAL_SOCKET";
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Request {
@@ -44,12 +42,10 @@ impl Reply {
 }
 
 /// Build the request for the command line arguments (without the program name).
-pub fn request_from_args(
-    args: impl IntoIterator<Item = String>,
-    cwd: &Path,
-    wait: bool,
-) -> Request {
+/// `--wait` (the panel's `$EDITOR`) makes the client wait until the buffer is closed.
+pub fn request_from_args(args: impl IntoIterator<Item = String>, cwd: &Path) -> Request {
     let mut files = Vec::new();
+    let mut wait = false;
     let mut args = args.into_iter();
     while let Some(arg) = args.next() {
         if arg == "--" {
@@ -61,6 +57,7 @@ pub fn request_from_args(
             "-c" | "--config" | "--log" | "-w" | "--working-dir" => {
                 args.next();
             }
+            "--wait" => wait = true,
             a if a.starts_with('-') && a.len() > 1 => {}
             a => files.push(open_file(a, cwd)),
         }
@@ -161,7 +158,7 @@ mod unix {
         pub fn start(
             handler: impl Fn(Request, Reply) + Send + Sync + 'static,
         ) -> io::Result<Server> {
-            let dir = tempfile::Builder::new().prefix("hx-terminal-").tempdir()?;
+            let dir = tempfile::Builder::new().prefix("vx-terminal-").tempdir()?;
             std::fs::set_permissions(dir.path(), std::fs::Permissions::from_mode(0o700))?;
             let socket = dir.path().join("sock");
             let bin_dir = dir.path().join("bin");
@@ -197,18 +194,18 @@ mod unix {
             })
         }
 
-        /// Holds `hx` and `hx-editor`; put it first on the shell's PATH.
+        /// Holds `vx`; put it first on the shell's PATH.
         pub fn bin_dir(&self) -> &Path {
             &self.bin_dir
         }
 
         /// The variables for the shell.
         pub fn env(&self) -> Vec<(String, String)> {
-            let editor = self
-                .bin_dir
-                .join("hx-editor")
-                .to_string_lossy()
-                .into_owned();
+            // run by a shell (`sh -c "$EDITOR file"`), so quoted
+            let editor = format!(
+                "{} --wait",
+                sh_quote(&self.bin_dir.join("vx").to_string_lossy())
+            );
             vec![
                 (
                     SOCKET_ENV.into(),
@@ -230,18 +227,9 @@ mod unix {
 
     pub(super) fn write_scripts(bin_dir: &Path, exe: &Path) -> io::Result<()> {
         let exe = sh_quote(&exe.to_string_lossy());
-        for (name, body) in [
-            ("hx", format!("#!/bin/sh\nexec {exe} \"$@\"\n")),
-            (
-                "hx-editor",
-                format!("#!/bin/sh\n{WAIT_ENV}=1 exec {exe} \"$@\"\n"),
-            ),
-        ] {
-            let path = bin_dir.join(name);
-            std::fs::write(&path, body)?;
-            std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755))?;
-        }
-        Ok(())
+        let path = bin_dir.join("vx");
+        std::fs::write(&path, format!("#!/bin/sh\nexec {exe} \"$@\"\n"))?;
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755))
     }
 
     async fn serve(
@@ -297,20 +285,19 @@ mod unix {
         let cwd = match std::env::current_dir() {
             Ok(cwd) => cwd,
             Err(err) => {
-                eprintln!("hx: cannot determine the current directory ({err})");
+                eprintln!("vx: cannot determine the current directory ({err})");
                 return Some(1);
             }
         };
-        let wait = std::env::var_os(WAIT_ENV).is_some();
-        let request = request_from_args(args, &cwd, wait);
+        let request = request_from_args(args, &cwd);
         Some(match send(Path::new(&socket), &request) {
             Ok(Response::Done) => 0,
             Ok(Response::Error(msg)) => {
-                eprintln!("hx: {msg}");
+                eprintln!("vx: {msg}");
                 1
             }
             Err(err) => {
-                eprintln!("hx: cannot reach the Helix that runs this terminal ({err})");
+                eprintln!("vx: cannot reach the Vortex that runs this terminal ({err})");
                 1
             }
         })
@@ -359,11 +346,14 @@ mod tests {
     #[test]
     fn args_none_is_focus() {
         assert_eq!(
-            request_from_args(strs(&[]), Path::new("/w"), false),
+            request_from_args(strs(&[]), Path::new("/w")),
             Request::Focus
         );
         assert_eq!(
-            request_from_args(strs(&["--vsplit", "-c", "x.toml"]), Path::new("/w"), true),
+            request_from_args(
+                strs(&["--vsplit", "-c", "x.toml", "--wait"]),
+                Path::new("/w")
+            ),
             Request::Focus
         );
     }
@@ -379,9 +369,9 @@ mod tests {
                 "--vsplit",
                 "b.rs",
                 "/abs/c.rs:3",
+                "--wait",
             ]),
             Path::new("/w"),
-            true,
         );
         assert_eq!(
             req,
@@ -406,7 +396,7 @@ mod tests {
                 wait: true
             }
         );
-        let req = request_from_args(strs(&["a"]), Path::new("/w"), false);
+        let req = request_from_args(strs(&["a"]), Path::new("/w"));
         assert!(matches!(req, Request::Open { wait: false, .. }));
     }
 
@@ -480,35 +470,39 @@ mod tests {
         use std::os::unix::fs::PermissionsExt;
         let (server, _) = recording_server(drop);
         let env: std::collections::HashMap<_, _> = server.env().into_iter().collect();
-        let editor = server.bin_dir().join("hx-editor");
+        let vx = server.bin_dir().join("vx");
         assert_eq!(env[SOCKET_ENV], socket_of(&server).to_string_lossy());
         for k in ["EDITOR", "VISUAL", "GIT_EDITOR"] {
-            assert_eq!(env[k], editor.to_string_lossy());
-        }
-        let exe = sh_quote(&std::env::current_exe().unwrap().to_string_lossy());
-        for name in ["hx", "hx-editor"] {
-            let p = server.bin_dir().join(name);
             assert_eq!(
-                std::fs::metadata(&p).unwrap().permissions().mode() & 0o777,
-                0o755
+                env[k],
+                format!("{} --wait", sh_quote(&vx.to_string_lossy()))
             );
-            let body = std::fs::read_to_string(&p).unwrap();
-            assert!(body.contains(&format!("exec {exe} \"$@\"")), "{body}");
         }
-        let body = std::fs::read_to_string(&editor).unwrap();
-        assert!(body.contains("HELIX_TERMINAL_WAIT=1 exec"));
+        // `vx` is the only program the panel puts on PATH
+        let names: Vec<_> = std::fs::read_dir(server.bin_dir())
+            .unwrap()
+            .map(|e| e.unwrap().file_name())
+            .collect();
+        assert_eq!(names, ["vx"]);
+        let exe = sh_quote(&std::env::current_exe().unwrap().to_string_lossy());
+        assert_eq!(
+            std::fs::metadata(&vx).unwrap().permissions().mode() & 0o777,
+            0o755
+        );
+        let body = std::fs::read_to_string(&vx).unwrap();
+        assert!(body.contains(&format!("exec {exe} \"$@\"")), "{body}");
     }
 
     #[test]
     fn quoting() {
-        assert_eq!(sh_quote("/a b/hx"), "'/a b/hx'");
-        assert_eq!(sh_quote("/it's/hx"), r"'/it'\''s/hx'");
+        assert_eq!(sh_quote("/a b/vx"), "'/a b/vx'");
+        assert_eq!(sh_quote("/it's/vx"), r"'/it'\''s/vx'");
         let dir = tempfile::tempdir().unwrap();
         let weird = dir.path().join("it's here");
         std::fs::create_dir(&weird).unwrap();
         unix::write_scripts(&weird, Path::new("/bin/echo")).unwrap();
         let out = std::process::Command::new("sh")
-            .arg(weird.join("hx"))
+            .arg(weird.join("vx"))
             .arg("ok")
             .output()
             .unwrap();

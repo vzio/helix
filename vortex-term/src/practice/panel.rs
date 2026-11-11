@@ -31,11 +31,11 @@
 //! | `ui.practice.solved` | the line with the result once solved | `diff.plus`, `info` (bold) |
 //! | `ui.practice.dim` | secondary text, and the bar before the goal (its foreground) | `ui.text.inactive`, `comment`, else dim |
 
+use tui::buffer::Buffer as Surface;
+use tui::widgets::{Block, Widget};
 use vortex_core::unicode::width::UnicodeWidthChar;
 use vortex_view::graphics::{Margin, Modifier, Rect, Style};
 use vortex_view::{Editor, Theme};
-use tui::buffer::Buffer as Surface;
-use tui::widgets::{Block, Widget};
 
 use super::exercise::{Exercise, Kind};
 use super::session::{self, Attempt};

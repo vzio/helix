@@ -35,9 +35,9 @@ diagnostic = { underline = { style = "curl" } }
 
 "ui.cursor" = { bg = "cursor-secondary", fg = "bg" }
 "ui.cursor.primary" = { bg = "active", fg = "bg" }
-# Bracket matching: Helix only styles the *other* bracket via ui.match, not the one
+# Bracket matching: Vortex only styles the *other* bracket via ui.match, not the one
 # under the cursor. ui.cursor.match affects cursor appearance, not the bracket itself.
-# Following tonsky's Sublime approach (blue + underline) as closely as Helix allows.
+# Following tonsky's Sublime approach (blue + underline) as closely as Vortex allows.
 "ui.cursor.match" = { fg = "active", underline = { style = "line" } }
 "ui.match" = { fg = "active", underline = { style = "line" } }
 "ui.cursorline.primary" = { bg = "cursorline-primary" }
@@ -101,7 +101,7 @@ diagnostic = { underline = { style = "curl" } }
 "comment.block" = { fg = "comment" }
 
 "function" = { fg = "definition" }
-# Helix uses function.builtin only at call sites (no builtin definitions exist),
+# Vortex uses function.builtin only at call sites (no builtin definitions exist),
 # so we treat it as a call—unhighlighted per tonsky's philosophy.
 "function.builtin" = { fg = "fg" }
 "function.method" = { fg = "definition" }

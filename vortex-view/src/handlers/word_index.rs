@@ -6,13 +6,13 @@
 use std::{borrow::Cow, iter, sync::Arc, time::Duration};
 
 use foldhash::HashMap;
+use parking_lot::RwLock;
+use tokio::{sync::mpsc, time::Instant};
 use vortex_core::{
     chars::char_is_word, diff::compare_ropes, fuzzy::fuzzy_match, ChangeSet, Rope, RopeSlice,
 };
 use vortex_event::{register_hook, AsyncHook, TaskController, TaskHandle};
 use vortex_stdx::rope::RopeSliceExt as _;
-use parking_lot::RwLock;
-use tokio::{sync::mpsc, time::Instant};
 
 use crate::{
     events::{ConfigDidChange, DocumentDidChange, DocumentDidClose, DocumentDidOpen},

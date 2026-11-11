@@ -1,15 +1,15 @@
 use crate::compositor::{Component, Compositor, Context, Event, EventResult};
 use crate::{alt, ctrl, key, shift, ui};
 use arc_swap::ArcSwap;
-use vortex_core::syntax;
-use vortex_view::document::Mode;
-use vortex_view::input::KeyEvent;
-use vortex_view::keyboard::KeyCode;
 use std::sync::Arc;
 use std::{borrow::Cow, ops::RangeFrom};
 use tui::buffer::Buffer as Surface;
 use tui::text::Span;
 use tui::widgets::{Block, Widget};
+use vortex_core::syntax;
+use vortex_view::document::Mode;
+use vortex_view::input::KeyEvent;
+use vortex_view::keyboard::KeyCode;
 
 use vortex_core::{
     unicode::segmentation::{GraphemeCursor, UnicodeSegmentation},

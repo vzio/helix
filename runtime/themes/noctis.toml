@@ -21,7 +21,7 @@
 "diagnostic.deprecated" = { modifiers = ["crossed_out"] }
 
 # UI ==============================
-# For styling helix itself.
+# For styling vortex itself.
 
 'ui.background' = { fg = "autocomp-green", bg = "dark-green" } # Default background color.
 'ui.window' = { fg = "mid-green" } # Window border between splits.

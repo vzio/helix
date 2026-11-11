@@ -1,12 +1,12 @@
 use std::sync::Arc;
 
 use arc_swap::ArcSwap;
+use tui::buffer::Buffer;
+use tui::widgets::{BorderType, Paragraph, Widget, Wrap};
 use vortex_core::syntax;
 use vortex_lsp::lsp;
 use vortex_view::graphics::{Margin, Rect, Style};
 use vortex_view::input::Event;
-use tui::buffer::Buffer;
-use tui::widgets::{BorderType, Paragraph, Widget, Wrap};
 
 use crate::compositor::{Component, Context, EventResult};
 

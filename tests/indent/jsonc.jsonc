@@ -1,6 +1,6 @@
 {
   // a line comment
-  "name": "helix",
+  "name": "vortex",
   "build": {
     "target": "release",
     /* an inline block comment */

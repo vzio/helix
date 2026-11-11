@@ -13,6 +13,7 @@ use crate::{
     },
 };
 
+use std::{mem::take, num::NonZeroUsize, ops, path::PathBuf, rc::Rc};
 use vortex_core::{
     diagnostic::NumberOrString,
     graphemes::{next_grapheme_boundary, prev_grapheme_boundary},
@@ -31,7 +32,6 @@ use vortex_view::{
     keyboard::{KeyCode, KeyModifiers},
     Document, Editor, Theme, View,
 };
-use std::{mem::take, num::NonZeroUsize, ops, path::PathBuf, rc::Rc};
 
 use tui::{buffer::Buffer as Surface, text::Span};
 
@@ -827,12 +827,12 @@ impl EditorView {
         surface: &mut Surface,
         theme: &Theme,
     ) {
-        use vortex_core::diagnostic::Severity;
         use tui::{
             layout::Alignment,
             text::Text,
             widgets::{Paragraph, Widget, Wrap},
         };
+        use vortex_core::diagnostic::Severity;
 
         let cursor = doc
             .selection(view.id)

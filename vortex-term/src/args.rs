@@ -1,8 +1,8 @@
 use anyhow::Result;
-use vortex_core::Position;
-use vortex_view::tree::Layout;
 use indexmap::IndexMap;
 use std::path::{Path, PathBuf};
+use vortex_core::Position;
+use vortex_view::tree::Layout;
 
 #[derive(Default)]
 pub struct Args {
@@ -91,6 +91,9 @@ impl Args {
                         anyhow::bail!("--working-dir must specify an initial working directory")
                     }
                 },
+                // The terminal panel's `$EDITOR` is `vx --wait`, which waits there until the
+                // buffer is closed; outside the panel an editor always waits for itself.
+                "--wait" => {}
                 arg if arg.starts_with("--") => {
                     anyhow::bail!("unexpected double dash argument: {}", arg)
                 }

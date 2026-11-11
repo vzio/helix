@@ -2,9 +2,9 @@
 
 use std::path::PathBuf;
 
+use tui::text::{Span, Spans};
 use vortex_view::graphics::{Modifier, Style};
 use vortex_view::Theme;
-use tui::text::{Span, Spans};
 
 use super::git_status::Mark;
 use super::tree::Node;

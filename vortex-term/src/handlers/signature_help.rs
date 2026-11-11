@@ -1,6 +1,8 @@
 use std::sync::Arc;
 use std::time::Duration;
 
+use tokio::sync::mpsc::Sender;
+use tokio::time::Instant;
 use vortex_core::syntax::config::LanguageServerFeature;
 use vortex_event::{cancelable_future, register_hook, send_blocking, TaskController, TaskHandle};
 use vortex_lsp::lsp::{self, SignatureInformation};
@@ -9,8 +11,6 @@ use vortex_view::document::Mode;
 use vortex_view::events::{DocumentDidChange, SelectionDidChange};
 use vortex_view::handlers::lsp::{SignatureHelpEvent, SignatureHelpInvoked};
 use vortex_view::Editor;
-use tokio::sync::mpsc::Sender;
-use tokio::time::Instant;
 
 use crate::commands::Open;
 use crate::compositor::Compositor;
@@ -153,7 +153,7 @@ fn active_param_range(
         }
         lsp::ParameterLabel::LabelOffsets([start, end]) => {
             // LS sends offsets based on utf-16 based string representation
-            // but highlighting in helix is done using byte offset.
+            // but highlighting in vortex is done using byte offset.
             use vortex_core::str_utils::char_to_byte_idx;
             let from = char_to_byte_idx(&signature.label, *start as usize);
             let to = char_to_byte_idx(&signature.label, *end as usize);

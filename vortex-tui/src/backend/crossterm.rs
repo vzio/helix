@@ -14,13 +14,13 @@ use crossterm::{
     terminal::{self, BeginSynchronizedUpdate, Clear, ClearType, EndSynchronizedUpdate},
     Command,
 };
-use vortex_view::graphics::{Color, CursorKind, Modifier, Rect, UnderlineStyle};
 use std::sync::OnceLock;
 use std::{
     fmt,
     io::{self, Write},
 };
 use termini::TermInfo;
+use vortex_view::graphics::{Color, CursorKind, Modifier, Rect, UnderlineStyle};
 
 fn term_program() -> Option<String> {
     // Some terminals don't set $TERM_PROGRAM
@@ -109,7 +109,7 @@ where
     W: Write,
 {
     pub fn new(buffer: W, config: Config) -> CrosstermBackend<W> {
-        // helix is not usable without colors, but crossterm will disable
+        // vortex is not usable without colors, but crossterm will disable
         // them by default if NO_COLOR is set in the environment. Override
         // this behaviour.
         crossterm::style::force_color_output(true);
@@ -339,7 +339,10 @@ where
         None
     }
 
-    fn set_background_color(&mut self, _color: Option<vortex_view::theme::Color>) -> io::Result<()> {
+    fn set_background_color(
+        &mut self,
+        _color: Option<vortex_view::theme::Color>,
+    ) -> io::Result<()> {
         Ok(())
     }
 }

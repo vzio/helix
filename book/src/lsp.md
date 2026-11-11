@@ -1,13 +1,13 @@
 # Language servers
 
-Helix has built-in support for the [Language Server Protocol][lsp], providing
+Vortex has built-in support for the [Language Server Protocol][lsp], providing
 IDE-like features — diagnostics, completion, goto-definition, rename and more,
 for any language that has a server configured. Language servers are separate
 programs you install yourself: the [language support](./lang-support.md) page
 lists which languages ship with a server configured, and the
 [language server configuration wiki][wiki] has per-server installation notes.
 
-Run `hx --health <language>` to check whether Helix found the configured server
+Run `vx --health <language>` to check whether Vortex found the configured server
 for a language. After changing a server's configuration, `:lsp-restart` reloads
 it and `:lsp-stop` stops it; `:lsp-workspace-command` runs a command the server
 exposes for the workspace.

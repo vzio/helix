@@ -1,6 +1,9 @@
 use std::cmp::min;
 
-use vortex_core::doc_formatter::{DocumentFormatter, FormattedGrapheme, GraphemeSource, TextFormat};
+use tui::buffer::Buffer as Surface;
+use vortex_core::doc_formatter::{
+    DocumentFormatter, FormattedGrapheme, GraphemeSource, TextFormat,
+};
 use vortex_core::graphemes::Grapheme;
 use vortex_core::str_utils::char_to_byte_idx;
 use vortex_core::syntax::{self, HighlightEvent, Highlighter, OverlayHighlights};
@@ -12,7 +15,6 @@ use vortex_view::graphics::Rect;
 use vortex_view::theme::Style;
 use vortex_view::view::ViewPosition;
 use vortex_view::{Document, Theme};
-use tui::buffer::Buffer as Surface;
 
 use crate::ui::text_decorations::DecorationManager;
 

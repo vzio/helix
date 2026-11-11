@@ -3,8 +3,8 @@ pub mod registry;
 mod transport;
 
 pub use client::Client;
-pub use vortex_dap_types::*;
 pub use transport::{Payload, Response, Transport};
+pub use vortex_dap_types::*;
 
 use serde::de::DeserializeOwned;
 use std::collections::HashMap;

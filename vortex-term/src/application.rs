@@ -1,5 +1,7 @@
 use arc_swap::{access::Map, ArcSwap};
 use futures_util::Stream;
+use serde_json::json;
+use tui::backend::Backend;
 use vortex_core::{diagnostic::Severity, pos_at_coords, syntax, Range, Selection};
 use vortex_lsp::{
     lsp::{self, notification::Notification},
@@ -16,8 +18,6 @@ use vortex_view::{
     tree::Layout,
     Align, Editor,
 };
-use serde_json::json;
-use tui::backend::Backend;
 
 use crate::{
     args::Args,
@@ -83,7 +83,7 @@ pub struct Application {
 
 #[cfg(feature = "integration")]
 fn setup_integration_logging() {
-    let level = std::env::var("HELIX_LOG_LEVEL")
+    let level = std::env::var("VORTEX_LOG_LEVEL")
         .map(|lvl| lvl.parse().unwrap())
         .unwrap_or(log::LevelFilter::Info);
 
@@ -523,7 +523,7 @@ impl Application {
 
                 // SAFETY:
                 //
-                // - helix must have permissions to send signals to all processes in its signal
+                // - vortex must have permissions to send signals to all processes in its signal
                 //   group, either by already having the requisite permission, or by having the
                 //   user's UID / EUID / SUID match that of the receiving process(es).
                 let res = unsafe {
@@ -532,8 +532,8 @@ impl Application {
                     // (e.g. when running `git commit`).
                     //
                     // We have to send SIGSTOP (not SIGTSTP) to the entire process group, because,
-                    // as mentioned above, the terminal will get stuck if `helix` was spawned from
-                    // an external process and that process waits for `helix` to complete. This may
+                    // as mentioned above, the terminal will get stuck if `vortex` was spawned from
+                    // an external process and that process waits for `vortex` to complete. This may
                     // be an issue with signal-hook-tokio, but the author of signal-hook believes it
                     // could be a tokio issue instead:
                     // https://github.com/vorner/signal-hook/issues/132
@@ -979,7 +979,7 @@ impl Application {
                             format!("Language server exited: {}", language_server!().name());
                         self.editor.set_status(status);
 
-                        // LSPs may produce diagnostics for files that haven't been opened in helix,
+                        // LSPs may produce diagnostics for files that haven't been opened in vortex,
                         // we need to clear those and remove the entries from the list if this leads to
                         // an empty diagnostic list for said files
                         for diags in self.editor.diagnostics.values_mut() {

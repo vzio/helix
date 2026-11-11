@@ -1,4 +1,4 @@
-//! The shell of Helix's terminal panel: one shell process on a pseudo-terminal
+//! The shell of Vortex's terminal panel: one shell process on a pseudo-terminal
 //! (`portable-pty`), the terminal emulator its output goes through (`alacritty_terminal`), and
 //! the shell integration that reports when a command starts and how it ended (OSC 133).
 //!
@@ -22,7 +22,7 @@ pub struct ShellOptions {
     pub command: Vec<String>,
     /// The working directory of the shell.
     pub cwd: Option<PathBuf>,
-    /// Variables to set, on top of Helix's own environment.
+    /// Variables to set, on top of Vortex's own environment.
     pub env: Vec<(String, String)>,
     /// A directory to put first on `PATH`.
     pub path_prefix: Option<PathBuf>,

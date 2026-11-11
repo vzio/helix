@@ -1,6 +1,6 @@
 [package]
 name = "vortex-dap"
-description = "DAP client implementation for Helix project"
+description = "DAP client implementation for Vortex project"
 version.workspace = true
 authors.workspace = true
 edition.workspace = true

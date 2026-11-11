@@ -266,7 +266,7 @@ fn prepare_integration(
         .unwrap_or_default();
     let dir = || {
         tempfile::Builder::new()
-            .prefix("helix-shell-")
+            .prefix("vortex-shell-")
             .tempdir()
             .context("creating a directory for the shell integration")
     };
@@ -292,7 +292,7 @@ fn prepare_integration(
                 std::fs::write(dir.path().join(file), content)?;
             }
             let ours = dir.path().as_os_str().to_owned();
-            let mut env = vec![("ZDOTDIR", ours.clone()), ("HELIX_ZDOTDIR", ours)];
+            let mut env = vec![("ZDOTDIR", ours.clone()), ("VORTEX_ZDOTDIR", ours)];
             // The user's own ZDOTDIR, if they have one: the scripts read their files from it.
             let user_zdotdir = options
                 .env
@@ -302,7 +302,7 @@ fn prepare_integration(
                 .map(|(_, value)| OsString::from(value))
                 .or_else(|| std::env::var_os("ZDOTDIR"));
             if let Some(zdotdir) = user_zdotdir {
-                env.push(("HELIX_USER_ZDOTDIR", zdotdir));
+                env.push(("VORTEX_USER_ZDOTDIR", zdotdir));
             }
             Ok(Integration {
                 args: Vec::new(),
@@ -433,14 +433,14 @@ impl Shell {
         {
             let common = common.clone();
             let term = term.clone();
-            spawn_thread("helix-terminal-reader", move || {
+            spawn_thread("vortex-terminal-reader", move || {
                 read_loop(reader, &common, &term);
                 let _ = drained_tx.send(());
             })?;
         }
         {
             let common = common.clone();
-            spawn_thread("helix-terminal-wait", move || {
+            spawn_thread("vortex-terminal-wait", move || {
                 let code = match child.wait() {
                     Ok(status) => Some(status.exit_code() as i32),
                     Err(err) => {
@@ -458,7 +458,7 @@ impl Shell {
         {
             // in case the shell never sends a marker (an rc file that replaces the prompt hook)
             let common = common.clone();
-            spawn_thread("helix-terminal-ready", move || {
+            spawn_thread("vortex-terminal-ready", move || {
                 std::thread::sleep(READY_TIMEOUT);
                 common.ready();
             })?;
@@ -467,7 +467,7 @@ impl Shell {
         if let Some(pid) = pid {
             let common = common.clone();
             let master = master.clone();
-            spawn_thread("helix-terminal-poll", move || {
+            spawn_thread("vortex-terminal-poll", move || {
                 poll_foreground(&common, &master, pid)
             })?;
         }

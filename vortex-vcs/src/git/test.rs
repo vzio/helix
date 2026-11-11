@@ -52,8 +52,8 @@ pub fn create_commit_with_message(repo: &Path, add_modified: bool, message: &str
 pub fn empty_git_repo() -> TempDir {
     let tmp = tempfile::tempdir().expect("create temp dir for git testing");
     exec_git_cmd("init", tmp.path());
-    exec_git_cmd("config user.email test@helix.org", tmp.path());
-    exec_git_cmd("config user.name helix-test", tmp.path());
+    exec_git_cmd("config user.email test@vortex.org", tmp.path());
+    exec_git_cmd("config user.name vortex-test", tmp.path());
     tmp
 }
 

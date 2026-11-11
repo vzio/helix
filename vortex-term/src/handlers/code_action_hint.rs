@@ -1,6 +1,8 @@
 use std::{collections::HashSet, time::Duration};
 
 use futures_util::stream::FuturesUnordered;
+use tokio::time::Instant;
+use tokio_stream::StreamExt;
 use vortex_event::{cancelable_future, register_hook, send_blocking, AsyncHook};
 use vortex_lsp::lsp::{CodeAction, CodeActionOrCommand, CodeActionTriggerKind};
 use vortex_view::{
@@ -11,8 +13,6 @@ use vortex_view::{
     handlers::{lsp::CodeActionHintEvent, Handlers},
     DocumentId, Editor, ViewId,
 };
-use tokio::time::Instant;
-use tokio_stream::StreamExt;
 
 use crate::{commands::code_actions_for_range, job};
 

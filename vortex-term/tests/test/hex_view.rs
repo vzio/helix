@@ -9,6 +9,7 @@ use std::{
     time::{Duration, Instant, SystemTime},
 };
 
+use tokio_stream::wrappers::UnboundedReceiverStream;
 use vortex_term::application::Application;
 use vortex_view::{
     editor::Severity,
@@ -17,7 +18,6 @@ use vortex_view::{
     input::parse_macro,
     Document,
 };
-use tokio_stream::wrappers::UnboundedReceiverStream;
 
 #[cfg(windows)]
 use crossterm::event::{Event, KeyEvent};

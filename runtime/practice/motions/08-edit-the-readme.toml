@@ -8,14 +8,14 @@ Prose is where word motions pay off most: a count of `w` jumps over words,
 word before you act on it.
 """
 start = '''
-Helix is a really fast, modal text editor. It
+Vortex is a really fast, modal text editor. It
 is written in Go and runs in the terminal on
 Linux, Windows and macOS. It has built-in
 language server support, so you get completion
 and diagnostics without installing a plugin.
 '''
 goal = '''
-Helix is a fast, modal text editor. It
+Vortex is a fast, modal text editor. It
 is written in Rust and runs in the terminal on
 Linux, Windows and macOS. It has built-in
 language server support, so you get completion

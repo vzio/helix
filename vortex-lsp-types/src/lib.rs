@@ -21,9 +21,9 @@ use bitflags::bitflags;
 
 use std::{collections::HashMap, fmt::Debug};
 
-pub use vortex_stdx::Url;
 use serde::{de, de::Error as Error_, Deserialize, Serialize};
 use serde_json::Value;
+pub use vortex_stdx::Url;
 
 // Large enough to contain any enumeration name defined in this crate
 type PascalCaseBuf = [u8; 32];

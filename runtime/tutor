@@ -41,7 +41,7 @@
   :wa  :qa       write all files, quit all windows
 
  This tutor is a buffer without a file. Try :w /tmp/tutor.txt,
- then :q, and open it again with hx /tmp/tutor.txt.
+ then :q, and open it again with vx /tmp/tutor.txt.
 
 
 
@@ -116,7 +116,7 @@
 =================================================================
 
  Big moves, like a search, gg, ge or going to a definition, are
- jumps: Helix remembers where you were before each one.
+ jumps: Vortex remembers where you were before each one.
 
   C-o            back to where you were
   C-i  (Tab)     forward again
@@ -204,7 +204,7 @@
 =                   9 THE SYSTEM CLIPBOARD                      =
 =================================================================
 
- y and p use Helix's own register. Space puts the system
+ y and p use Vortex's own register. Space puts the system
  clipboard in their place:
 
   space y        yank to the clipboard
@@ -222,8 +222,8 @@
 =                     10 LANGUAGE SERVERS                       =
 =================================================================
 
- With a language server for the language (see hx --health),
- Helix understands the code:
+ With a language server for the language (see vx --health),
+ Vortex understands the code:
 
   gd  gD         go to the definition, the declaration
   gy  gi         the type, the implementation
@@ -299,7 +299,7 @@
   $              keep the selections for which the command
                  succeeds
   :sh CMD        run a command and show its output
-  C-z            suspend Helix (fg in the shell to come back)
+  C-z            suspend Vortex (fg in the shell to come back)
 
 
 
@@ -343,7 +343,7 @@
 =                        15 THE DEBUGGER                        =
 =================================================================
 
- With a debug adapter for the language (see hx --health), space G
+ With a debug adapter for the language (see vx --health), space G
  is a mode that stays until Esc, so one key steps at a time. It
  is experimental.
 
@@ -376,8 +376,8 @@
   :sh CMD        run CMD in the panel's shell, as if typed
   :! CMD         run CMD and show its output in a popup
 
- In the panel, hx FILE opens the file in this editor instead of
- starting another Helix, and git commit edits its message here:
+ In the panel, vx FILE opens the file in this editor instead of
+ starting another Vortex, and git commit edits its message here:
  :wq when done, and you are back in the shell. exit closes the
  panel; C-t starts a new shell.
 
