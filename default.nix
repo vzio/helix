@@ -15,7 +15,6 @@
     ./.envrc
     ./rustfmt.toml
     ./screenshot.png
-    ./book
     ./docs
     ./runtime
     ./flake.lock

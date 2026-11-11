@@ -204,7 +204,7 @@ async fn space_e_opens_the_tree_at_the_root_with_nothing_expanded() -> anyhow::R
     let rows = session.rows();
     // The directories of the repository, collapsed; the file of the buffer is not revealed.
     assert!(on_screen(&rows, "+ vortex-term/"), "{rows:#?}");
-    assert!(on_screen(&rows, "+ book/"), "{rows:#?}");
+    assert!(on_screen(&rows, "+ contrib/"), "{rows:#?}");
     assert!(!on_screen(&rows, "x.txt"), "{rows:#?}");
     // Files have a blank where the sign of a directory is.
     let cargo = row_with(&rows, "Cargo.toml").expect("Cargo.toml is listed");
@@ -232,7 +232,7 @@ async fn the_tree_lists_directories_first_and_never_git() -> anyhow::Result<()> 
     let rows = session.rows();
     let at = |text: &str| rows.iter().position(|row| row.contains(text)).unwrap();
     // Directories first, then files, in the order of the names regardless of case.
-    assert!(at("+ book/") < at("+ vortex-core/"));
+    assert!(at("+ contrib/") < at("+ vortex-core/"));
     assert!(at("+ vortex-core/") < at("+ xtask/"));
     assert!(at("+ xtask/") < at("Cargo.toml"));
     assert!(at("Cargo.toml") < at("README.md"));
@@ -383,7 +383,7 @@ async fn s_filters_the_workspace_and_keeps_the_parents() -> anyhow::Result<()> {
     // The walk of the workspace is in the background.
     session
         .wait_for_screen("the filtered tree", |rows| {
-            on_screen(rows, "y.txt") && !on_screen(rows, "+ book/")
+            on_screen(rows, "y.txt") && !on_screen(rows, "+ contrib/")
         })
         .await;
     let rows = session.rows();
@@ -425,7 +425,7 @@ async fn slash_is_not_the_filter_key_any_more() -> anyhow::Result<()> {
     // `s` does, and the letters are typed from then on.
     session.keys(&format!("s'{} 'y.txt", name_of(&dir))).await;
     session
-        .wait_for_screen("the filtered tree", |rows| !on_screen(rows, "+ book/"))
+        .wait_for_screen("the filtered tree", |rows| !on_screen(rows, "+ contrib/"))
         .await;
     assert!(on_screen(&session.rows(), "y.txt"));
     // A `/` in filter mode is a character of the query.
@@ -450,7 +450,7 @@ async fn opening_a_directory_without_hits_in_the_filter_shows_it_in_the_tree() -
     session.keys(&format!("'{} /a$", name_of(&dir))).await;
     session
         .wait_for_screen("the filtered tree", |rows| {
-            on_screen(rows, "+ a/") && !on_screen(rows, "+ book/")
+            on_screen(rows, "+ a/") && !on_screen(rows, "+ contrib/")
         })
         .await;
     assert!(selected(&session.rows()).contains("+ a/"));
@@ -460,7 +460,7 @@ async fn opening_a_directory_without_hits_in_the_filter_shows_it_in_the_tree() -
     // The filter is gone and the directory is expanded in the tree, with the cursor on it.
     assert!(selected(&rows).contains("- a/"), "{rows:#?}");
     assert!(on_screen(&rows, "x.txt"), "{rows:#?}");
-    assert!(on_screen(&rows, "+ book/"), "{rows:#?}");
+    assert!(on_screen(&rows, "+ contrib/"), "{rows:#?}");
     assert!(!rows[1].contains('$'), "{rows:#?}");
     session.close().await;
     Ok(())
@@ -478,7 +478,7 @@ async fn the_filter_skips_ignored_files_and_git() -> anyhow::Result<()> {
     session.keys("s").await;
     session.keys(&format!("'{} 'txt", name_of(&dir))).await;
     session
-        .wait_for_screen("the filtered tree", |rows| !on_screen(rows, "+ book/"))
+        .wait_for_screen("the filtered tree", |rows| !on_screen(rows, "+ contrib/"))
         .await;
     let rows = session.rows();
     assert!(
@@ -541,7 +541,7 @@ async fn escape_leaves_the_filter_mode_then_clears_the_filter_then_closes() -> a
     session.keys(&format!("'{} 'y.txt", name_of(&dir))).await;
     session
         .wait_for_screen("the filtered tree", |rows| {
-            on_screen(rows, "y.txt") && !on_screen(rows, "+ book/")
+            on_screen(rows, "y.txt") && !on_screen(rows, "+ contrib/")
         })
         .await;
     assert!(selected(&session.rows()).contains("y.txt"));
@@ -550,7 +550,7 @@ async fn escape_leaves_the_filter_mode_then_clears_the_filter_then_closes() -> a
     // work on the filtered tree.
     session.keys("<esc>").await;
     assert!(on_screen(&session.rows(), "y.txt"));
-    assert!(!on_screen(&session.rows(), "+ book/"));
+    assert!(!on_screen(&session.rows(), "+ contrib/"));
     session.keys("k").await;
     assert!(
         selected(&session.rows()).contains("- a/"),
@@ -577,7 +577,7 @@ async fn escape_leaves_the_filter_mode_then_clears_the_filter_then_closes() -> a
     // Esc in tree mode clears the filter: the tree is back, with the entry selected in it.
     session.keys("<esc>").await;
     let rows = session.rows();
-    assert!(on_screen(&rows, "+ book/"), "{rows:#?}");
+    assert!(on_screen(&rows, "+ contrib/"), "{rows:#?}");
     assert!(selected(&rows).contains("explorer-test-"), "{rows:#?}");
     // Esc again closes it.
     session.keys("<esc>").await;

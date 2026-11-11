@@ -830,8 +830,7 @@ Greyed-out text at the end of a line about the commit that last changed it, GitL
 The commit's short hash comes first, abbreviated as git does (`core.abbrev`, unique in the
 repository); lines that aren't committed have none.
 
-Off by default. Full reference: the
-[`[editor.inline-blame]` section](book/src/editor.md#editorinline-blame-section) of the book.
+Off by default; turn it on with `space B` or in `[editor.inline-blame]` (below).
 
 ### Usage
 
@@ -850,6 +849,10 @@ show = "cursor-line"       # or "all-lines" (every visible line)
 format = "{commit} {author}, {time-ago} • {title}"   # also {date} {email} {body}
 delay = 300                # ms the cursor rests on a line before it shows; 0 = at once
 ```
+
+The variables of `format`: `{commit}` (the short hash), `{author}`, `{email}`, `{date}`
+(`YYYY-MM-DD`), `{time-ago}`, `{title}` (the first line of the message) and `{body}` (the rest).
+The text before a variable that has no value (`{body}` of a one-line message) is left out with it.
 
 Theme scope `ui.virtual.inline-blame`; themes that don't define it use `ui.virtual.inlay-hint`,
 so it looks like inlay hints everywhere. The hash (`{commit}`) has its own scope,
@@ -1257,12 +1260,13 @@ against the par. On a terminal 100 columns wide or more it is a column at the to
 narrower ones it is a band at the bottom, below the lines of the buffer. It gives way to the
 which-key popup.
 
-Its styles come from theme scopes that fall back to existing ones, so every theme works:
-`ui.practice` (the panel; falls back to `ui.popup.info`), `ui.practice.lesson`,
-`ui.practice.goal` (falls back to `markup.raw.block`, `markup.raw`), `ui.practice.hint`,
-`ui.practice.label`, `ui.practice.key` (keys in backticks, falls back to `markup.raw.inline`),
-`ui.practice.status`, `ui.practice.solved` and `ui.practice.dim`; `book/src/themes.md` lists all
-fallbacks.
+Its styles come from theme scopes that fall back to existing ones (in order), so every theme
+works: `ui.practice` (the panel: `ui.popup.info`, `ui.popup`), `ui.practice.lesson`
+(`ui.text.info`, `ui.text`), `ui.practice.goal` (`markup.raw.block`, `markup.raw`, `ui.text`),
+`ui.practice.hint` (`hint`, `ui.text.info`), `ui.practice.label` (`markup.heading`,
+`ui.text.focus`), `ui.practice.key` (keys in backticks: `markup.raw.inline`, `markup.raw`),
+`ui.practice.status` (`ui.text.info`), `ui.practice.solved` (`diff.plus`, `info`) and
+`ui.practice.dim` (`ui.text.inactive`, `comment`).
 
 The buffer is checked after every key: once its text is the goal and you are in normal mode, the
 exercise is solved and the count stops. The statusline and the panel show the keys you used, the
