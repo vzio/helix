@@ -5,14 +5,15 @@
 //! The tree computes the rows itself (directories first, then files, by name regardless of case)
 //! and hands them to the picker in that order, which doesn't filter or reorder them
 //! ([`Picker::with_external_filter`]). Files ignored by git are dimmed (or hidden with
-//! `editor.explorer.hide-gitignored`), files changed in git are marked (see [`git_status`]), and
-//! the tree can create, rename, move (cut and paste) and delete files.
+//! `editor.explorer.hide-gitignored`), files changed in git are marked (see
+//! `explorer/git_status.rs`), and the tree can create, rename, move (cut and paste) and delete
+//! files.
 //!
 //! Vortex pickers send the letters typed to their prompt, but the tree needs them as keys, so it
 //! uses the modes of the picker ([`Picker::with_modes`]). In normal mode the keys move in the tree
 //! and act on its entries. `s` enters filter mode, where the keys go to the prompt of the picker
-//! and fuzzy filter the whole workspace (see [`filter`]); `Esc` goes back to normal mode and keeps
-//! the filter.
+//! and fuzzy filter the whole workspace (see `explorer/filter.rs`); `Esc` goes back to normal
+//! mode and keeps the filter.
 
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};

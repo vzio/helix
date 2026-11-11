@@ -2,9 +2,10 @@
 //! delaying when it shows for the cursor line.
 //!
 //! The blame of a file is expensive to compute (it walks the history), so it is never done on
-//! the UI thread and the result is cached in the document ([`DocumentBlame`]). Requests are
-//! made with [`request`] when something may have changed it: a document is opened, saved or
-//! reloaded, the terminal regains focus, or the feature is turned on. Each of them only costs
+//! the UI thread and the result is cached in the document
+//! ([`DocumentBlame`](vortex_view::blame::DocumentBlame)). Requests are made with [`request`]
+//! when something may have changed it: a document is opened, saved or reloaded, the terminal
+//! regains focus, or the feature is turned on. Each of them only costs
 //! reading `HEAD` when it didn't change. At most one computation runs per document (requests
 //! made meanwhile are coalesced into one rerun) and at most [`MAX_COMPUTATIONS`] run at all.
 //!
