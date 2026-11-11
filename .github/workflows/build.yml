@@ -124,14 +124,3 @@ jobs:
         if: always()
         run: cargo xtask theme-check
 
-      - name: Generate docs
-        if: always()
-        run: cargo xtask docgen
-
-      - name: Check uncommitted documentation changes
-        if: always()
-        run: |
-          git diff
-          git diff-files --quiet \
-            || (echo "Run 'cargo xtask docgen', commit the changes and push again" \
-            && exit 1)

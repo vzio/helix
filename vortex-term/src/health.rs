@@ -40,16 +40,6 @@ impl TsFeature {
         }
     }
 
-    pub fn long_title(&self) -> &'static str {
-        match *self {
-            Self::Highlight => "Syntax Highlighting",
-            Self::TextObject => "Treesitter Textobjects",
-            Self::AutoIndent => "Auto Indent",
-            Self::Tags => "Code Navigation Tags",
-            Self::RainbowBracket => "Rainbow Brackets",
-        }
-    }
-
     pub fn short_title(&self) -> &'static str {
         match *self {
             Self::Highlight => "Highlight",

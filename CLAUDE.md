@@ -166,7 +166,6 @@ one, and a new line is indented like the last. Replay rather than reason.
   cargo check -p vortex-term --no-default-features
   cargo test --workspace
   cargo integration-test
-  cargo xtask docgen   # after changing commands, keys or options; commit book/src/generated
   ```
 
   (Four upstream `write` tests fail when run as root; that's not the fork's.)

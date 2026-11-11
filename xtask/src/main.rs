@@ -1,5 +1,3 @@
-mod docgen;
-mod helpers;
 mod path;
 
 use std::{env, error::Error};
@@ -9,14 +7,6 @@ type DynError = Box<dyn Error>;
 pub mod tasks {
     use crate::DynError;
     use std::collections::HashSet;
-
-    pub fn docgen() -> Result<(), DynError> {
-        use crate::docgen::*;
-        write(TYPABLE_COMMANDS_MD_OUTPUT, &typable_commands()?);
-        write(STATIC_COMMANDS_MD_OUTPUT, &static_commands()?);
-        write(LANG_SUPPORT_MD_OUTPUT, &lang_features()?);
-        Ok(())
-    }
 
     pub fn querycheck(languages: impl Iterator<Item = String>) -> Result<(), DynError> {
         use vortex_core::syntax::LanguageData;
@@ -538,10 +528,9 @@ pub mod tasks {
     pub fn print_help() {
         println!(
             "
-Usage: Run with `cargo xtask <task>`, eg. `cargo xtask docgen`.
+Usage: Run with `cargo xtask <task>`, eg. `cargo xtask theme-check`.
 
     Tasks:
-        docgen                     Generate files to be included in the mdbook output.
         query-check [languages]    Check that tree-sitter queries are valid for the given
                                    languages, or all languages if none are specified.
         indent-check [languages]   Check indentation for the corpus files in tests/indent/
@@ -568,7 +557,6 @@ fn main() -> Result<(), DynError> {
     match task {
         None => tasks::print_help(),
         Some(t) => match t.as_str() {
-            "docgen" => tasks::docgen()?,
             "query-check" => tasks::querycheck(args)?,
             "indent-check" => tasks::indentcheck(args)?,
             "highlight-check" => tasks::highlightcheck(args)?,

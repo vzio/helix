@@ -17,7 +17,6 @@ use crate::Editor;
 // * Add a branch in `Variable::as_str`, converting the name from TitleCase to snake_case.
 // * Add a branch in `Variable::from_name` with the reverse association.
 // * Add a branch in the `expand_variable` function to read the value from the editor.
-// * Add the new variable to the documentation in `book/src/command-line.md`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Variable {
     /// The one-indexed line number of the primary cursor in the currently focused document.
