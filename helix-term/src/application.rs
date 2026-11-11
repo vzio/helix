@@ -662,10 +662,16 @@ impl Application {
             .save_messages
             .remove(&doc_save_event.doc_id)
             .unwrap_or_else(|| {
-                format!(
-                    "'{}' written, {lines}L {size}",
-                    get_relative_path(&doc_save_event.path).to_string_lossy(),
-                )
+                let name = get_relative_path(&doc_save_event.path);
+                match doc_save_event.hex_written {
+                    // the hex view writes the bytes it changed, in place
+                    Some(bytes) => format!(
+                        "'{}' written, {bytes} byte{} changed in place",
+                        name.to_string_lossy(),
+                        if bytes == 1 { "" } else { "s" },
+                    ),
+                    None => format!("'{}' written, {lines}L {size}", name.to_string_lossy()),
+                }
             });
         self.editor.set_status(message);
     }

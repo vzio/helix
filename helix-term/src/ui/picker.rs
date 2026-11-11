@@ -103,7 +103,8 @@ pub type FileLocation<'a> = (PathOrId<'a>, Option<(usize, usize)>);
 pub enum CachedPreview {
     Document(Box<Document>),
     Directory(Vec<(String, bool)>),
-    Binary,
+    /// A binary file, previewed in the hex view (this fork), which reads only what it shows.
+    Binary(Box<helix_view::hex::HexBuffer>),
     LargeFile,
     NotFound,
 }
@@ -124,6 +125,16 @@ impl Preview<'_, '_> {
         }
     }
 
+    /// The bytes of a binary file, or of a document in the hex view.
+    fn hex(&self) -> Option<&helix_view::hex::HexBuffer> {
+        match self {
+            Preview::EditorDocument(doc) => doc.hex(),
+            Preview::Cached(CachedPreview::Document(doc)) => doc.hex(),
+            Preview::Cached(CachedPreview::Binary(hex)) => Some(hex),
+            _ => None,
+        }
+    }
+
     fn dir_content(&self) -> Option<&Vec<(String, bool)>> {
         match self {
             Preview::Cached(CachedPreview::Directory(dir_content)) => Some(dir_content),
@@ -138,7 +149,7 @@ impl Preview<'_, '_> {
             Self::Cached(preview) => match preview {
                 CachedPreview::Document(_) => "<Invalid file location>",
                 CachedPreview::Directory(_) => "<Invalid directory location>",
-                CachedPreview::Binary => "<Binary file>",
+                CachedPreview::Binary(_) => "<Binary file>",
                 CachedPreview::LargeFile => "<File too large to preview>",
                 CachedPreview::NotFound => "<File not found>",
             },
@@ -1165,9 +1176,6 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
                                 .collect();
                             Ok(CachedPreview::Directory(file_names))
                         } else if metadata.is_file() {
-                            if metadata.len() > MAX_FILE_SIZE_FOR_PREVIEW {
-                                return Ok(CachedPreview::LargeFile);
-                            }
                             let is_binary = std::fs::File::open(&path).and_then(|file| {
                                 // Read up to 1kb to detect the content type
                                 let n = file.take(1024).read_to_end(&mut self.read_buffer)?;
@@ -1175,8 +1183,13 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
                                 self.read_buffer.clear();
                                 Ok(is_binary)
                             })?;
+                            // the hex view reads only the start, whatever the size
                             if is_binary {
-                                return Ok(CachedPreview::Binary);
+                                let hex = helix_view::hex::HexBuffer::open(&path)?;
+                                return Ok(CachedPreview::Binary(Box::new(hex)));
+                            }
+                            if metadata.len() > MAX_FILE_SIZE_FOR_PREVIEW {
+                                return Ok(CachedPreview::LargeFile);
                             }
                             let mut doc = Document::open(
                                 &path,
@@ -1492,6 +1505,15 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
         }
 
         if let Some((preview, range)) = self.get_preview(cx.editor) {
+            if let Some(hex) = preview.hex() {
+                // its first rows, with no cursor
+                let cursor = helix_view::hex::HexCursor {
+                    offset: u64::MAX,
+                    ..Default::default()
+                };
+                super::hex_view::render_rows(&cx.editor.theme, hex, &cursor, inner, surface, false);
+                return;
+            }
             let doc = match preview.document() {
                 Some(doc)
                     if range.is_none_or(|(start, end)| {

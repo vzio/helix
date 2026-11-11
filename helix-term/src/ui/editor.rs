@@ -44,6 +44,8 @@ pub struct EditorView {
     spinners: ProgressSpinners,
     /// Tracks if the terminal window is focused by reaction to terminal focus events
     terminal_focused: bool,
+    /// The keys of the hex view kept between keys (this fork).
+    hex_keys: commands::hex::HexKeys,
 }
 
 #[derive(Debug, Clone)]
@@ -73,6 +75,7 @@ impl EditorView {
             completion: None,
             spinners: ProgressSpinners::default(),
             terminal_focused: true,
+            hex_keys: Default::default(),
         }
     }
 
@@ -89,8 +92,14 @@ impl EditorView {
         surface: &mut Surface,
         is_focused: bool,
     ) {
+        // a document in the hex view (this fork) draws its bytes, not its text
+        if doc.is_hex() {
+            crate::ui::hex_view::render(&editor.theme, doc, view, surface, is_focused);
+            self.render_view_frame(editor, doc, view, viewport, surface, is_focused);
+            return;
+        }
+
         let inner = view.inner_area(doc);
-        let area = view.area;
         let theme = &editor.theme;
         let config = editor.config();
         let loader = editor.syn_loader.load();
@@ -227,22 +236,36 @@ impl EditorView {
             decorations,
         );
 
+        if config.inline_diagnostics.disabled()
+            && config.end_of_line_diagnostics == DiagnosticFilter::Disable
+        {
+            Self::render_diagnostics(doc, view, inner, surface, theme);
+        }
+
+        self.render_view_frame(editor, doc, view, viewport, surface, is_focused);
+    }
+
+    /// The right border of a view, if it isn't at the edge of the screen, and its statusline.
+    fn render_view_frame(
+        &self,
+        editor: &Editor,
+        doc: &Document,
+        view: &View,
+        viewport: Rect,
+        surface: &mut Surface,
+        is_focused: bool,
+    ) {
+        let area = view.area;
         // if we're not at the edge of the screen, draw a right border
         if viewport.right() != view.area.right() {
             let x = area.right();
-            let border_style = theme.get("ui.window");
+            let border_style = editor.theme.get("ui.window");
             for y in area.top()..area.bottom() {
                 surface[(x, y)]
                     .set_symbol(tui::symbols::line::VERTICAL)
                     //.set_symbol(" ")
                     .set_style(border_style);
             }
-        }
-
-        if config.inline_diagnostics.disabled()
-            && config.end_of_line_diagnostics == DiagnosticFilter::Disable
-        {
-            Self::render_diagnostics(doc, view, inner, surface, theme);
         }
 
         let statusline_area = view
@@ -1230,6 +1253,10 @@ impl EditorView {
             self.handle_non_key_input(cxt)
         }
 
+        if let Some(result) = commands::hex::handle_mouse(cxt.editor, event) {
+            return result;
+        }
+
         let config = cxt.editor.config();
         let MouseEvent {
             kind,
@@ -1531,7 +1558,14 @@ impl Component for EditorView {
                     return EventResult::Consumed(None);
                 }
 
-                if !self.on_next_key(OnKeyCallbackKind::PseudoPending, &mut cx, key) {
+                // a document in the hex view (this fork) takes its keys first
+                let hex_handled = self.keymaps.pending().is_empty()
+                    && self.pseudo_pending.is_empty()
+                    && self.on_next_key.is_none()
+                    && commands::hex::handle_key(&mut cx, key, &mut self.hex_keys);
+
+                if !hex_handled && !self.on_next_key(OnKeyCallbackKind::PseudoPending, &mut cx, key)
+                {
                     match mode {
                         Mode::Insert => {
                             // let completion swallow the event if necessary
@@ -1795,6 +1829,10 @@ impl Component for EditorView {
     fn cursor(&self, _area: Rect, editor: &Editor) -> (Option<Position>, CursorKind) {
         if let Some((pos, kind)) = crate::terminal::cursor(editor) {
             return (Some(pos), kind);
+        }
+        // the hex view draws its own cursor
+        if doc!(editor).is_hex() {
+            return (None, CursorKind::Hidden);
         }
         match editor.cursor() {
             // all block cursors are drawn manually

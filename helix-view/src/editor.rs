@@ -2262,13 +2262,18 @@ impl Editor {
         let id = if let Some(id) = id {
             id
         } else {
-            let mut doc = Document::open(
-                &path,
-                None,
-                true,
-                self.config.clone(),
-                self.syn_loader.clone(),
-            )?;
+            // a binary file opens in the hex view (this fork), without being read
+            let mut doc = if crate::hex::file_is_binary(&path) {
+                Document::open_hex(&path, self.config.clone(), self.syn_loader.clone())?
+            } else {
+                Document::open(
+                    &path,
+                    None,
+                    true,
+                    self.config.clone(),
+                    self.syn_loader.clone(),
+                )?
+            };
 
             let diagnostics =
                 Editor::doc_diagnostics(&self.language_servers, &self.diagnostics, &doc);
@@ -2278,8 +2283,10 @@ impl Editor {
                 .workspace_trust
                 .query(doc.workspace_root(), TrustQuery::Git)
                 .is_trusted();
-            if let Some(diff_base) = self.diff_providers.get_diff_base(&path, trust_full) {
-                doc.set_diff_base(diff_base);
+            if !doc.is_hex() {
+                if let Some(diff_base) = self.diff_providers.get_diff_base(&path, trust_full) {
+                    doc.set_diff_base(diff_base);
+                }
             }
             doc.set_version_control_head(
                 self.diff_providers.get_current_head_name(&path, trust_full),
