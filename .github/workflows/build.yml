@@ -63,6 +63,8 @@ jobs:
         run: cargo integration-test
 
     strategy:
+      # every platform reports its own result: one failing doesn't cancel the others
+      fail-fast: false
       matrix:
         os: [ubuntu-latest, macos-latest, windows-latest, ubuntu-24.04-arm, windows-11-arm]
 
