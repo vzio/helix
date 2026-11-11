@@ -36,13 +36,10 @@
 ; Global language is set with something like one of the following:
 ;
 ;    set shell := ["bash", "-c", ...]
-;    set shell := ["pwsh.exe"]
 ;
 ; We can extract the first item of the array, but we can't extract the language
-; name from the string with something like regex. So instead we special case
-; two things: powershell, which is likely to come with a `.exe` attachment that
-; we need to strip, and everything else which hopefully has no extension. We
-; separate this with a `#match?`.
+; name from the string with something like regex, so the first item is used as
+; the language name as it is.
 ;
 ; Unfortunately, there also isn't a way to allow arbitrary nesting or
 ; alternatively set "global" capture variables. So we can set this for item-
@@ -52,26 +49,7 @@
 ; See https://github.com/tree-sitter/tree-sitter/issues/880 for more on that.
 
 (file
-  (setting "shell" ":=" "[" . (string) @_langstr
-    (#match? @_langstr ".*(powershell|pwsh|cmd).*")
-    (#set! injection.language "powershell"))
-  [
-    (recipe
-      (recipe_body
-        !shebang
-        (recipe_line) @injection.content
-        (#set! injection.combined)))
-
-    (assignment
-      (expression
-        (value
-          (external_command
-            (content) @injection.content))))
-  ])
-
-(file
-  (setting "shell" ":=" "[" . (string) @injection.language
-    (#not-match? @injection.language ".*(powershell|pwsh|cmd).*"))
+  (setting "shell" ":=" "[" . (string) @injection.language)
   [
     (recipe
       (recipe_body
