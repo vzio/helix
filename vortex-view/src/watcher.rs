@@ -450,9 +450,8 @@ mod tests {
         panic!("no change reported for {}", path.display());
     }
 
-    /// Waits until the watcher has been quiet for a while. On macOS FSEvents also delivers what
-    /// happened in the tree just before the watch started (the tempdir, the setup's files), and
-    /// on Windows the parent's watch reports a directory whose timestamp NTFS updates late; a
+    /// Waits until the watcher has been quiet for a while: on macOS FSEvents also delivers what
+    /// happened in the tree just before the watch started (the tempdir, the setup's files), so a
     /// test that expects silence settles first.
     fn settle(rx: &Receiver<Vec<PathBuf>>) {
         while rx.recv_timeout(QUIET).is_ok() {}

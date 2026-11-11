@@ -178,7 +178,6 @@ fn screen_contains(app: &Application, needle: &str) -> bool {
     screen(app).contains(needle)
 }
 
-/// The prompt of `sh` is `$ `, or `# ` as root.
 /// A line that ends in `sh`'s prompt: `$` from dash, `sh-3.2$` from the bash that is `sh` on
 /// macOS (`#` for root).
 fn has_prompt(app: &Application) -> bool {

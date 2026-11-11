@@ -41,8 +41,7 @@ jobs:
     name: Test Suite
     runs-on: ${{ matrix.os }}
     if: github.repository == 'vzio/vortex' || github.event_name != 'schedule'
-    # the integration tests take about 25 minutes on Windows, after the build
-    timeout-minutes: 60
+    timeout-minutes: 30
     env:
       RUST_BACKTRACE: 1
       VORTEX_LOG_LEVEL: info
@@ -68,7 +67,7 @@ jobs:
       # every platform reports its own result: one failing doesn't cancel the others
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest, ubuntu-24.04-arm, windows-11-arm]
+        os: [ubuntu-latest, macos-latest, ubuntu-24.04-arm]
 
   lints:
     name: Lints

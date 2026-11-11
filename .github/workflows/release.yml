@@ -60,7 +60,7 @@ jobs:
     strategy:
       fail-fast: false # don't fail other jobs if one fails
       matrix:
-        build: [x86_64-linux, aarch64-linux, x86_64-macos, x86_64-windows, aarch64-macos, aarch64-windows]
+        build: [x86_64-linux, aarch64-linux, x86_64-macos, aarch64-macos]
         include:
         - build: x86_64-linux
           # WARN: When changing this to a newer version, make sure that the GLIBC isnt too new, as this can cause issues
@@ -77,18 +77,10 @@ jobs:
           os: macos-latest
           rust: stable
           target: x86_64-apple-darwin
-        - build: x86_64-windows
-          os: windows-latest
-          rust: stable
-          target: x86_64-pc-windows-msvc
         - build: aarch64-macos
           os: macos-latest
           rust: stable
           target: aarch64-apple-darwin
-        - build: aarch64-windows
-          os: windows-11-arm
-          rust: stable
-          target: aarch64-pc-windows-msvc
 
     steps:
       - name: Checkout sources
@@ -98,7 +90,6 @@ jobs:
         uses: actions/download-artifact@v8
 
       - name: Move grammars under runtime
-        if: "!startsWith(matrix.os, 'windows')"
         run: |
           mkdir -p runtime/grammars/sources
           tar xJf grammars.tar.xz -C runtime/grammars/sources
@@ -141,11 +132,7 @@ jobs:
         shell: bash
         run: |
           mkdir -p dist
-          if [ "${{ runner.os }}" = "Windows" ]; then
-            cp "target/${{ matrix.target }}/opt/vx.exe" "dist/"
-          else
-            cp "target/${{ matrix.target }}/opt/vx" "dist/"
-          fi
+          cp "target/${{ matrix.target }}/opt/vx" "dist/"
           if [ -d runtime/grammars/sources ]; then
             rm -rf runtime/grammars/sources
           fi
@@ -187,28 +174,20 @@ jobs:
 
           for dir in bins-* ; do
               platform=${dir#"bins-"}
-              exe=""
-              if [[ $platform =~ "windows" ]]; then
-                  exe=".exe"
-              fi
               pkgname=vortex-$tag-$platform
               mkdir -p $pkgname
               cp $source/LICENSE $source/README.md $pkgname
               mkdir $pkgname/contrib
               cp -r $source/contrib/completion $pkgname/contrib
               mv bins-$platform/runtime $pkgname/
-              mv bins-$platform/vx$exe $pkgname
-              chmod +x $pkgname/vx$exe
+              mv bins-$platform/vx $pkgname
+              chmod +x $pkgname/vx
 
               if [[ "$platform" = "x86_64-linux" ]]; then
                   mv bins-$platform/*.deb dist/
               fi
 
-              if [ "$exe" = "" ]; then
-                  tar cJf dist/$pkgname.tar.xz $pkgname
-              else
-                  7z a -r dist/$pkgname.zip $pkgname
-              fi
+              tar cJf dist/$pkgname.tar.xz $pkgname
           done
 
           tar cJf dist/vortex-$tag-source.tar.xz -C $source .

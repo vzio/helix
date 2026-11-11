@@ -295,7 +295,7 @@ pub fn load_exercises() -> anyhow::Result<Vec<Exercise>> {
 /// stem>`, and the fields the loader derives from the index are those of a chapter of one
 /// exercise (the title of the chapter is its name).
 pub fn load_exercise_file(path: &Path) -> anyhow::Result<Exercise> {
-    let text = read_text(path)?;
+    let text = std::fs::read_to_string(path).map_err(|err| anyhow!("{}: {err}", path.display()))?;
     let raw: RawExercise =
         toml::from_str(&text).map_err(|err| anyhow!("{}: {err}", path.display()))?;
     let name =
@@ -312,13 +312,6 @@ pub fn load_exercise_file(path: &Path) -> anyhow::Result<Exercise> {
     exercise.number = 1;
     exercise.chapter_len = 1;
     Ok(exercise)
-}
-
-/// Reads an exercise file with its line endings as LF: a checkout with git's `core.autocrlf` (the
-/// default on Windows) has them as CRLF, and the texts of an exercise are compared exactly.
-fn read_text(path: &Path) -> anyhow::Result<String> {
-    let text = std::fs::read_to_string(path).map_err(|err| anyhow!("{}: {err}", path.display()))?;
-    Ok(text.replace("\r\n", "\n"))
 }
 
 fn read_index(dir: &Path) -> anyhow::Result<Index> {
@@ -361,7 +354,8 @@ pub fn load_exercises_from(dir: &Path) -> anyhow::Result<Vec<Exercise>> {
         let first = exercises.len();
         for path in files {
             let stem = path.file_stem().unwrap_or_default().to_string_lossy();
-            let text = read_text(&path)?;
+            let text = std::fs::read_to_string(&path)
+                .map_err(|err| anyhow!("{}: {err}", path.display()))?;
             let raw: RawExercise =
                 toml::from_str(&text).map_err(|err| anyhow!("{}: {err}", path.display()))?;
             let exercise = Exercise::from_raw(format!("{}/{stem}", chapter.dir), raw)
@@ -996,29 +990,6 @@ naive = "dwwwd"
 
     fn chapter(dir: &str, keys: &str) -> String {
         format!("[[chapters]]\ndir = \"{dir}\"\ntitle = \"The {dir}\"\nkeys = [{keys}]\n")
-    }
-
-    #[test]
-    fn crlf_files_load_like_lf_ones() {
-        let dir = tree(&[
-            (
-                "index.toml",
-                chapter("motions", "\"w\"").replace('\n', "\r\n"),
-            ),
-            ("motions/01-a.toml", GOOD.replace('\n', "\r\n")),
-        ]);
-        let crlf = load_exercises_from(dir.path()).unwrap();
-        let lf = tree(&[
-            ("index.toml", chapter("motions", "\"w\"")),
-            ("motions/01-a.toml", GOOD.into()),
-        ]);
-        let lf = load_exercises_from(lf.path()).unwrap();
-        assert_eq!(crlf[0].start, lf[0].start);
-        assert_eq!(crlf[0].goal, lf[0].goal);
-        assert_eq!(crlf[0].lesson, lf[0].lesson);
-        assert!(problems(dir.path())
-            .iter()
-            .all(|p| !p.contains("carriage return")));
     }
 
     #[test]

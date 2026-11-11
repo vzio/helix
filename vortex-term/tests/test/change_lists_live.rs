@@ -279,9 +279,6 @@ fn make_big(parent: &Path) -> PathBuf {
     let work = parent.join("work");
     std::fs::create_dir_all(&work).unwrap();
     git(&work, "", &["init", "-q"]);
-    // the editor reads the system and global git config, the setup doesn't: git for Windows
-    // sets core.autocrlf there, which would make every line of these LF files a change
-    git(&work, "", &["config", "core.autocrlf", "false"]);
     let commit = |message: &str| {
         git(&work, "", &["add", "-A"]);
         git(&work, "", &["commit", "-q", "-m", message]);

@@ -97,17 +97,13 @@ impl Repo {
         std::fs::create_dir_all(&work).unwrap();
         git(&remote, "", &["init", "-q", "--bare"]);
         git(&work, "", &["init", "-q"]);
-        // the editor reads the system and global git config, the setup doesn't: git for Windows
-        // sets core.autocrlf there, which would make every line of these LF files a change
-        git(&work, "", &["config", "core.autocrlf", "false"]);
         let mut repo = Repo { work, minute: 0 };
         let work = repo.work.clone();
         repo.commit("m1.txt", "Initial commit");
         git(
             &work,
             "",
-            // relative: on Windows the canonical path is `\\?\C:\...`, which git takes for a host
-            &["remote", "add", "origin", "../remote.git"],
+            &["remote", "add", "origin", remote.to_str().unwrap()],
         );
         repo.commit("m2.txt", "Add the parser");
         git(&work, "", &["push", "-q", "-u", "origin", "main"]);
@@ -1390,9 +1386,6 @@ fn make_hash_repo(parent: &Path) -> PathBuf {
     let work = parent.join("work");
     std::fs::create_dir_all(&work).unwrap();
     git(&work, "", &["init", "-q"]);
-    // the editor reads the system and global git config, the setup doesn't: git for Windows
-    // sets core.autocrlf there, which would make every line of these LF files a change
-    git(&work, "", &["config", "core.autocrlf", "false"]);
     let mut repo = Repo { work, minute: 0 };
     repo.commit("a.txt", "Mount sump");
     repo.commit("b.txt", "Print only");

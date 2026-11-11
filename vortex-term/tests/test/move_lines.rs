@@ -25,8 +25,6 @@ fn rebound() -> Config {
         "#,
     )
     .unwrap();
-    // the texts of the tests are LF: without this, the text `p` pastes would be CRLF on Windows
-    config.editor.default_line_ending = vortex_view::editor::LineEndingConfig::LF;
     config
 }
 
@@ -659,11 +657,6 @@ fn label_style(app: &Application, label: &str) -> vortex_view::graphics::Style {
 async fn the_statusline_shows_the_move_mode() -> anyhow::Result<()> {
     let mut config = rebound();
     config.editor.color_modes = true;
-    // a theme with colors for the modes: the default one has none, and it is the one used
-    // with true color (always on Windows)
-    config.theme = Some(vortex_view::theme::Config::Constant(
-        "base16_default".into(),
-    ));
     let styles = RefCell::new(Vec::new());
     let mut app = AppBuilder::new()
         .with_config(config)
@@ -715,12 +708,7 @@ async fn the_statusline_shows_the_move_mode() -> anyhow::Result<()> {
                     check("MOV", &["NOR", "SEL"])(app);
                     // the colors of select mode
                     assert_eq!(label_style(app, "MOV"), styles.borrow()[1]);
-                    assert_ne!(
-                        styles.borrow()[0],
-                        styles.borrow()[1],
-                        "{}",
-                        statusline(app)
-                    );
+                    assert_ne!(styles.borrow()[0], styles.borrow()[1]);
                 }),
             ),
             (
