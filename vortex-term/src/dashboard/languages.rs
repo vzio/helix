@@ -360,6 +360,128 @@ mod tests {
         assert_eq!(super::widths(&[], 40), Vec::<u16>::new());
     }
 
+    fn git(dir: &Path, args: &[&str]) {
+        let output = std::process::Command::new("git")
+            .arg("-C")
+            .arg(dir)
+            .args([
+                "-c",
+                "commit.gpgsign=false",
+                "-c",
+                "init.defaultBranch=main",
+            ])
+            .args(args)
+            .env_remove("GIT_DIR")
+            .env("GIT_CONFIG_GLOBAL", "/dev/null")
+            .env("GIT_CONFIG_SYSTEM", "/dev/null")
+            .env("GIT_AUTHOR_NAME", "t")
+            .env("GIT_AUTHOR_EMAIL", "t@example.com")
+            .env("GIT_COMMITTER_NAME", "t")
+            .env("GIT_COMMITTER_EMAIL", "t@example.com")
+            .output()
+            .expect("git can be run");
+        assert!(
+            output.status.success(),
+            "git {args:?}: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+
+    fn loader() -> Loader {
+        Loader::new(
+            vortex_loader::config::default_lang_config()
+                .try_into()
+                .unwrap(),
+        )
+        .unwrap()
+    }
+
+    /// A repository of two Rust files (3 and 5 lines), a `Cargo.toml` (4 lines), a lockfile, a
+    /// binary file, a file of no known type (2 lines), and an untracked Rust file.
+    fn repository() -> tempfile::TempDir {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path();
+        git(path, &["init", "-q"]);
+        std::fs::create_dir(path.join("src")).unwrap();
+        std::fs::write(path.join("src/a.rs"), "fn a() {}\n\nfn b() {}\n").unwrap();
+        std::fs::write(
+            path.join("src/b.rs"),
+            "// one\n// two\nfn c() {\n}\n// five\n",
+        )
+        .unwrap();
+        std::fs::write(
+            path.join("Cargo.toml"),
+            "[package]\nname = \"x\"\nversion = \"1\"\nedition = \"2021\"\n",
+        )
+        .unwrap();
+        std::fs::write(path.join("Cargo.lock"), "# lock\n".repeat(50)).unwrap();
+        std::fs::write(path.join("x.png"), b"\x89PNG\r\n\x1a\n\x00\x00\n\n\n").unwrap();
+        std::fs::write(path.join("data.bin"), b"\x00\x01\n\x02\n").unwrap();
+        std::fs::write(path.join("notes.zzz"), "some\nnotes\n").unwrap();
+        git(path, &["add", "-A"]);
+        git(path, &["commit", "-q", "-m", "files"]);
+        std::fs::write(path.join("untracked.rs"), "fn u() {}\n".repeat(7)).unwrap();
+        dir
+    }
+
+    #[test]
+    fn counting_the_files_of_a_repository() {
+        let dir = repository();
+        let repo = vortex_vcs::summary::Repo::open(dir.path(), true)
+            .unwrap()
+            .expect("a repository");
+        let files = repo.tracked_files().unwrap();
+        // the untracked file isn't listed
+        assert_eq!(files.len(), 7, "{files:?}");
+        assert!(files.iter().all(|file| !file.ends_with("untracked.rs")));
+
+        let loader = loader();
+        let counts = Mutex::new(Counts::default());
+        count(
+            files,
+            &loader,
+            |path| vortex_view::editor::ChangesConfig::default().is_lockfile(path),
+            2,
+            &counts,
+            || false,
+        );
+        let counts = counts.into_inner().unwrap();
+        // 7 tracked, without the lockfile
+        assert_eq!(counts.files, Some(6));
+        assert_eq!(counts.done, 6);
+        assert_eq!(counts.unreadable, 0);
+        assert!(counts.finished);
+        assert_eq!(counts.progress(), 1.0);
+        // the binary files and the lockfile have no lines, the untracked file isn't there
+        let mut lines: Vec<_> = counts.lines.iter().map(|(l, n)| (l.as_str(), *n)).collect();
+        lines.sort();
+        assert_eq!(lines, [("other", 2), ("rust", 8), ("toml", 4)]);
+        assert_eq!(counts.total(), 14);
+    }
+
+    #[test]
+    fn counting_stops_when_cancelled() {
+        let dir = repository();
+        let files: Vec<PathBuf> = ["src/a.rs", "src/b.rs"]
+            .iter()
+            .map(|file| dir.path().join(file))
+            .collect();
+        let counts = Mutex::new(Counts::default());
+        count(files, &loader(), |_| false, 1, &counts, || true);
+        let counts = counts.into_inner().unwrap();
+        assert_eq!(counts.done, 0);
+        assert_eq!(counts.total(), 0);
+        assert!(counts.finished);
+    }
+
+    #[test]
+    fn language_by_file_name() {
+        let loader = loader();
+        assert_eq!(language_of(&loader, Path::new("src/a.rs")), "rust");
+        assert_eq!(language_of(&loader, Path::new("Cargo.toml")), "toml");
+        assert_eq!(language_of(&loader, Path::new("notes.zzz")), OTHER);
+    }
+
     #[test]
     fn counting_a_file() {
         let dir = tempfile::tempdir().unwrap();

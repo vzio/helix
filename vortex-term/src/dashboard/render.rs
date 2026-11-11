@@ -577,11 +577,7 @@ pub fn render(model: &Model, theme: &Theme, area: Rect, surface: &mut Surface, n
     let layout = layouts
         .iter()
         .find(fits)
-        .or_else(|| {
-            layouts
-                .iter()
-                .rfind(|l| l.logo.width() <= area.width)
-        })
+        .or_else(|| layouts.iter().rfind(|l| l.logo.width() <= area.width))
         .copied()
         .unwrap_or(*layouts.last().unwrap());
 

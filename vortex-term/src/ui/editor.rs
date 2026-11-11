@@ -1592,10 +1592,9 @@ impl Component for EditorView {
                         }
                         if result != KeyResult::Ignored {
                             let callbacks = take(&mut cx.callback);
-                            let callback: Option<crate::compositor::Callback> = (!callbacks
-                                .is_empty())
-                            .then(|| {
-                                Box::new(
+                            let callback: Option<crate::compositor::Callback> =
+                                (!callbacks.is_empty()).then(|| {
+                                    Box::new(
                                     move |compositor: &mut crate::compositor::Compositor,
                                           cx: &mut Context| {
                                         for callback in callbacks {
@@ -1603,7 +1602,7 @@ impl Component for EditorView {
                                         }
                                     },
                                 ) as crate::compositor::Callback
-                            });
+                                });
                             return EventResult::Consumed(callback);
                         }
                     }

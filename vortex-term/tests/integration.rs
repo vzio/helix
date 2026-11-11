@@ -21,6 +21,7 @@ mod test {
     mod command_line;
     mod commands;
     mod conflicts;
+    mod dashboard;
     mod explorer;
     mod git_log;
     mod hex_view;

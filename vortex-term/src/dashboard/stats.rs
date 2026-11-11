@@ -220,3 +220,119 @@ pub fn load(
     });
     stats
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use vortex_vcs::summary::Changes;
+
+    fn ms(n: u64) -> Duration {
+        Duration::from_millis(n)
+    }
+
+    /// Fills the slot named by `which` (0 to 6) as if it arrived at `at`.
+    fn arrive(stats: &Stats, which: usize, at: Instant) {
+        match which {
+            0 => stats.head.set_at(
+                Ok(Head {
+                    branch: Some("main".into()),
+                    commit: None,
+                }),
+                at,
+            ),
+            1 => stats.remote.set_at(Ok(None), at),
+            2 => stats.upstream.set_at(Ok(None), at),
+            3 => stats.changes.set_at(Ok(Changes::default()), at),
+            4 => stats.in_progress.set_at(Ok(None), at),
+            5 => stats.worktrees.set_at(Ok(vec![]), at),
+            6 => stats.languages_done.set_at(Ok(()), at),
+            _ => unreachable!(),
+        }
+    }
+
+    #[test]
+    fn nothing_is_settled_before_the_logo_is_drawn() {
+        let born = Instant::now();
+        let stats = Stats::default();
+        assert!(!stats.settled(born, born));
+        assert!(!stats.settled(born, born + INTRO - ms(1)));
+        // outside of a repository there is nothing else to wait for
+        assert!(stats.settled(born, born + INTRO));
+        assert!(stats.settled(born, born + INTRO + Duration::from_secs(60)));
+    }
+
+    #[test]
+    fn a_repository_settles_when_every_stat_is_in_and_revealed() {
+        let born = Instant::now();
+        let stats = Stats {
+            git: true,
+            ..Stats::default()
+        };
+        assert!(stats.shows_git());
+        let late = born + INTRO + Duration::from_secs(60);
+        // not before the logo, and not while nothing has arrived
+        assert!(!stats.settled(born, born));
+        assert!(!stats.settled(born, late));
+
+        // all but the last, each long ago: still waiting for it
+        for which in 0..6 {
+            arrive(&stats, which, born + ms(100));
+            assert!(!stats.settled(born, late), "slot {which}");
+        }
+        arrive(&stats, 6, born + ms(800));
+        // it arrived, but isn't drawn in until REVEAL after
+        let revealed = born + ms(800) + REVEAL;
+        assert!(revealed > born + INTRO);
+        assert!(!stats.settled(born, born + INTRO));
+        assert!(!stats.settled(born, revealed - ms(1)));
+        assert!(stats.settled(born, revealed));
+        assert!(stats.settled(born, late));
+    }
+
+    #[test]
+    fn each_stat_is_needed() {
+        let born = Instant::now();
+        let late = born + INTRO + Duration::from_secs(60);
+        for missing in 0..7 {
+            let stats = Stats {
+                git: true,
+                ..Stats::default()
+            };
+            for which in (0..7).filter(|&which| which != missing) {
+                arrive(&stats, which, born);
+            }
+            assert!(!stats.settled(born, late), "settled without slot {missing}");
+            arrive(&stats, missing, born);
+            assert!(stats.settled(born, late));
+        }
+    }
+
+    #[test]
+    fn a_folder_that_turns_out_not_to_be_a_repository_settles_without_stats() {
+        let born = Instant::now();
+        let stats = Stats {
+            git: true,
+            ..Stats::default()
+        };
+        assert!(!stats.settled(born, born + INTRO));
+        stats.gone.store(true, Ordering::Relaxed);
+        assert!(!stats.shows_git());
+        assert!(stats.settled(born, born + INTRO));
+    }
+
+    #[test]
+    fn a_folder_without_git_has_no_git_stats() {
+        let dir = tempfile::tempdir().unwrap();
+        assert!(!in_git_repo(dir.path()));
+        let stats = Stats {
+            git: in_git_repo(dir.path()),
+            ..Stats::default()
+        };
+        assert!(!stats.shows_git());
+        std::fs::create_dir(dir.path().join(".git")).unwrap();
+        assert!(in_git_repo(dir.path()));
+        // a folder inside of it counts too
+        std::fs::create_dir(dir.path().join("sub")).unwrap();
+        assert!(in_git_repo(&dir.path().join("sub")));
+    }
+}
