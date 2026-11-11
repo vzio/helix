@@ -64,7 +64,7 @@ fn buffer(session: &Session, path: &str) -> String {
 
 impl Session {
     /// Opens the log on the uncommitted changes, which are `count` files.
-    async fn open_uncommitted(count: usize) -> Self {
+    pub(super) async fn open_uncommitted(count: usize) -> Self {
         let mut session = Session::open_log_on_uncommitted().await;
         let label = format!(
             "{UNCOMMITTED} ({count} file{})",
@@ -77,7 +77,7 @@ impl Session {
     }
 
     /// From the log: opens the list of hunks, then the diff of the hunk of the row `index` (from 0).
-    async fn open_diff(&mut self, index: usize) {
+    pub(super) async fn open_diff(&mut self, index: usize) {
         self.keys("<ret>").await;
         self.wait_for_screen("the hunks", |rows| on_screen(rows, "marks"))
             .await;
@@ -109,7 +109,7 @@ impl Session {
         row[..end].trim().to_string()
     }
 
-    async fn wait_for_footer(&mut self, footer: &str) {
+    pub(super) async fn wait_for_footer(&mut self, footer: &str) {
         self.wait_for_screen(footer, |rows| on_screen(rows, &format!("{footer} ·")))
             .await;
     }

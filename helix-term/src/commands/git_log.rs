@@ -1,15 +1,17 @@
 use std::cell::Cell;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
-use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
+use std::sync::{Arc, Weak};
+use std::time::Duration;
 
 use helix_vcs::DiffProviderRegistry;
 
 use helix_core::{movement::Direction, Position};
 use helix_event::status;
-use helix_vcs::{CommitInfo, FileChange, LogEntry};
+use helix_vcs::{CommitInfo, LogEntry};
 use helix_view::{
+    editor::ChangesConfig,
     graphics::{CursorKind, Rect},
     Editor,
 };
@@ -17,9 +19,13 @@ use tui::{buffer::Buffer as Surface, text::Span};
 
 use super::{changes, diff_view, uncommitted};
 use crate::compositor::{self, Component, Compositor, Event, EventResult};
-use crate::job::Callback;
+use crate::job::{self, Callback};
 use crate::live::{Live, Pending, RepoWatch};
-use crate::ui::{overlay::overlaid, picker::PickerMode, Picker, PickerColumn};
+use crate::ui::{
+    overlay::{overlaid, Overlay},
+    picker::PickerMode,
+    Picker, PickerColumn,
+};
 use crate::{alt, key, shift};
 
 /// Shown in the status line when the log opens.
@@ -80,13 +86,19 @@ pub(crate) fn commit_picker(editor: &mut Editor) -> Option<CommitLog> {
 
     let watch = RepoWatch::start(editor, &cwd);
     let marked = Rc::new(Cell::new(None));
+    let requests = Requests::default();
     let open = {
         let cwd = cwd.clone();
         let watch = watch.clone();
+        let requests = requests.clone();
         move |cx: &mut compositor::Context, row: &LogRow| match &row.kind {
-            RowKind::Uncommitted => uncommitted::open(cx, cwd.clone(), watch.clone()),
+            RowKind::Uncommitted => {
+                // a commit still being read doesn't open over them
+                requests.start();
+                uncommitted::open(cx, cwd.clone(), watch.clone())
+            }
             RowKind::Commit(commit) => {
-                open_commit_files(cx, cwd.clone(), CommitRange::single(commit))
+                open_commit_files(cx, cwd.clone(), CommitRange::single(commit), &requests)
             }
             RowKind::Divider(_) => {}
         }
@@ -151,6 +163,7 @@ pub(crate) fn commit_picker(editor: &mut Editor) -> Option<CommitLog> {
         uncommitted,
         work_dir,
         head: None,
+        requests,
     };
     // the number of uncommitted files, and the HEAD the log is read from
     let source = log.source.clone();
@@ -363,6 +376,8 @@ pub(crate) struct CommitLog {
     work_dir: PathBuf,
     /// The commit HEAD pointed to when the log was read, once known.
     head: Option<Option<String>>,
+    /// The lists of changes asked for: only the latest opens.
+    requests: Requests,
 }
 
 impl CommitLog {
@@ -616,7 +631,7 @@ impl Component for CommitLog {
             key!(Esc) if normal && (self.is_range() || self.selection.extend) => self.collapse(),
             key!(Enter) if self.is_range() => {
                 if let Some(range) = self.range() {
-                    open_commit_files(cx, self.source.cwd.clone(), range);
+                    open_commit_files(cx, self.source.cwd.clone(), range, &self.requests);
                 }
                 return EventResult::Consumed(None);
             }
@@ -652,29 +667,107 @@ pub(crate) struct CommitStyle {
     uncommitted: Arc<UncommittedCount>,
 }
 
-/// Pushes the list of the changes of the commits of `range` on top of the commit picker.
-fn open_commit_files(cx: &mut compositor::Context, cwd: PathBuf, range: CommitRange) {
+/// How long the changes of commits may take to read before the status line says they are
+/// being read: below that, the list just appears.
+const LOADING_DELAY: Duration = Duration::from_millis(100);
+
+/// The requests of the commit log for a list of changes. Each new one makes the earlier ones
+/// stale: their results are dropped, as they are when the log is closed (a closed picker is
+/// kept for resuming it, so closed means not among the layers of the compositor).
+#[derive(Clone, Default)]
+pub(crate) struct Requests(Arc<AtomicU64>);
+
+impl Requests {
+    /// A new request, which is current while no newer one is made and the log is open.
+    fn start(&self) -> Request {
+        let number = self.0.fetch_add(1, Ordering::Relaxed) + 1;
+        Request {
+            requests: Arc::downgrade(&self.0),
+            number,
+        }
+    }
+}
+
+#[derive(Clone)]
+struct Request {
+    requests: Weak<AtomicU64>,
+    number: u64,
+}
+
+impl Request {
+    /// Whether no newer request was made (off the main thread: the log may be closed).
+    fn is_latest(&self) -> bool {
+        self.requests
+            .upgrade()
+            .is_some_and(|requests| requests.load(Ordering::Relaxed) == self.number)
+    }
+
+    /// Whether the log it was made by is open, on the screen.
+    fn log_is_open(&self, compositor: &mut Compositor) -> bool {
+        compositor
+            .find::<Overlay<CommitLog>>()
+            .is_some_and(|log| Weak::as_ptr(&self.requests) == Arc::as_ptr(&log.content.requests.0))
+    }
+
+    /// Whether its result is wanted: it is the latest, and its log is open.
+    fn is_current(&self, compositor: &mut Compositor) -> bool {
+        self.is_latest() && self.log_is_open(compositor)
+    }
+}
+
+/// Pushes the list of the changes of the commits of `range` on top of the commit picker. The
+/// changes are read in the background, while the log stays usable: the list appears when they
+/// are read, unless another list was asked for or the log was closed meanwhile.
+fn open_commit_files(
+    cx: &mut compositor::Context,
+    cwd: PathBuf,
+    range: CommitRange,
+    requests: &Requests,
+) {
+    let request = requests.start();
     let range = Arc::new(range);
-    cx.jobs.callback(async move {
-        let call = move |editor: &mut Editor, compositor: &mut Compositor| {
-            let trust_full = trust_full(editor, &cwd);
-            let changes = match editor.diff_providers.range_changes(
-                &cwd,
-                trust_full,
-                &range.oldest.id,
-                &range.newest.id,
-            ) {
-                Ok(changes) => changes,
-                Err(err) => {
-                    editor.set_error(format!("{err}"));
-                    return;
+    let trust_full = trust_full(cx.editor, &cwd);
+    let providers = cx.editor.diff_providers.clone();
+    let config = cx.editor.config().changes.clone();
+    let loading = format!("Loading changes of {}…", range.label());
+    let done = Arc::new(AtomicBool::new(false));
+
+    // the status line says so only when it takes long enough to be noticed
+    tokio::spawn({
+        let (request, loading, done) = (request.clone(), loading.clone(), done.clone());
+        async move {
+            tokio::time::sleep(LOADING_DELAY).await;
+            job::dispatch(move |editor, compositor| {
+                if request.is_current(compositor) && !done.load(Ordering::Relaxed) {
+                    editor.set_status(loading);
                 }
-            };
-            if changes.is_empty() {
-                editor.set_status(format!("{} changes no files", range.label()));
+            })
+            .await;
+        }
+    });
+
+    tokio::task::spawn_blocking(move || {
+        let rows = read_commit_rows(&providers, &cwd, trust_full, &range, &config, &request);
+        done.store(true, Ordering::Relaxed);
+        job::dispatch_blocking(move |editor, compositor| {
+            if !request.is_current(compositor) {
+                // the log was closed while it was read: not "loading" forever
+                let loading_shown = editor
+                    .get_status()
+                    .is_some_and(|(status, _)| *status == loading);
+                if !request.log_is_open(compositor) && loading_shown {
+                    editor.clear_status();
+                }
                 return;
             }
-            let rows = commit_rows(editor, &cwd, &range, changes);
+            let rows = match rows {
+                Ok(Some(rows)) => rows,
+                Ok(None) => return,
+                Err(err) => return editor.set_error(format!("{err}")),
+            };
+            if rows.is_empty() {
+                return editor.set_status(format!("{} changes no files", range.label()));
+            }
             let totals = changes::Totals::of(&rows).describe();
             if range.count == 1 {
                 editor.set_status(format!(
@@ -686,31 +779,45 @@ fn open_commit_files(cx: &mut compositor::Context, cwd: PathBuf, range: CommitRa
             }
             let picker = commit_changes_picker(editor, cwd, range, rows);
             compositor.push(Box::new(overlaid(picker)));
-        };
-        Ok(Callback::EditorCompositor(Box::new(call)))
+        });
     });
 }
 
-/// The rows of the changes of `range`: the hunks of each file, under its divider.
-fn commit_rows(
-    editor: &Editor,
+/// The rows of the changes of `range`: the hunks of each file, under its divider. Read off the
+/// main thread, the repository opened once for all the files; `None` when `request` became
+/// stale before they were all read, which stops the reading.
+fn read_commit_rows(
+    providers: &DiffProviderRegistry,
     cwd: &Path,
+    trust_full: bool,
     range: &CommitRange,
-    changes: Vec<FileChange>,
-) -> Vec<changes::ChangeRow> {
-    let trust_full = trust_full(editor, cwd);
-    let read = |id: &str, path: &Path| {
-        editor
-            .diff_providers
-            .file_at_commit(cwd, trust_full, id, path)
-            .ok()
-            .flatten()
-    };
-    let parent = format!("{}^", range.oldest.id);
-    changes::commit_rows(changes, &editor.config().changes, |change| {
-        let (base_path, path) = diff_view::paths_of(change);
-        (read(&parent, &base_path), read(&range.newest.id, &path))
-    })
+    config: &ChangesConfig,
+    request: &Request,
+) -> anyhow::Result<Option<Vec<changes::ChangeRow>>> {
+    let (oldest, newest) = (&range.oldest.id, &range.newest.id);
+    let files = providers.range_changes(cwd, trust_full, oldest, newest)?;
+    let paths: Vec<_> = files.iter().map(diff_view::paths_of).collect();
+    let mut groups = Vec::with_capacity(files.len());
+    providers.for_each_range_file(
+        cwd,
+        trust_full,
+        oldest,
+        newest,
+        &paths,
+        |i, before, after| {
+            if !request.is_latest() {
+                return false;
+            }
+            let group =
+                changes::commit_group(&files[i], before.as_deref(), after.as_deref(), config);
+            groups.push(group);
+            true
+        },
+    )?;
+    if groups.len() < files.len() {
+        return Ok(None);
+    }
+    Ok(Some(changes::sort_groups(groups)))
 }
 
 /// The list of the changes of `range`. Enter and `C-g` open the diff of the file of the row on

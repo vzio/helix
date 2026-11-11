@@ -63,7 +63,7 @@ Each feature lives in its own modules, to keep rebasing on upstream cheap:
 | --- | --- |
 | Diff view | `helix-term/src/ui/diff_view.rs`, `helix-term/src/commands/diff_view.rs` |
 | Hunk actions, `n`/`N` across files | `helix-term/src/commands/hunks.rs` (stage, unstage, revert), `helix-vcs/src/staging.rs` (the texts of the index and of the working tree after an action), `helix-vcs/src/git/stage.rs` (reading and writing one entry of the index), the `Actions` and `FileNav` of the diff view, `base` of `:practice` exercises, `helix-term/tests/test/hunks.rs` |
-| Commit log | `helix-term/src/commands/git_log.rs`, `helix-vcs/src/commit.rs`, `helix-vcs/src/git/log.rs` |
+| Commit log | `helix-term/src/commands/git_log.rs` (also the background reading of a commit's changes), `helix-vcs/src/commit.rs`, `helix-vcs/src/git/log.rs`, `range_changes` and `for_each_range_file` in `helix-vcs/src/git.rs` (the files of a commit or range, read with one repository open) |
 | Uncommitted changes, live views | `helix-term/src/commands/uncommitted.rs` (the list of uncommitted hunks, their marks, unsaved edits), `helix-term/src/commands/changes.rs` (the lists of changes of the uncommitted changes and of commits: hunk rows, file dividers, `+`/`-` marks, lockfiles), `with_groups` and `with_section_keys` in `helix-term/src/ui/picker.rs` (dividers that head groups, `w`/`b` between them), `with_drawn_preview` in `helix-term/src/ui/picker.rs` (a preview drawn by its owner), `helix-term/src/live.rs` (the shared watch, background refreshes), `helix-view/src/watcher.rs` (the reusable watcher), `RepoState` and `log_entries` in `helix-vcs/src/lib.rs`, `[editor.changes]` in `helix-view/src/editor.rs`, `helix-term/tests/test/uncommitted.rs`, `helix-term/tests/test/change_lists.rs` |
 | Files changed on disk | `helix-term/src/handlers/disk.rs`, the disk state of `Document` in `helix-view/src/document.rs`, `helix-term/tests/test/stale_buffers.rs` |
 | Conflict diagnostics | `helix-vcs/src/conflict.rs` (finding the blocks), `conflicted_files` in `helix-vcs/src/git.rs` (the unmerged files), `helix-term/src/handlers/conflicts.rs` (when to look, the documents' state), `helix-term/tests/test/conflicts.rs` |
@@ -230,7 +230,7 @@ theme scope `ui.picker.divider` if the theme has it, else `ui.text.inactive`, el
 | `space l`, `:git-log` | Open the commit picker, in normal mode, with the cursor on its first row, the [uncommitted changes](#uncommitted-changes-live). The status line shows `s filter, v extend, w/b section, enter files`. |
 | `s` | Filter mode: typing filters by summary, and by hash: a query of 4 hex digits or more (`a1b2c3`) lists the commits whose hash starts with it first, then the commits whose summary matches it. `%commit`, `%author`, `%date` filter by the other columns. `Esc` goes back to normal mode and keeps the query. |
 | `j`/`k`, `Down`/`Up`, `C-n`/`C-p`, `Tab`/`S-Tab`, `C-d`/`C-u`/`PageDown`/`PageUp`, `gg`/`ge`/`G`, `Home`/`End` | Move. The keys that aren't letters work in filter mode too. |
-| `Enter` in the commit picker | List the changes of the commit, or of the selected commits, or the uncommitted changes, on top of the commit picker: one row per hunk, under a divider per file ([Lists of changes](#lists-of-changes)). The status line shows the commit or the range and the totals: `a1b2c3d: 12 changes in 4 files, +80 -31 · Fix the parser`. |
+| `Enter` in the commit picker | List the changes of the commit, or of the selected commits, or the uncommitted changes, on top of the commit picker: one row per hunk, under a divider per file ([Lists of changes](#lists-of-changes)). The status line shows the commit or the range and the totals: `a1b2c3d: 12 changes in 4 files, +80 -31 · Fix the parser`. The changes of a commit or range are read in the background: the log stays usable meanwhile, and the status line says `Loading changes of a1b2c3d…` if it takes more than a tenth of a second. Moving on and pressing `Enter` on another row, or closing the log, drops the list being read. |
 | `v`, `A-v` | Toggle extend mode: while it's on, every movement extends the selection from the commit where it started to the commit under the cursor. `A-v` works in filter mode too. |
 | `w`, `e` | Extend the selection down (older) to the oldest commit of the section the cursor is in, and put the cursor on it. Pressed again they do nothing, they never go past the divider. |
 | `b` | Extend the selection up (newer) to the newest commit of the section the cursor is in, and put the cursor on it. |
@@ -406,7 +406,9 @@ context. Rows are sorted by path, then by line, with lockfiles last.
 - `C-s`, `C-v` and the like open the file at the change, closing the log.
 
 The status line says how much there is: `Uncommitted changes: 6 changes in 5 files, +80 -31, 2
-unsaved` (a file without hunk rows is one change).
+unsaved` (a file without hunk rows is one change). The totals follow the list as it changes, but
+never hide another message: while the status line shows something else (a hunk action's message
+in a diff, an error), they wait until the diff is closed and the list is shown again.
 
 While the commit log, or anything opened from it, is open, the working tree is watched, and what
 is on screen follows it:
@@ -414,7 +416,7 @@ is on screen follows it:
 - the count of the first row;
 - the list of uncommitted changes, also while buffers are edited: the cursor stays on the same
   hunk (the same file and line), or on the first change of the same file, or at the same place
-  when the file is gone;
+  when the file is gone; and its totals in the status line;
 - the diff of an uncommitted file: the line at the top of the screen stays there, and so does the
   horizontal scroll. A diff with no changes left stays open, empty, with `no changes` in the
   footer;
@@ -454,8 +456,14 @@ A binary lockfile (`bun.lockb`) shows `(binary)` instead of counts.
 ### Limitations
 
 - The uncommitted changes are one row per hunk, but a hunk is still staged whole, from its diff.
-- The changes of a commit or range are read when the list opens, every file of them: a commit
-  that changes thousands of files takes a moment to list.
+- The changes of a commit or range are read when the list opens, all of them before it shows,
+  in the background: 2,000 changed files take about a quarter of a second (in a release build),
+  a range of tens of thousands a few seconds, during which the log stays usable. They don't
+  stream in as they are read. The uncommitted changes are still read on the main thread when
+  their list opens (they are refreshed in the background).
+- The totals of the uncommitted changes wait while the status line shows another message: when
+  something else clears it (a hunk action's message is replaced by nothing), they come back at
+  the next change of the list or when a diff opened from it is closed.
 - The cursor never rests on the divider of a file that has hunk rows, as in the commit log: the
   file's first hunk is where `w`/`b` go, and Enter there opens the diff at it.
 - A buffer with unsaved edits is listed by its path: a buffer without a file (a scratch buffer)

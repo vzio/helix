@@ -7,7 +7,7 @@ use helix_view::{DocumentId, Editor};
 use crate::compositor::Compositor;
 use crate::live::Live;
 use crate::ui::diff_view::{
-    Actions, DiffView, FileNav, ListFiles, SelectFile, Side, Snapshot, Staging, Target,
+    Actions, Closed, DiffView, FileNav, ListFiles, SelectFile, Side, Snapshot, Staging, Target,
 };
 use crate::ui::picker;
 
@@ -144,7 +144,8 @@ fn uncommitted_view(
 
 /// Opens the diff of an uncommitted change on top of the pickers of the commit log, see
 /// [`uncommitted_view`], at the hunk at `line` of its right side (from 0), or at its first hunk.
-/// `n`/`N` go through the other files of `files`.
+/// `n`/`N` go through the other files of `files`; `closed` is called when the diff is closed.
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn open_uncommitted(
     editor: &mut Editor,
     compositor: &mut Compositor,
@@ -153,6 +154,7 @@ pub(crate) fn open_uncommitted(
     live: Option<Live>,
     files: ListFiles,
     select: SelectFile,
+    closed: Closed,
 ) {
     let mut view = match uncommitted_view(editor, change, live.clone()) {
         Ok(view) if view.has_changes() => view,
@@ -164,6 +166,7 @@ pub(crate) fn open_uncommitted(
         current: change.clone(),
         open: Rc::new(move |editor, change| uncommitted_view(editor, change, live.clone())),
         select,
+        closed: Some(closed),
     };
     if let Some(line) = line {
         view.go_to_line(line);
@@ -353,6 +356,7 @@ pub(crate) fn open_commit(
         current: change.clone(),
         open: Rc::new(move |editor, change| commit_view(editor, &cwd, &oldest, &newest, change)),
         select,
+        closed: None,
     };
     if let Some(line) = line {
         view.go_to_line(line);

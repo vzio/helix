@@ -652,7 +652,7 @@ async fn the_label_of_the_log_counts_the_unsaved_buffers() {
 impl Session {
     /// Inserts `text` at the start of the line `line` (from 0) of the open buffer of `path`,
     /// through the editor, the way something else than the keys of the user would.
-    fn edit_buffer(&mut self, path: &str, line: usize, text: &str) {
+    pub(super) fn edit_buffer(&mut self, path: &str, line: usize, text: &str) {
         let path = cwd().join(path);
         let view = self.app.editor.tree.focus;
         let doc = self
@@ -781,9 +781,10 @@ async fn the_hunks_follow_the_edits_of_the_buffers_keeping_the_cursor() {
         ])
         .await;
     assert_eq!(session.selected_row(), " M• -+ b.txt:10");
+    // the totals follow the list
     assert_eq!(
         status(&session.app),
-        "Uncommitted changes: 1 change in 1 file, +1 -1"
+        "Uncommitted changes: 2 changes in 1 file, +2 -2, 2 unsaved"
     );
 
     // the buffer of another file: its rows come before the cursor
