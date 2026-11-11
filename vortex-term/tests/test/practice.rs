@@ -7,9 +7,6 @@ use vortex_term::application::Application;
 use vortex_term::practice::{self, Exercise};
 use vortex_view::input::parse_macro;
 
-#[cfg(windows)]
-use crossterm::event::{Event, KeyEvent};
-#[cfg(not(windows))]
 use termina::event::{Event, KeyEvent};
 
 use super::*;
@@ -68,10 +65,6 @@ async fn the_solutions_of_all_exercises_solve_them_in_exactly_their_keys() -> an
             .as_ref()
             .is_some_and(|filter| !exercise.id.contains(filter))
         {
-            continue;
-        }
-        // (the shell commands of the shell chapter need a POSIX shell)
-        if cfg!(windows) && exercise.chapter == "shell" {
             continue;
         }
         let par = exercise.par();
@@ -147,9 +140,6 @@ async fn the_solutions_of_all_exercises_solve_them_in_exactly_their_keys() -> an
 
     if filter.is_none() {
         for chapter in &chapters {
-            if cfg!(windows) && chapter.dir == "shell" {
-                continue;
-            }
             let recorded = used.get(chapter.dir.as_str());
             for key in &chapter.keys {
                 if !recorded.is_some_and(|recorded| recorded.contains(key)) {
@@ -873,9 +863,6 @@ async fn only_keys_and_pastes_count() -> anyhow::Result<()> {
     driver.keys(":practice<ret>").await;
     assert_eq!(keys(), 0);
 
-    #[cfg(windows)]
-    let others = vec![Event::FocusLost, Event::FocusGained, Event::Resize(80, 24)];
-    #[cfg(not(windows))]
     let others = vec![
         Event::FocusOut,
         Event::FocusIn,

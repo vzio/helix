@@ -120,13 +120,9 @@ fn directory() {
 /// replaced by a file. If the contents of the symlink object were returned
 /// a diff between a literal file path and the actual file content would be
 /// produced (bad ui).
-#[cfg(any(unix, windows))]
 #[test]
 fn symlink() {
-    #[cfg(unix)]
     use std::os::unix::fs::symlink;
-    #[cfg(not(unix))]
-    use std::os::windows::fs::symlink_file as symlink;
 
     let temp_git = empty_git_repo();
     let file = temp_git.path().join("file.txt");
@@ -143,13 +139,9 @@ fn symlink() {
 
 /// Test that `get_diff_base` returns content when the file is a symlink to
 /// another file that is in a git repo, but the symlink itself is not.
-#[cfg(any(unix, windows))]
 #[test]
 fn symlink_to_git_repo() {
-    #[cfg(unix)]
     use std::os::unix::fs::symlink;
-    #[cfg(not(unix))]
-    use std::os::windows::fs::symlink_file as symlink;
 
     let temp_dir = tempfile::tempdir().expect("create temp dir");
     let temp_git = empty_git_repo();
@@ -322,9 +314,6 @@ fn commit_changes(repo: &Path, id: &str) -> Vec<(&'static str, String)> {
 fn commit_log_lists_changes_and_contents() {
     let temp_git = committed_repo();
     let repo = temp_git.path();
-    // Contents are read as they'd be checked out: keep LF line endings even where git's
-    // config says otherwise (core.autocrlf is true on Windows CI runners).
-    exec_git_cmd("config core.autocrlf false", repo);
     let root = head_id(repo);
 
     write(repo, "a.txt", "changed\n");

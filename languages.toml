@@ -4312,20 +4312,6 @@ name = "fidl"
 source = { git = "https://github.com/google/tree-sitter-fidl", rev = "0a8910f293268e27ff554357c229ba172b0eaed2" }
 
 [[language]]
-name = "powershell"
-scope = "source.powershell"
-injection-regex = "(pwsh|powershell)"
-file-types = [ "ps1", "psm1", "psd1", "pscc", "psrc" ]
-shebangs = [ "pwsh", "powershell" ]
-comment-token = '#'
-block-comment-tokens = { start = "<#", end = "#>" }
-indent = { tab-width = 4, unit = "    " }
-
-[[grammar]]
-name = "powershell"
-source = { git = "https://github.com/airbus-cert/tree-sitter-powershell", rev = "c9316be0faca5d5b9fd3b57350de650755f42dc0" }
-
-[[language]]
 name = "ld"
 scope = "source.ld"
 injection-regex = "ld"
@@ -5643,15 +5629,3 @@ language-servers = [ "mm-lsp-server" ]
 [[grammar]]
 name = "metamath"
 source = { git = "https://git.sr.ht/~m4dh0rs3/tree-sitter-metamath", rev = "d6a57b0ddb4feba4a88f8cbb2f497b718e0c5c1d" }
-
-[[language]]
-name = "batch"
-scope = "source.batch"
-injection-regex = "(cmd|bat(ch)?)"
-file-types = ["bat", "cmd", "btm"]
-indent = { tab-width = 2, unit = "  " }
-comment-tokens = ["REM", "::"]
-
-[[grammar]]
-name = "batch"
-source = { git = "https://github.com/wharflab/tree-sitter-batch", rev = "5fc5f54267ef9a78e7a5319b80e092194252aabf" }

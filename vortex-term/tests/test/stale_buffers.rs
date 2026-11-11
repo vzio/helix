@@ -13,16 +13,10 @@ use tokio_stream::wrappers::UnboundedReceiverStream;
 use vortex_term::application::Application;
 use vortex_view::{current_ref, editor::Severity, input::parse_macro};
 
-#[cfg(windows)]
-use crossterm::event::{Event, KeyEvent};
-#[cfg(not(windows))]
 use termina::event::{Event, KeyEvent};
 
 use super::*;
 
-#[cfg(windows)]
-const FOCUS_GAINED: Event = Event::FocusGained;
-#[cfg(not(windows))]
 const FOCUS_GAINED: Event = Event::FocusIn;
 
 struct Harness {

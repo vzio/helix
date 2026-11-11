@@ -24,8 +24,6 @@ pub fn current_working_dir() -> PathBuf {
     let mut cwd = std::env::current_dir().expect("Couldn't determine current working directory");
 
     let pwd = std::env::var_os("PWD");
-    #[cfg(windows)]
-    let pwd = pwd.or_else(|| std::env::var_os("CD"));
 
     if let Some(pwd) = pwd.map(PathBuf::from) {
         if pwd.canonicalize().ok().as_ref() == Some(&cwd) {

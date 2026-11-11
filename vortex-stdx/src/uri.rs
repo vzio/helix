@@ -143,7 +143,6 @@ impl Url {
         };
         let local_host = authority.is_empty() || authority.eq_ignore_ascii_case("localhost");
 
-        #[cfg(not(windows))]
         {
             use std::ffi::OsStr;
             use std::os::unix::ffi::OsStrExt;
@@ -156,73 +155,14 @@ impl Url {
             }
             Ok(PathBuf::from(OsStr::from_bytes(&bytes)))
         }
-        #[cfg(windows)]
-        {
-            let decoded = percent_decode(path.as_bytes())
-                .decode_utf8()
-                .map_err(|_| ())?;
-            if local_host {
-                // `/C:/dir/file` -> `C:\dir\file`
-                let path = decoded.strip_prefix('/').unwrap_or(&decoded);
-                if path.is_empty() {
-                    return Err(());
-                }
-                Ok(PathBuf::from(path.replace('/', "\\")))
-            } else {
-                // UNC: `file://server/share/...` -> `\\server\share\...`
-                Ok(PathBuf::from(format!(
-                    "\\\\{}{}",
-                    authority,
-                    decoded.replace('/', "\\")
-                )))
-            }
-        }
     }
 }
 
-#[cfg(not(windows))]
 fn serialize_path(out: &mut String, path: &Path) -> Result<(), ()> {
     use std::os::unix::ffi::OsStrExt;
     // The path is absolute, so it begins with `/`; percent-encode it while
     // preserving the `/` separators (they are excluded from `PATH`).
     out.extend(percent_encode(path.as_os_str().as_bytes(), PATH));
-    Ok(())
-}
-
-#[cfg(windows)]
-fn serialize_path(out: &mut String, path: &Path) -> Result<(), ()> {
-    use std::path::{Component, Prefix};
-    let mut components = path.components();
-    match components.next() {
-        Some(Component::Prefix(prefix)) => match prefix.kind() {
-            Prefix::Disk(_) | Prefix::VerbatimDisk(_) => {
-                // `C:` -> `/C:`
-                out.push('/');
-                out.push_str(&prefix.as_os_str().to_string_lossy());
-            }
-            Prefix::UNC(server, share) | Prefix::VerbatimUNC(server, share) => {
-                // `\\server\share` -> `//server/share` (authority + first seg)
-                out.pop(); // drop one `/` from the `file://` we were appended to
-                out.push_str(&server.to_string_lossy());
-                out.push('/');
-                out.extend(percent_encode(share.to_string_lossy().as_bytes(), PATH));
-            }
-            _ => return Err(()),
-        },
-        _ => return Err(()),
-    }
-    for component in components {
-        match component {
-            Component::RootDir => {}
-            Component::Normal(seg) => {
-                out.push('/');
-                out.extend(percent_encode(seg.to_string_lossy().as_bytes(), PATH));
-            }
-            Component::CurDir => out.push_str("/."),
-            Component::ParentDir => out.push_str("/.."),
-            Component::Prefix(_) => return Err(()),
-        }
-    }
     Ok(())
 }
 
@@ -291,7 +231,6 @@ mod tests {
         assert!(Url::parse("https://example.com").is_ok());
     }
 
-    #[cfg(not(windows))]
     #[test]
     fn file_path_round_trip() {
         for path in [
@@ -307,7 +246,6 @@ mod tests {
         }
     }
 
-    #[cfg(not(windows))]
     #[test]
     fn rfc3986_encoding() {
         let url = Url::from_file_path("/tmp/[test]/a b.ts").unwrap();
@@ -315,7 +253,6 @@ mod tests {
         assert_eq!(url.as_str(), "file:///tmp/%5Btest%5D/a%20b.ts");
     }
 
-    #[cfg(not(windows))]
     #[test]
     fn directory_path_has_trailing_slash() {
         let url = Url::from_directory_path("/home/user").unwrap();

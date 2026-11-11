@@ -452,13 +452,13 @@ impl<'a> Tokenizer<'a> {
 
     fn parse_unquoted(&mut self) -> Cow<'a, str> {
         // Note that `String::new` starts with no allocation. We only allocate if we see a
-        // backslash escape (on Unix only).
+        // backslash escape.
         let mut escaped = String::new();
         let mut start = self.pos;
 
         while let Some(byte) = self.byte() {
             if matches!(byte, b' ' | b'\t') {
-                if cfg!(unix) && self.prev_byte() == Some(b'\\') {
+                if self.prev_byte() == Some(b'\\') {
                     // Push everything up to but not including the backslash and then this
                     // whitespace character.
                     escaped.push_str(&self.input[start..self.pos - 1]);
@@ -474,9 +474,9 @@ impl<'a> Tokenizer<'a> {
             self.pos += 1;
         }
 
-        // Special case for a trailing backslash on Unix: exclude the backslash from the content.
+        // Special case for a trailing backslash: exclude the backslash from the content.
         // This improves the behavior of completions like `":open a\\"` (trailing backslash).
-        let end = if cfg!(unix) && self.prev_byte() == Some(b'\\') {
+        let end = if self.prev_byte() == Some(b'\\') {
             self.pos - 1
         } else {
             self.pos
@@ -680,11 +680,8 @@ impl<'a> Iterator for Tokenizer<'a> {
             _ => {
                 let content_start = self.pos;
 
-                // Allow backslash escaping on Unix for quotes or expansions
-                if cfg!(unix)
-                    && byte == b'\\'
-                    && matches!(self.peek_byte(), Some(b'"' | b'\'' | b'`' | b'%'))
-                {
+                // Allow backslash escaping for quotes or expansions
+                if byte == b'\\' && matches!(self.peek_byte(), Some(b'"' | b'\'' | b'`' | b'%')) {
                     self.pos += 1;
                 }
 
@@ -1051,8 +1048,6 @@ mod test {
         assert_tokens("hello\t \tworld", &["hello", "world"]);
     }
 
-    // This escaping behavior is specific to Unix systems.
-    #[cfg(unix)]
     #[test]
     fn tokenize_backslash_unix() {
         assert_tokens(r#"hello\ world"#, &["hello world"]);

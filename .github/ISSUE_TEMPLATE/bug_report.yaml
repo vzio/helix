@@ -45,7 +45,7 @@ body:
     id: platform
     attributes:
       label: Platform
-      placeholder: Linux / macOS / Windows
+      placeholder: Linux / macOS
     validations:
       required: true
   - type: input

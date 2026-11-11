@@ -346,15 +346,13 @@ fn open_repo(path: &Path, trust_full: bool) -> Result<ThreadSafeRepository> {
         gix::sec::Trust::Reduced
     };
 
-    // On Windows various configuration options are bundled as part of the git installation. The
-    // lookup is expensive; only do it there.
     let config = gix::open::permissions::Config {
         system: true,
         git: true,
         user: true,
         env: true,
         includes: true,
-        git_binary: cfg!(windows),
+        git_binary: false,
     };
 
     let permissions = gix::open::Permissions {

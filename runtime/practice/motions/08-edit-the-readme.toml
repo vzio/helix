@@ -10,14 +10,14 @@ word before you act on it.
 start = '''
 Vortex is a really fast, modal text editor. It
 is written in Go and runs in the terminal on
-Linux, Windows and macOS. It has built-in
+Linux and macOS. It has built-in
 language server support, so you get completion
 and diagnostics without installing a plugin.
 '''
 goal = '''
 Vortex is a fast, modal text editor. It
 is written in Rust and runs in the terminal on
-Linux, Windows and macOS. It has built-in
+Linux and macOS. It has built-in
 language server support, so you get completion
 and diagnostics without any plugin.
 '''

@@ -8,7 +8,7 @@
 
 pub mod osc133;
 mod shell;
-#[cfg(all(test, unix))]
+#[cfg(test)]
 mod tests;
 
 pub use shell::Shell;
@@ -18,7 +18,7 @@ use std::path::PathBuf;
 /// How to start the shell.
 #[derive(Debug, Clone)]
 pub struct ShellOptions {
-    /// The program and its arguments. Empty: `$SHELL`, or `/bin/sh` (`cmd.exe` on Windows).
+    /// The program and its arguments. Empty: `$SHELL`, or `/bin/sh`.
     pub command: Vec<String>,
     /// The working directory of the shell.
     pub cwd: Option<PathBuf>,

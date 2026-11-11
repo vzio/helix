@@ -8,7 +8,8 @@ Everything else works as described in the [Helix documentation](https://docs.hel
 under Vortex's own names: the binary is `vx`, the config is in `~/.config/vortex/` (a workspace's
 in `.vortex/`), the log is `~/.cache/vortex/vortex.log` and the variables are `VORTEX_*`
 (`VORTEX_RUNTIME`, ...). Vortex never reads upstream Helix's directories; when it has no config of its
-own but upstream's exists, it says once at startup how to copy it.
+own but upstream's exists, it says once at startup how to copy it. Vortex runs on Linux and macOS
+only.
 
 README.md is the owner's (agents don't edit it). Vortex issues and PRs stay in this repository:
 never send them upstream.
@@ -1076,9 +1077,6 @@ with the POSIX tools the exercises may use no short text makes them beat typing 
 
 ### Limitations
 
-- Unix first: the `vx` shim (a Unix socket) and the status of shells without integration (the
-  foreground process group) aren't available on Windows, where the panel itself should work
-  (ConPTY) but is untested.
 - No keyboard scrolling of the scrollback (every key goes to the shell): use the mouse wheel.
 - No text selection or copy inside the panel with the mouse; use the outer terminal's own
   selection (usually with Shift held) or the shell's tools.
@@ -1311,11 +1309,10 @@ as many keys.
 ### Progress
 
 Your best count per exercise is kept in `practice.toml` in Vortex's data directory
-(`~/.local/share/vortex/practice.toml` on Linux, `~/Library/Application Support/vortex/` on macOS,
-`%AppData%\vortex\` on Windows), never in the repository. An exercise is unsolved (`·`), solved
-(`✓`) or at or under par (`★`). The file is read when needed and written on every solve, so two
-Vortex instances don't overwrite each other's results; if it can't be read, nothing is written to
-it and the statusline says why.
+(`~/.local/share/vortex/practice.toml` on Linux, `~/Library/Application Support/vortex/` on macOS),
+never in the repository. An exercise is unsolved (`·`), solved (`✓`) or at or under par (`★`). The
+file is read when needed and written on every solve, so two Vortex instances don't overwrite each
+other's results; if it can't be read, nothing is written to it and the statusline says why.
 
 ### Exercises
 

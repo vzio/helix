@@ -450,6 +450,13 @@ mod tests {
         panic!("no change reported for {}", path.display());
     }
 
+    /// Waits until the watcher has been quiet for a while: on macOS FSEvents also delivers what
+    /// happened in the tree just before the watch started (the tempdir, the setup's files), so a
+    /// test that expects silence settles first.
+    fn settle(rx: &Receiver<Vec<PathBuf>>) {
+        while rx.recv_timeout(QUIET).is_ok() {}
+    }
+
     fn expect_quiet(rx: &Receiver<Vec<PathBuf>>) {
         if let Ok(paths) = rx.recv_timeout(QUIET) {
             panic!("unexpected change: {paths:?}");
@@ -482,6 +489,7 @@ mod tests {
         fs::create_dir_all(root.join("sub/inner")).unwrap();
         fs::write(root.join("sub/.gitignore"), "inner/\n").unwrap();
         let (_w, rx) = start(config(&root));
+        settle(&rx);
 
         fs::write(root.join("a.log"), "x").unwrap();
         expect_quiet(&rx);

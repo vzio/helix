@@ -12,7 +12,7 @@ repository.workspace = true
 homepage.workspace = true
 
 [features]
-default = ["termina", "crossterm"]
+default = ["termina"]
 
 [dependencies]
 vortex-view = { path = "../vortex-view", features = ["term"] }
@@ -25,6 +25,3 @@ unicode-segmentation.workspace = true
 termina = { workspace = true, optional = true }
 termini = "1.0"
 log = "~0.4"
-
-[target.'cfg(windows)'.dependencies]
-crossterm = { version = "0.28", optional = true }

@@ -770,10 +770,7 @@ async fn test_write_all_insert_final_newline_do_not_add_if_unmodified() -> anyho
 
 #[tokio::test(flavor = "multi_thread")]
 async fn test_symlink_write() -> anyhow::Result<()> {
-    #[cfg(unix)]
     use std::os::unix::fs::symlink;
-    #[cfg(not(unix))]
-    use std::os::windows::fs::symlink_file as symlink;
 
     let dir = tempfile::tempdir()?;
 
@@ -808,10 +805,7 @@ async fn test_symlink_write() -> anyhow::Result<()> {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn test_symlink_write_fail() -> anyhow::Result<()> {
-    #[cfg(unix)]
     use std::os::unix::fs::symlink;
-    #[cfg(not(unix))]
-    use std::os::windows::fs::symlink_file as symlink;
 
     let dir = tempfile::tempdir()?;
 
@@ -848,10 +842,7 @@ async fn test_symlink_write_fail() -> anyhow::Result<()> {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn test_symlink_write_relative() -> anyhow::Result<()> {
-    #[cfg(unix)]
     use std::os::unix::fs::symlink;
-    #[cfg(not(unix))]
-    use std::os::windows::fs::symlink_file as symlink;
 
     // tempdir
     // |- - b

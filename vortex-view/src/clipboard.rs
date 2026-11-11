@@ -16,9 +16,6 @@ pub enum ClipboardError {
     IoError(#[from] std::io::Error),
     #[error("could not convert terminal output to UTF-8: {0}")]
     FromUtf8Error(#[from] std::string::FromUtf8Error),
-    #[cfg(windows)]
-    #[error("Windows API error: {0}")]
-    WinAPI(#[from] clipboard_win::ErrorCode),
     #[error("clipboard provider command failed")]
     CommandFailed,
     #[error("failed to write to clipboard provider's stdin")]
@@ -91,10 +88,7 @@ mod external {
         Wayland,
         XClip,
         XSel,
-        Win32Yank,
         Tmux,
-        #[cfg(windows)]
-        Windows,
         Termux,
         #[cfg(feature = "term")]
         Termcode,
@@ -103,17 +97,6 @@ mod external {
     }
 
     impl Default for ClipboardProvider {
-        #[cfg(windows)]
-        fn default() -> Self {
-            use vortex_stdx::env::binary_exists;
-
-            if binary_exists("win32yank.exe") {
-                Self::Win32Yank
-            } else {
-                Self::Windows
-            }
-        }
-
         #[cfg(target_os = "macos")]
         fn default() -> Self {
             use vortex_stdx::env::{binary_exists, env_var_is_set};
@@ -130,7 +113,7 @@ mod external {
             }
         }
 
-        #[cfg(not(any(windows, target_os = "macos")))]
+        #[cfg(not(target_os = "macos"))]
         fn default() -> Self {
             use vortex_stdx::env::{binary_exists, env_var_is_set};
 
@@ -168,8 +151,6 @@ mod external {
                 && is_exit_success("xsel", &["-o", "-b"])
             {
                 Self::XSel
-            } else if binary_exists("win32yank.exe") {
-                Self::Win32Yank
             } else {
                 #[cfg(feature = "term")]
                 return Self::Termcode;
@@ -201,11 +182,8 @@ mod external {
                 Self::Wayland => builtin_name("wayland", &WL_CLIPBOARD),
                 Self::XClip => builtin_name("x-clip", &XCLIP),
                 Self::XSel => builtin_name("x-sel", &XSEL),
-                Self::Win32Yank => builtin_name("win32-yank", &WIN32),
                 Self::Tmux => builtin_name("tmux", &TMUX),
                 Self::Termux => builtin_name("termux", &TERMUX),
-                #[cfg(windows)]
-                Self::Windows => "windows".into(),
                 #[cfg(feature = "term")]
                 Self::Termcode => "termcode".into(),
                 Self::Custom(command_provider) => Cow::Owned(format!(
@@ -240,18 +218,8 @@ mod external {
                 Self::Wayland => yank_from_builtin(WL_CLIPBOARD, clipboard_type),
                 Self::XClip => yank_from_builtin(XCLIP, clipboard_type),
                 Self::XSel => yank_from_builtin(XSEL, clipboard_type),
-                Self::Win32Yank => yank_from_builtin(WIN32, clipboard_type),
                 Self::Tmux => yank_from_builtin(TMUX, clipboard_type),
                 Self::Termux => yank_from_builtin(TERMUX, clipboard_type),
-                #[cfg(target_os = "windows")]
-                Self::Windows => match clipboard_type {
-                    ClipboardType::Clipboard => {
-                        let contents =
-                            clipboard_win::get_clipboard(clipboard_win::formats::Unicode)?;
-                        Ok(contents)
-                    }
-                    ClipboardType::Selection => Ok(String::new()),
-                },
                 #[cfg(feature = "term")]
                 Self::Termcode => Err(ClipboardError::ReadingNotSupported),
                 Self::Custom(command_provider) => {
@@ -287,17 +255,8 @@ mod external {
                 Self::Wayland => paste_to_builtin(WL_CLIPBOARD, content, clipboard_type),
                 Self::XClip => paste_to_builtin(XCLIP, content, clipboard_type),
                 Self::XSel => paste_to_builtin(XSEL, content, clipboard_type),
-                Self::Win32Yank => paste_to_builtin(WIN32, content, clipboard_type),
                 Self::Tmux => paste_to_builtin(TMUX, content, clipboard_type),
                 Self::Termux => paste_to_builtin(TERMUX, content, clipboard_type),
-                #[cfg(target_os = "windows")]
-                Self::Windows => match clipboard_type {
-                    ClipboardType::Clipboard => {
-                        clipboard_win::set_clipboard(clipboard_win::formats::Unicode, content)?;
-                        Ok(())
-                    }
-                    ClipboardType::Selection => Ok(()),
-                },
                 #[cfg(feature = "term")]
                 Self::Termcode => {
                     use std::io::Write;
@@ -405,11 +364,6 @@ mod external {
         paste_primary => "xsel", "-i";
     }
     command_provider! {
-        WIN32,
-        yank => "win32yank.exe", "-o", "--lf";
-        paste => "win32yank.exe", "-i", "--crlf";
-    }
-    command_provider! {
         TERMUX,
         yank => "termux-clipboard-get";
         paste => "termux-clipboard-set";
@@ -436,7 +390,6 @@ mod external {
             .stderr(Stdio::null());
 
         // Fix for https://github.com/helix-editor/helix/issues/5424
-        #[cfg(unix)]
         {
             use std::os::unix::process::CommandExt;
 

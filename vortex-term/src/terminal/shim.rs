@@ -98,38 +98,8 @@ fn sh_quote(s: &str) -> String {
     format!("'{}'", s.replace('\'', r"'\''"))
 }
 
-#[cfg(unix)]
 pub use unix::{client_main, send, Server};
 
-#[cfg(not(unix))]
-pub use other::{client_main, Server};
-
-#[cfg(not(unix))]
-mod other {
-    use super::*;
-
-    pub struct Server;
-
-    impl Server {
-        pub fn start(
-            _handler: impl Fn(Request, Reply) + Send + Sync + 'static,
-        ) -> std::io::Result<Server> {
-            Err(std::io::ErrorKind::Unsupported.into())
-        }
-        pub fn bin_dir(&self) -> &Path {
-            Path::new("")
-        }
-        pub fn env(&self) -> Vec<(String, String)> {
-            Vec::new()
-        }
-    }
-
-    pub fn client_main() -> Option<i32> {
-        None
-    }
-}
-
-#[cfg(unix)]
 mod unix {
     use super::*;
     use std::io::{self, BufRead, BufReader, Write};
@@ -304,7 +274,7 @@ mod unix {
     }
 }
 
-#[cfg(all(test, unix))]
+#[cfg(test)]
 mod tests {
     use super::*;
     use std::sync::{Arc, Mutex};

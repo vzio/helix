@@ -1063,7 +1063,7 @@ mod tests {
             // Here `new` really is another file.
             assert!(!same_entry(&old, &new));
         } else {
-            // Writing `new` wrote `old` (macOS, Windows): still a case-only rename.
+            // Writing `new` wrote `old` (macOS): still a case-only rename.
             assert!(same_entry(&old, &new));
         }
         assert!(!same_entry(&old, &dir.path().join("other.md")));

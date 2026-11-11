@@ -3,7 +3,6 @@
 //! The shell is `sh` so rc files don't matter. The shell's work happens on other threads and
 //! reaches the editor through the job queue, so the tests pump the event loop until a condition
 //! holds, with a deadline, rather than sleeping.
-#![cfg(unix)]
 
 use std::{
     io,
@@ -178,11 +177,12 @@ fn screen_contains(app: &Application, needle: &str) -> bool {
     screen(app).contains(needle)
 }
 
-/// The prompt of `sh` is `$ `, or `# ` as root.
+/// A line that ends in `sh`'s prompt: `$` from dash, `sh-3.2$` from the bash that is `sh` on
+/// macOS (`#` for root).
 fn has_prompt(app: &Application) -> bool {
     screen(app)
         .lines()
-        .any(|line| matches!(line.trim(), "$" | "#"))
+        .any(|line| line.trim_end().ends_with(['$', '#']))
 }
 
 fn shell_running(app: &Application) -> bool {

@@ -138,9 +138,6 @@ pub fn trigger_auto_completion(editor: &Editor, trigger_char_only: bool) {
         .get_bytes_at(text.len_bytes())
         .and_then(|t| t.reversed().next());
 
-    #[cfg(windows)]
-    let is_path_completion_trigger = matches!(cursor_char, Some(b'/' | b'\\'));
-    #[cfg(not(windows))]
     let is_path_completion_trigger = matches!(cursor_char, Some(b'/'));
 
     let handler = &editor.handlers.completions;
