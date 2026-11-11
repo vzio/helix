@@ -89,6 +89,7 @@ git blame FILE
 - [Move lines](#move-lines)
 - [Terminal panel](#terminal-panel)
 - [Hex view](#hex-view)
+- [Dashboard](#dashboard)
 - [Practice](#practice)
 - [Tutor](#tutor)
 
@@ -111,6 +112,7 @@ Each feature lives in its own modules, to keep rebasing on upstream cheap:
 | Move lines | `vortex-term/src/commands/move_lines.rs` |
 | Terminal panel | `vortex-terminal/` (the shell: pty, emulator, OSC 133, bash/zsh integration), `vortex-view/src/terminal.rs` (panel state, `[editor.terminal]`), `vortex-term/src/terminal/` (drawing, focus, input encoding, the `vx` shim), `vortex-term/tests/test/terminal.rs` |
 | Hex view | `vortex-view/src/hex.rs` (the bytes: windowed reads, the overwritten bytes, undo, cursors, search, the row layout), `vortex-term/src/ui/hex_view.rs` (drawing, the statusline texts), `vortex-term/src/commands/hex.rs` (keys, mouse, prompts, `:hex`), `vortex-term/tests/test/hex_view.rs` |
+| Dashboard | `vortex-term/src/dashboard.rs` (when it is up, its keys), `vortex-term/src/dashboard/` (`stats.rs` the background reading, `languages.rs` the line counts, `render.rs` the layout and the animations, `logo.rs` the logo, `snapshots/` the drawings the tests compare with), `vortex-vcs/src/git/summary.rs` (the git summary), `vortex-term/tests/test/dashboard.rs` |
 | Practice | `vortex-term/src/practice.rs`, `vortex-term/src/practice/`, `runtime/practice/`, `vortex-term/tests/test/practice.rs` |
 
 Hooks into core files: commands and keys in `vortex-term/src/commands.rs`,
@@ -166,6 +168,12 @@ in `vortex-view/src/document.rs`; binary files opening with `open_hex` in `Edito
 other elements in `ui/statusline.rs`; `:hex`, and `:goto`/`:0x…` going to an offset, in
 `typed.rs`; the write message in `application.rs`; the hex preview of binary files in
 `ui/picker.rs`; the blame request skipping it in `handlers/blame.rs`; `ui.hex.*` in `theme.toml`.
+
+The dashboard changes core files: the `dashboard` field of `EditorView`, its keys first in
+`handle_event`, its drawing in `render` (over the views, under the infobox and the command line)
+and no cursor in `cursor`, in `ui/editor.rs`; the startup decision in `Application::new` (and
+no file picker for `vx <folder>` when it shows); `:dashboard` in `typed.rs`; `dashboard` in
+`vortex-view/src/editor.rs`; `Args::initial_working_dir` in `args.rs`, used by `main.rs`.
 
 The hunk actions add `Editor::save_messages` (`vortex-view/src/editor.rs`), a message shown
 instead of `'file' written` when a document's save completes (`handle_document_write` in
@@ -1232,6 +1240,155 @@ Overwritten bytes use `diff.delta`, the selection `ui.selection` and the cursor 
 - `:w` writes to the file itself only: `:w other.bin` is refused.
 - A file changed on disk counts as changed when its modification time does, even if `touch` left
   its bytes the same.
+
+## Dashboard
+
+`vx` and `vx <folder>` open on a dashboard instead of an empty buffer or the file picker: a main
+menu with the logo, the state of the project in a git repository, its languages, and a key for
+each way to start. `vx <file>` opens the file as before, never the dashboard.
+
+```text
+                ╭─────────╮  ██╗   ██╗ ██████╗ ██████╗ ████████╗███████╗██╗  ██╗
+                │ ╭─────╮ │  ██║   ██║██╔═══██╗██╔══██╗╚══██╔══╝██╔════╝╚██╗██╔╝
+                │ │ ╶─╮ │ │  ██║   ██║██║   ██║██████╔╝   ██║   █████╗   ╚███╔╝
+                │ ╰───╯ │ │  ╚██╗ ██╔╝██║   ██║██╔══██╗   ██║   ██╔══╝   ██╔██╗
+                ╰───────╯ │   ╚████╔╝ ╚██████╔╝██║  ██║   ██║   ███████╗██╔╝ ██╗
+                ╶─────────╯    ╚═══╝   ╚═════╝ ╚═╝  ╚═╝   ╚═╝   ╚══════╝╚═╝  ╚═╝
+
+                                   fork of helix-editor/helix
+
+  PROJECT                                         ~/src/vortex
+  branch    dashboard
+  commit    3768ea4  feat: remove microslop support and fix CI (#27)
+  upstream  origin/main  3 unpushed
+  remote    origin  https://github.com/vzio/vortex
+  changes   2 staged · 5 unstaged · 1 untracked
+
+  LANGUAGES                                       68,351 lines
+  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  ■ Rust          48,210   ■ Tree-sitter   12,650   ■ Markdown       3,377
+  ■ TOML           1,904   ■ other          2,210
+
+                                  i    Start typing
+                                  f    Find a file     space f
+                                  e    File tree       space e
+                                  l    Git history     space l
+                                  q    Quit                 :q
+```
+
+### Usage
+
+| Key or command | What it does |
+| --- | --- |
+| `i` | The empty buffer under the dashboard, in insert mode |
+| `Esc` | The empty buffer, in normal mode |
+| `f` | The file picker (`space f`) |
+| `e` | The file tree (`space e`) |
+| `l` | The commit log (`space l`), in a git repository |
+| `q` | Quit (`:q`) |
+| `:dashboard` | Show the dashboard again, over a new empty buffer (or over the current one when it is an empty scratch buffer) |
+
+Every other key goes to the keymap as in any buffer: `:`, the `space` menu and its infobox,
+`Ctrl-w`... A key that edits the buffer or leaves normal mode (`o`, `v`, a paste) drops into the
+buffer like `i`. Opening a file from anywhere (a picker, the file tree, `:open`) replaces the
+dashboard; closing a picker or the tree with `Esc` comes back to it. The keys on the right are
+the shortest ones the keymap has for the same commands, so a remapped key shows as remapped.
+
+`vx <folder>` also makes the folder the working directory, as before.
+
+### Configuration
+
+```toml
+[editor]
+dashboard = false   # start as before: an empty buffer, or the file picker for vx <folder>
+```
+
+`:dashboard` works either way.
+
+### What it shows
+
+Only in a git repository (a folder outside one gets the logo, the credit line and the actions,
+without `l`):
+
+- **branch** and **commit**: the branch (`detached at 8b83cad` when detached) and HEAD's short id
+  and summary (`no commits yet` before the first);
+- **upstream**: the upstream branch of the current one and how many commits it doesn't have
+  (`3 unpushed`, `all pushed`), or `no upstream`. There is no "behind": it would need a fetch;
+- **remote**: the upstream's remote, else `origin`, else the first one, with its URL as
+  configured, or `no remote`;
+- **changes**: staged, unstaged and untracked files, like `git status`, or `clean`;
+- an operation in progress (**merge**, **rebase**, **cherry-pick**, **revert**, **bisect**) and its
+  conflicted files, when there is one (unmerged files without an operation, after a conflicting
+  `git stash pop`, show as **conflicts**);
+- **worktrees**: the other worktrees of the repository (the main one from a linked one), with
+  their branch, at most three rows;
+- **languages**: a thin bar of each language's share of the lines, the five largest named in a
+  grid under it with their lines, and the total. Lines are newlines, counted in the files git
+  tracks, skipping binary files (the hex view's check) and lockfiles (`[editor.changes]
+  lockfiles`), grouped by the editor's own language detection (the file types of
+  `languages.toml`). Files of no known language, and the languages too small for a segment (under
+  a 200th of the lines, or past the fifth), are **other**, in grey, always last.
+
+Errors stay calm and in place: `no upstream`, `detached at 8b83cad`, `couldn't read` for a stat
+git couldn't read, `3 unreadable` next to the total for files that couldn't be read. A
+repository that can't be opened at all (a broken `.git`) shows no stats.
+
+### Layout
+
+Everything is centered. From 108 columns on, the project and its languages are side by side;
+narrower, they are stacked. When the window is too short, the layout gives up room in steps:
+smaller gaps, fewer rows of languages, the medium logo, one row of worktrees, the actions on one
+row, the one-line logo, no languages names, no gaps, and at last no stats (the actions back in a
+column when they fit). The actions go on one row only when it fits the width.
+
+### Loading and animations
+
+The first frame draws at once: nothing is read before it but a look for `.git` in the folder and
+its parents. Each stat is read in the background on its own, and while it loads its row
+shimmers; when it arrives, it types itself in. The language bar fills in as the files are read
+(a few threads at once), with the counts so far, and the heading counts the files read. The
+logo draws itself when the dashboard opens: the spiral from its center outwards, the word from
+the left. Once everything is in, the dashboard asks for no more frames: nothing moves, and the
+editor is idle. Closing the dashboard stops the counting.
+
+Nothing touches the network (`vortex-vcs` builds gix without any network feature) and nothing is
+written: there is no cache and no list of recent files.
+
+In a workspace that isn't trusted, gix leaves out the repository's own config; the remote and the
+upstream are names and URLs, so they are read from `.git/config` directly as plain data.
+
+### Dashboard theme
+
+| Scope | For | Falls back to |
+| --- | --- | --- |
+| `ui.dashboard.logo` | the spiral and the letters of the logo | `keyword` |
+| `ui.dashboard.logo.shadow` | the shadow of the letters | `ui.text.inactive`, `comment` |
+| `ui.dashboard.credit` | the line under the logo | `ui.text.inactive`, `comment` |
+| `ui.dashboard.heading` | `PROJECT`, `LANGUAGES` (bold) | `ui.text.focus`, `ui.text` |
+| `ui.dashboard.label` | the labels of the rows, calm errors | `ui.text.inactive`, `comment` |
+| `ui.dashboard.value` | the values | `ui.text` |
+| `ui.dashboard.key` | the key badges of the actions | `ui.selection` with `ui.text.focus` (bold), else reversed |
+| `ui.dashboard.action` | the actions | `ui.text` |
+| `ui.dashboard.hint` | the keymap's keys next to the actions | `ui.text.inactive`, `comment` |
+| `ui.dashboard.spinner` | the spinner of a heading while loading | `ui.dashboard.logo` |
+
+Each scope is looked up exactly (a theme with only `ui.dashboard.logo` doesn't color the shadow
+like the letters). `clean` and `all pushed` take the foreground of `diff.plus`, the unpushed
+count, an operation in progress and conflicts that of `warning`. The language bar takes its
+colors from the foregrounds of `function`, `string`, `keyword`, `type` and `constant`, in that
+order (the largest language first), and `other` the foreground of `ui.text.inactive` (or
+`comment`): scopes every theme has, so the bar works with any theme.
+
+### Limitations
+
+- The language counts read every tracked file, in the background; in a very large repository
+  (hundreds of thousands of files) that takes a while and keeps a few threads busy until done or
+  until the dashboard closes.
+- Language detection is by file name only (no shebangs), like a file's language before its text
+  is read.
+- The stats aren't refreshed while the dashboard is up: `:dashboard` reads them again.
+- `l` isn't offered when the repository couldn't be opened, even though the commit log might.
+- The actions are keys only, not clickable.
 
 ## Practice
 

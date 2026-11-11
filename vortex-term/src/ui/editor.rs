@@ -46,6 +46,8 @@ pub struct EditorView {
     terminal_focused: bool,
     /// The keys of the hex view kept between keys (this fork).
     hex_keys: commands::hex::HexKeys,
+    /// The dashboard, drawn over an empty scratch buffer while it is up (this fork).
+    pub dashboard: Option<crate::dashboard::Dashboard>,
 }
 
 #[derive(Debug, Clone)]
@@ -76,7 +78,25 @@ impl EditorView {
             spinners: ProgressSpinners::default(),
             terminal_focused: true,
             hex_keys: Default::default(),
+            dashboard: None,
         }
+    }
+
+    /// Opens the dashboard over the focused view (this fork, `:dashboard` and startup).
+    pub fn open_dashboard(&mut self, editor: &mut Editor) {
+        self.dashboard = Some(crate::dashboard::Dashboard::open(editor, &self.keymaps));
+    }
+
+    /// The dashboard, if it is still up; it is dropped as soon as it isn't.
+    fn live_dashboard(&mut self, editor: &Editor) -> Option<&crate::dashboard::Dashboard> {
+        if self
+            .dashboard
+            .as_ref()
+            .is_some_and(|dashboard| !dashboard.covers(editor))
+        {
+            self.dashboard = None;
+        }
+        self.dashboard.as_ref()
     }
 
     pub fn spinners_mut(&mut self) -> &mut ProgressSpinners {
@@ -1558,6 +1578,37 @@ impl Component for EditorView {
                     return EventResult::Consumed(None);
                 }
 
+                // the dashboard (this fork) takes its own keys first
+                if self.keymaps.pending().is_empty()
+                    && self.pseudo_pending.is_empty()
+                    && self.on_next_key.is_none()
+                    && cx.editor.count.is_none()
+                {
+                    if let Some(dashboard) = self.live_dashboard(cx.editor) {
+                        use crate::dashboard::KeyResult;
+                        let result = dashboard.handle_key(key, &mut cx);
+                        if result == KeyResult::Close {
+                            self.dashboard = None;
+                        }
+                        if result != KeyResult::Ignored {
+                            let callbacks = take(&mut cx.callback);
+                            let callback: Option<crate::compositor::Callback> = (!callbacks
+                                .is_empty())
+                            .then(|| {
+                                Box::new(
+                                    move |compositor: &mut crate::compositor::Compositor,
+                                          cx: &mut Context| {
+                                        for callback in callbacks {
+                                            callback(compositor, cx)
+                                        }
+                                    },
+                                ) as crate::compositor::Callback
+                            });
+                            return EventResult::Consumed(callback);
+                        }
+                    }
+                }
+
                 // a document in the hex view (this fork) takes its keys first
                 let hex_handled = self.keymaps.pending().is_empty()
                     && self.pseudo_pending.is_empty()
@@ -1736,6 +1787,11 @@ impl Component for EditorView {
             crate::terminal::render(cx.editor, panel_area, surface);
         }
 
+        // the dashboard (this fork) over the views, under the infobox and the command line
+        if let Some(dashboard) = self.live_dashboard(cx.editor) {
+            dashboard.render(cx.editor, editor_area, surface);
+        }
+
         crate::practice::render(cx.editor, editor_area, surface);
 
         if config.auto_info {
@@ -1830,8 +1886,13 @@ impl Component for EditorView {
         if let Some((pos, kind)) = crate::terminal::cursor(editor) {
             return (Some(pos), kind);
         }
-        // the hex view draws its own cursor
-        if doc!(editor).is_hex() {
+        // the hex view draws its own cursor, and the dashboard has none
+        if doc!(editor).is_hex()
+            || self
+                .dashboard
+                .as_ref()
+                .is_some_and(|dashboard| dashboard.covers(editor))
+        {
             return (None, CursorKind::Hidden);
         }
         match editor.cursor() {
