@@ -38,6 +38,7 @@ use tui::buffer::Buffer as Surface;
 
 use crate::commands::{self, MappableCommand};
 use crate::keymap::Keymaps;
+use vortex_view::editor::DashboardBackground;
 
 pub use render::Hints;
 pub use stats::Stats;
@@ -52,6 +53,8 @@ pub struct Dashboard {
     view: ViewId,
     doc: DocumentId,
     version: i32,
+    /// Only the vortex (`:vortex`).
+    vortex_only: bool,
 }
 
 impl Drop for Dashboard {
@@ -107,7 +110,19 @@ impl Dashboard {
             view,
             doc: doc_id,
             version,
+            vortex_only: false,
         }
+    }
+
+    /// `:vortex`: only the vortex, as `dashboard-background` moves it (`off` shows it still),
+    /// over the focused view like the dashboard, and gone the same way.
+    pub fn open_vortex(editor: &mut Editor, keymaps: &Keymaps) -> Self {
+        let mut dashboard = Self::open(editor, keymaps);
+        dashboard.vortex_only = true;
+        if dashboard.timeline.background == DashboardBackground::Off {
+            dashboard.timeline.background = DashboardBackground::Static;
+        }
+        dashboard
     }
 
     /// A dashboard over the focused view with the given stats, for tests: nothing is read.
@@ -121,6 +136,7 @@ impl Dashboard {
             view: view.id,
             doc: doc.id(),
             version: doc.version(),
+            vortex_only: false,
         }
     }
 
@@ -179,6 +195,7 @@ impl Dashboard {
             dir: &self.dir,
             hints: &self.hints,
             title: editor.config().dashboard_title,
+            vortex_only: self.vortex_only,
         };
         render::render(&model, &editor.theme, area, surface, now);
     }

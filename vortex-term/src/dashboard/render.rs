@@ -37,6 +37,8 @@ pub struct Model<'a> {
     pub hints: &'a Hints,
     /// Whether the title and its credit line are shown (`dashboard-title`).
     pub title: bool,
+    /// Only the vortex, none of the blocks (`:vortex`).
+    pub vortex_only: bool,
 }
 
 /// The keys of the keymap that do what the actions do, so the dashboard teaches them.
@@ -580,6 +582,12 @@ pub fn render(model: &Model, theme: &Theme, area: Rect, surface: &mut Surface, n
     let styles = Styles::new(theme);
     let s = &styles;
     surface.clear_with(area, theme.get("ui.background"));
+    if model.vortex_only {
+        if let Some(spin) = model.timeline.spin(model.stats, now) {
+            vortex::draw(surface, area, spin, &[], &s.vortex);
+        }
+        return;
+    }
     let git = model.stats.shows_git();
     let wide = area.width >= WIDE;
     let panel = if wide {
@@ -1185,6 +1193,7 @@ pub(crate) mod tests {
             dir: Path::new("/src/vortex"),
             hints: &hints,
             title,
+            vortex_only: false,
         };
         render(&model, &theme, area, &mut buffer, now);
         buffer
@@ -1668,6 +1677,7 @@ pub(crate) mod tests {
                 dir: Path::new("/src/vortex"),
                 hints: &hints,
                 title: true,
+                vortex_only: false,
             };
             render(
                 &model,

@@ -189,7 +189,7 @@ other elements in `ui/statusline.rs`; `:hex`, and `:goto`/`:0x…` going to an o
 The dashboard changes core files: the `dashboard` field of `EditorView`, its keys first in
 `handle_event`, its drawing in `render` (over the views, under the infobox and the command line)
 and no cursor in `cursor`, in `ui/editor.rs`; the startup decision in `Application::new` (and
-no file picker for `vx <folder>` when it shows); `:dashboard` in `typed.rs`; `dashboard` and
+no file picker for `vx <folder>` when it shows); `:dashboard` and `:vortex` in `typed.rs`; `dashboard` and
 `dashboard-background` (`DashboardBackground`) in `vortex-view/src/editor.rs`; `Args::initial_working_dir` in `args.rs`, used by `main.rs`.
 
 The vortex theme changes `vortex-view/src/theme.rs` (the built-in themes and their names, the
@@ -1513,6 +1513,7 @@ the dashboard.
 | `l` | The commit log (`space l`), in a git repository |
 | `q` | Quit (`:q`) |
 | `:dashboard` | Show the dashboard again, over a new empty buffer (or over the current one when it is an empty scratch buffer), its animations from the start |
+| `:vortex` | Only the vortex, without the title and the blocks, moving as `dashboard-background` says (`off` shows it still); it goes like the dashboard. Handy for a screenshot |
 
 Every other key goes to the keymap as in any buffer: `:`, the `space` menu and its infobox,
 `Ctrl-w`... A key that edits the buffer or leaves normal mode (`o`, `v`, a paste) drops into the

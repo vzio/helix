@@ -411,6 +411,7 @@ mod tests {
                 dir: std::path::Path::new("/src/vortex"),
                 hints: &hints,
                 title: true,
+                vortex_only: false,
             };
             let start = Instant::now();
             for frame in 0..frames {

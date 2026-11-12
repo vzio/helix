@@ -2233,6 +2233,25 @@ fn dashboard(cx: &mut compositor::Context, _args: Args, event: PromptEvent) -> a
     Ok(())
 }
 
+/// `:vortex` (this fork): only the dashboard's vortex, without its blocks.
+fn vortex(cx: &mut compositor::Context, _args: Args, event: PromptEvent) -> anyhow::Result<()> {
+    if event != PromptEvent::Validate {
+        return Ok(());
+    }
+    let callback = async move {
+        let call: job::Callback = job::Callback::EditorCompositor(Box::new(
+            move |editor: &mut Editor, compositor: &mut Compositor| {
+                if let Some(view) = compositor.find::<ui::EditorView>() {
+                    view.open_vortex(editor);
+                }
+            },
+        ));
+        Ok(call)
+    };
+    cx.jobs.callback(callback);
+    Ok(())
+}
+
 fn abort_goto_line_number_preview(cx: &mut compositor::Context) {
     if let Some(last_selection) = cx.editor.last_selection.take() {
         let scrolloff = cx.editor.config().scrolloff;
@@ -3944,6 +3963,17 @@ pub const TYPABLE_COMMAND_LIST: &[TypableCommand] = &[
         aliases: &[],
         doc: "Show the dashboard: the project, its languages and the keys to start with.",
         fun: dashboard,
+        completer: CommandCompleter::none(),
+        signature: Signature {
+            positionals: (0, Some(0)),
+            ..Signature::DEFAULT
+        },
+    },
+    TypableCommand {
+        name: "vortex",
+        aliases: &[],
+        doc: "Show only the dashboard's vortex, as dashboard-background moves it (off shows it still).",
+        fun: vortex,
         completer: CommandCompleter::none(),
         signature: Signature {
             positionals: (0, Some(0)),
