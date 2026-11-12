@@ -38,6 +38,40 @@
 //!   request (with its `context`) is in the request log like every other request.
 //! * `setExceptionBreakpoints` is answered WITHOUT a body (like lldb-dap).
 //! * Unknown requests: `success: false`, message `"unsupported"`.
+//! * Delays: `Stop::delay(ms)`. When a `continue`/`next`/`stepIn`/`stepOut` reaches such a stop,
+//!   the program "runs" for that long (frames, scopes and variables answer as for a running
+//!   program: nothing) and only then sends `stopped`. A `pause` request arriving meanwhile
+//!   stops at once at that same stop, with reason `"pause"`, and consumes it. The stops of a
+//!   `pause` itself are never delayed.
+//! * `allThreadsStopped` in `stopped` events is true, or false with `Script::non_stop()`.
+//!   `continue`'s response and the `continued` event say `allThreadsContinued: true`, or false
+//!   when the request carried `singleThread: true`.
+//! * `Stop::keep_reason()`: when a step reaches this stop it reports the stop's own reason (not
+//!   `"step"`), without needing a breakpoint.
+//! * The `process` event carries the test process's own pid as `systemProcessId` (so reading
+//!   the CPU time works).
+//! * Thread events: `Stop::thread_started(id, name)` / `Stop::thread_exited(id)` send a `thread`
+//!   event just before that stop's `stopped`. The `threads` response lists the threads alive at
+//!   that point: `main` (and `worker` with `worker_thread()`), plus the started ones minus the
+//!   exited ones.
+//! * Thread mode (`Script::threads()`, `Script::thread_program(id, stops)`): every thread has
+//!   a queue of stops of its own (their `thread` is forced to the thread's id) and the single
+//!   queue of `Script::stop` is not used. The threads are `1 main`, `2 worker`, `N thread N`.
+//!   At launch every thread runs to its first stop that hits, in id order; the lowest sends
+//!   `stopped` and the others stay stopped silently, as in an all-stop session (with
+//!   `non_stop()` each sends its own `stopped`, those of the threads after the first with
+//!   `preserveFocusHint: true`). Every thread that is stopped answers
+//!   `stackTrace`, `scopes` and `variables` for its own stop. A `continue`/`next`/`stepIn`/
+//!   `stepOut` for thread T advances only T's queue, with `singleThread` or without it (the
+//!   request, with its `singleThread`, is in the log): so tests assert on the log and on what
+//!   each queue did (`FakeAdapter::stops_sent`). A thread whose queue runs out exits (a
+//!   `thread` exited event); the program exits when the last thread has. A thread that isn't
+//!   stopped (it is waiting out a delay, or it exited) answers `continue`/`next`... with
+//!   "not stopped".
+//! * Collections: `Var::many(n)` adds `n` leaf children `[0]`..`[n-1]`. `variables` honours
+//!   `start` and `count` (the children `start..start+count`). A `Var::indexed()` variable
+//!   also says `indexedVariables: <number of children>` in the `variables` response of its
+//!   container, the way adapters announce the length of a collection.
 //! * `child()` mode (like js-debug): connection 0 is the parent: it has no thread and no stops;
 //!   after the launch response it sends the reverse request `startDebugging` (launch, name
 //!   `child [1]`, `__pendingTargetId` `t1`). Every later connection is a child and the program:
@@ -72,6 +106,7 @@ pub struct Var {
     pub value: String,
     pub ty: Option<String>,
     pub children: Vec<Var>,
+    pub indexed: bool,
 }
 
 impl Var {
@@ -81,7 +116,21 @@ impl Var {
             value: value.into(),
             ty: None,
             children: Vec::new(),
+            indexed: false,
         }
+    }
+    /// Announces the number of children as `indexedVariables`.
+    pub fn indexed(mut self) -> Var {
+        self.indexed = true;
+        self
+    }
+    /// `n` leaf children `[0]`..`[n-1]` with the values `0`..`n-1`.
+    pub fn many(mut self, n: usize) -> Var {
+        for i in 0..n {
+            self.children
+                .push(Var::new(format!("[{i}]"), i.to_string()));
+        }
+        self
     }
     pub fn ty(mut self, ty: impl Into<String>) -> Var {
         self.ty = Some(ty.into());
@@ -151,6 +200,16 @@ pub struct Stop {
     pub thread: i64,
     pub frames: Vec<Frame>,
     pub scopes: Vec<Scope>,
+    pub delay_ms: u64,
+    pub events: Vec<ThreadEvent>,
+    pub keep_reason: bool,
+}
+
+/// A `thread` event sent just before a stop's `stopped`.
+#[derive(Clone, Debug)]
+pub enum ThreadEvent {
+    Started(i64, String),
+    Exited(i64),
 }
 
 impl Stop {
@@ -161,7 +220,31 @@ impl Stop {
             thread: 1,
             frames: Vec::new(),
             scopes: Vec::new(),
+            delay_ms: 0,
+            events: Vec::new(),
+            keep_reason: false,
         }
+    }
+    /// Reached by a step, this stop reports its own reason instead of `"step"` (like stepping
+    /// onto a line with a breakpoint, which a real adapter reports as `"breakpoint"`).
+    pub fn keep_reason(mut self) -> Stop {
+        self.keep_reason = true;
+        self
+    }
+    /// The program runs this long before this stop is reported.
+    pub fn delay(mut self, ms: u64) -> Stop {
+        self.delay_ms = ms;
+        self
+    }
+    /// A `thread` started event for thread `id` just before this stop's `stopped`.
+    pub fn thread_started(mut self, id: i64, name: impl Into<String>) -> Stop {
+        self.events.push(ThreadEvent::Started(id, name.into()));
+        self
+    }
+    /// A `thread` exited event for thread `id` just before this stop's `stopped`.
+    pub fn thread_exited(mut self, id: i64) -> Stop {
+        self.events.push(ThreadEvent::Exited(id));
+        self
     }
     pub fn thread(mut self, id: i64) -> Stop {
         self.thread = id;
@@ -199,6 +282,9 @@ pub struct Script {
     extra_capabilities: Vec<(String, Value)>,
     worker: bool,
     child: bool,
+    all_stopped: bool,
+    thread_mode: bool,
+    programs: Vec<(i64, Vec<Stop>)>,
 }
 
 impl Script {
@@ -220,17 +306,80 @@ impl Script {
             extra_capabilities: Vec::new(),
             worker: false,
             child: false,
+            all_stopped: true,
+            thread_mode: false,
+            programs: Vec::new(),
         }
     }
-    pub fn stop(mut self, mut stop: Stop) -> Script {
+    /// Gives a stop its default frame and moves its scopes to the top frame.
+    fn normalize(&self, mut stop: Stop) -> Stop {
         if stop.frames.is_empty() {
             stop.frames
                 .push(Frame::new("main", self.source.clone(), stop.line));
         }
         let scopes = std::mem::take(&mut stop.scopes);
         stop.frames[0].scopes.splice(0..0, scopes);
+        stop
+    }
+    pub fn stop(mut self, stop: Stop) -> Script {
+        let stop = self.normalize(stop);
         self.stops.push(stop);
         self
+    }
+    /// `stopped` events say `allThreadsStopped: false`.
+    pub fn non_stop(mut self) -> Script {
+        self.all_stopped = false;
+        self
+    }
+    /// Thread mode: every thread has a queue of stops of its own (see the module documentation).
+    pub fn threads(mut self) -> Script {
+        self.thread_mode = true;
+        self
+    }
+    /// Thread mode: the stops of thread `id` (their `thread` becomes `id`).
+    pub fn thread_program(mut self, id: i64, stops: Vec<Stop>) -> Script {
+        self.thread_mode = true;
+        let stops: Vec<Stop> = stops
+            .into_iter()
+            .map(|mut stop| {
+                stop.thread = id;
+                self.normalize(stop)
+            })
+            .collect();
+        match self.programs.iter_mut().find(|(i, _)| *i == id) {
+            Some((_, list)) => list.extend(stops),
+            None => {
+                self.programs.push((id, stops));
+                self.programs.sort_by_key(|(i, _)| *i);
+            }
+        }
+        self
+    }
+    fn program(&self, id: i64) -> &[Stop] {
+        self.programs
+            .iter()
+            .find(|(i, _)| *i == id)
+            .map_or(&[], |(_, stops)| stops.as_slice())
+    }
+    /// The threads alive at the start.
+    fn initial_threads(&self) -> Vec<(i64, String)> {
+        let name = |id: i64| match id {
+            1 => "main".to_string(),
+            2 => "worker".to_string(),
+            n => format!("thread {n}"),
+        };
+        if self.thread_mode {
+            return self
+                .programs
+                .iter()
+                .map(|(id, _)| (*id, name(*id)))
+                .collect();
+        }
+        let mut threads = vec![(1, name(1))];
+        if self.worker {
+            threads.push((2, name(2)));
+        }
+        threads
     }
     /// Whether `next`/`stepIn`/`stepOut` advance to the next stop (default true).
     pub fn stepping(mut self, on: bool) -> Script {
@@ -345,6 +494,8 @@ struct Shared {
     responses: Mutex<Vec<ClientResponse>>,
     next_index: AtomicUsize,
     parent_out: Mutex<Option<Arc<Out>>>,
+    /// Every `stopped` event sent: (thread, line of the top frame, reason).
+    sent: Mutex<Vec<(i64, u64, String)>>,
 }
 
 pub struct FakeAdapter {
@@ -370,6 +521,7 @@ impl FakeAdapter {
             responses: Mutex::new(Vec::new()),
             next_index: AtomicUsize::new(0),
             parent_out: Mutex::new(None),
+            sent: Mutex::new(Vec::new()),
         });
         let sh = shared.clone();
         let task = tokio::spawn(async move {
@@ -414,6 +566,16 @@ impl FakeAdapter {
             .iter()
             .map(|r| (r.session, r.command.clone(), r.success, r.body.clone()))
             .collect()
+    }
+
+    /// Every `stopped` event sent, in order: (thread, line of its top frame, reason).
+    pub fn stops_sent(&self) -> Vec<(i64, u64, String)> {
+        self.shared.sent.lock().unwrap().clone()
+    }
+
+    /// How many stops of `thread` were reported so far (how far its queue advanced).
+    pub fn advanced(&self, thread: i64) -> usize {
+        self.stops_sent().iter().filter(|s| s.0 == thread).count()
     }
 
     /// Number of connections accepted so far.
@@ -764,15 +926,105 @@ enum Role {
     Child,
 }
 
+/// A stop waiting out its delay.
+struct Pending {
+    token: u64,
+    /// The queue it is in: `None` for the single queue, else the thread's.
+    queue: Option<i64>,
+    index: usize,
+    reason: String,
+}
+
 #[derive(Default)]
 struct Program {
+    /// The next stop of the single queue.
     next: usize,
+    /// The stop that was reported last, while its thread is stopped.
     current: Option<Current>,
+    /// Thread mode: the other threads that are stopped.
+    others: HashMap<i64, Current>,
+    /// Thread mode: the next stop of each thread's queue.
+    pos: HashMap<i64, usize>,
+    /// The threads alive: (id, name).
+    alive: Vec<(i64, String)>,
+    /// Stops waiting out their delay, by thread.
+    pending: HashMap<i64, Pending>,
+    next_token: u64,
     epoch: i64,
     exited: bool,
     bps: HashMap<String, Vec<Bp>>,
     bp_ids: HashMap<(String, u64), i64>,
     overrides: HashMap<String, String>,
+}
+
+impl Program {
+    fn currents(&self) -> impl Iterator<Item = &Current> {
+        self.current.iter().chain(self.others.values())
+    }
+
+    /// The stop to answer for when a request names no frame: the last reported, else the lowest
+    /// thread's.
+    fn default_current(&self) -> Option<&Current> {
+        self.current
+            .as_ref()
+            .or_else(|| self.others.values().min_by_key(|c| c.stop.thread))
+    }
+
+    fn current_of(&self, thread: i64) -> Option<&Current> {
+        self.currents().find(|c| c.stop.thread == thread)
+    }
+
+    /// The stop that owns frame `frame` / reference `reference` (or the default one).
+    fn find(&self, frame: Option<i64>, reference: Option<i64>) -> Option<&Current> {
+        let pick = |c: &&Current| match (frame, reference) {
+            (_, Some(r)) => c.refs.contains_key(&r),
+            (Some(f), None) => c.frame_index(Some(f)).is_ok(),
+            (None, None) => true,
+        };
+        if reference.is_none() && frame.is_none() {
+            return self.default_current();
+        }
+        self.currents().find(pick)
+    }
+
+    fn find_mut(&mut self, frame: Option<i64>, reference: Option<i64>) -> Option<&mut Current> {
+        let pick = |c: &Current| match (frame, reference) {
+            (_, Some(r)) => c.refs.contains_key(&r),
+            (Some(f), None) => c.frame_index(Some(f)).is_ok(),
+            (None, None) => true,
+        };
+        if self.current.as_ref().is_some_and(pick) {
+            return self.current.as_mut();
+        }
+        self.others.values_mut().find(|c| pick(c))
+    }
+
+    /// The thread resumes: its stop is gone.
+    fn take_current(&mut self, thread: Option<i64>) {
+        match thread {
+            None => self.current = None,
+            Some(t) => {
+                if self.current.as_ref().is_some_and(|c| c.stop.thread == t) {
+                    self.current = None;
+                }
+                self.others.remove(&t);
+            }
+        }
+    }
+
+    /// `current` becomes the stop of its thread's session, the one before it joins `others`.
+    fn install(&mut self, cur: Current, thread_mode: bool) {
+        if thread_mode {
+            let thread = cur.stop.thread;
+            self.others.remove(&thread);
+            if let Some(old) = self.current.take() {
+                if old.stop.thread != thread {
+                    self.others.insert(old.stop.thread, old);
+                }
+            }
+        }
+        self.current = Some(cur);
+    }
 }
 
 fn same_file(a: &str, b: &str) -> bool {
@@ -789,6 +1041,12 @@ struct Req {
     args: Value,
 }
 
+/// A delayed stop is due.
+struct Fire {
+    thread: i64,
+    token: u64,
+}
+
 struct Session {
     index: usize,
     shared: Arc<Shared>,
@@ -797,6 +1055,11 @@ struct Session {
     configured: bool,
     pending_launch: Option<Req>,
     prog: Program,
+    fire: mpsc::UnboundedSender<Fire>,
+    /// The `stopped` event of the stop being installed is not sent (a silent stop of thread mode).
+    quiet: bool,
+    /// The `stopped` event carries `preserveFocusHint: true`.
+    hint: bool,
 }
 
 async fn serve(stream: TcpStream, shared: Arc<Shared>, index: usize) {
@@ -810,6 +1073,11 @@ async fn serve(stream: TcpStream, shared: Arc<Shared>, index: usize) {
     if role == Role::Parent {
         *shared.parent_out.lock().unwrap() = Some(out.clone());
     }
+    let (fire, mut due) = mpsc::unbounded_channel();
+    let mut prog = Program::default();
+    if role != Role::Parent {
+        prog.alive = shared.script.initial_threads();
+    }
     let mut s = Session {
         index,
         shared,
@@ -817,22 +1085,30 @@ async fn serve(stream: TcpStream, shared: Arc<Shared>, index: usize) {
         role,
         configured: false,
         pending_launch: None,
-        prog: Program::default(),
+        prog,
+        fire,
+        quiet: false,
+        hint: false,
     };
     let mut framer = Framer::default();
     let mut buf = [0u8; 4096];
     loop {
-        let n = match rd.read(&mut buf).await {
-            Ok(0) | Err(_) => break,
-            Ok(n) => n,
-        };
-        let Ok(msgs) = framer.push(&buf[..n]) else {
-            break;
-        };
-        for m in msgs {
-            if s.handle(m) {
-                return;
+        tokio::select! {
+            read = rd.read(&mut buf) => {
+                let n = match read {
+                    Ok(0) | Err(_) => break,
+                    Ok(n) => n,
+                };
+                let Ok(msgs) = framer.push(&buf[..n]) else {
+                    break;
+                };
+                for m in msgs {
+                    if s.handle(m) {
+                        return;
+                    }
+                }
             }
+            Some(Fire { thread, token }) = due.recv() => s.fire_due(thread, token),
         }
     }
 }
@@ -906,25 +1182,22 @@ impl Session {
             "setBreakpoints" => self.set_breakpoints(&req),
             "setExceptionBreakpoints" => self.respond(&req, None),
             "threads" => {
-                let mut threads = Vec::new();
-                if self.role != Role::Parent {
-                    threads.push(json!({"id": 1, "name": "main"}));
-                    if script.worker {
-                        threads.push(json!({"id": 2, "name": "worker"}));
-                    }
-                }
+                let threads: Vec<Value> = self
+                    .prog
+                    .alive
+                    .iter()
+                    .map(|(id, name)| json!({"id": id, "name": name}))
+                    .collect();
                 self.respond(&req, Some(json!({ "threads": threads })));
             }
             "stackTrace" => self.stack_trace(&req),
             "scopes" => self.scopes(&req),
             "variables" => self.variables(&req),
             "evaluate" => {
-                let r = match &self.prog.current {
+                let frame = req.args["frameId"].as_i64();
+                let r = match self.prog.find(frame, None).or(self.prog.default_current()) {
                     None => Err("cannot evaluate".to_string()),
-                    Some(c) => c.evaluate(
-                        req.args["expression"].as_str().unwrap_or(""),
-                        req.args["frameId"].as_i64(),
-                    ),
+                    Some(c) => c.evaluate(req.args["expression"].as_str().unwrap_or(""), frame),
                 };
                 match r {
                     Ok((value, ty, r)) => {
@@ -939,26 +1212,46 @@ impl Session {
             }
             "setVariable" if script.set_variable => self.set_variable(&req),
             "setExpression" if script.set_expression => self.set_expression(&req),
-            "continue" => {
-                if self.prog.current.is_none() {
+            "continue" | "next" | "stepIn" | "stepOut" => {
+                let thread = self.request_thread(&req);
+                if !self.is_stopped(thread) {
                     return self.not_stopped(&req);
                 }
-                self.respond(&req, Some(json!({"allThreadsContinued": true})));
-                self.continued(&req);
-                self.resume(Mode::Continue);
-            }
-            "next" | "stepIn" | "stepOut" => {
-                if self.prog.current.is_none() {
-                    return self.not_stopped(&req);
+                let single = req.args["singleThread"].as_bool() == Some(true);
+                if req.command == "continue" {
+                    self.respond(&req, Some(json!({"allThreadsContinued": !single})));
+                } else {
+                    self.respond(&req, None);
                 }
-                self.respond(&req, None);
-                self.continued(&req);
-                self.resume(Mode::Step);
+                self.out.event(
+                    "continued",
+                    json!({"threadId": thread, "allThreadsContinued": !single}),
+                );
+                let mode = if req.command == "continue" {
+                    Mode::Continue
+                } else {
+                    Mode::Step
+                };
+                self.resume(thread, mode);
             }
             "pause" => {
                 self.respond(&req, None);
-                self.prog.current = None;
-                self.resume(Mode::Pause);
+                let thread = req.args["threadId"].as_i64().unwrap_or(1);
+                let key = if self.prog.pending.contains_key(&thread) {
+                    Some(thread)
+                } else if self.prog.pending.len() == 1 {
+                    self.prog.pending.keys().next().copied()
+                } else {
+                    None
+                };
+                match key.and_then(|k| self.prog.pending.remove(&k)) {
+                    // the program was running towards a stop: it stops there, paused
+                    Some(p) => self.emit_stop(p.queue, p.index, "pause".into()),
+                    None => {
+                        let thread = self.request_thread(&req);
+                        self.resume(thread, Mode::Pause)
+                    }
+                }
             }
             "terminate" => {
                 self.respond(&req, None);
@@ -974,22 +1267,26 @@ impl Session {
         false
     }
 
+    /// The thread a request is for: `threadId`, else the current stop's.
+    fn request_thread(&self, req: &Req) -> i64 {
+        req.args["threadId"]
+            .as_i64()
+            .or_else(|| self.prog.default_current().map(|c| c.stop.thread))
+            .unwrap_or(1)
+    }
+
+    /// Whether `thread` is stopped (the single queue has one stop at a time, whatever its thread).
+    fn is_stopped(&self, thread: i64) -> bool {
+        if self.shared.script.thread_mode {
+            self.prog.current_of(thread).is_some()
+        } else {
+            self.prog.current.is_some()
+        }
+    }
+
     fn not_stopped(&self, req: &Req) -> bool {
         self.fail(req, "not stopped");
         false
-    }
-
-    fn continued(&self, req: &Req) {
-        let thread = req
-            .args
-            .get("threadId")
-            .and_then(Value::as_i64)
-            .or_else(|| self.prog.current.as_ref().map(|c| c.stop.thread))
-            .unwrap_or(1);
-        self.out.event(
-            "continued",
-            json!({"threadId": thread, "allThreadsContinued": true}),
-        );
     }
 
     /// After the launch response.
@@ -1008,7 +1305,7 @@ impl Session {
         }
         self.out.event(
             "process",
-            json!({"name": self.shared.script.source, "systemProcessId": 4242,
+            json!({"name": self.shared.script.source, "systemProcessId": std::process::id(),
                 "isLocalProcess": true, "startMethod": "launch"}),
         );
         self.out
@@ -1017,7 +1314,20 @@ impl Session {
             self.out
                 .event("output", json!({"category": category, "output": text}));
         }
-        self.resume(Mode::Continue);
+        let script = self.shared.script.clone();
+        if script.thread_mode {
+            // every thread runs to its first stop; one `stopped` in an all-stop session
+            for (n, (id, _)) in script.programs.iter().enumerate() {
+                self.quiet = script.all_stopped && n > 0;
+                // in a non-stop session the other threads' stops didn't cause the focus
+                self.hint = !script.all_stopped && n > 0;
+                self.resume(*id, Mode::Continue);
+            }
+            self.quiet = false;
+            self.hint = false;
+        } else {
+            self.resume(1, Mode::Continue);
+        }
     }
 
     fn set_breakpoints(&mut self, req: &Req) {
@@ -1064,12 +1374,7 @@ impl Session {
 
     fn stack_trace(&self, req: &Req) {
         let thread = req.args["threadId"].as_i64().unwrap_or(1);
-        let Some(c) = self
-            .prog
-            .current
-            .as_ref()
-            .filter(|c| c.stop.thread == thread)
-        else {
+        let Some(c) = self.prog.current_of(thread) else {
             return self.respond(req, Some(json!({"stackFrames": [], "totalFrames": 0})));
         };
         let start = req.args["startFrame"].as_u64().unwrap_or(0) as usize;
@@ -1100,13 +1405,14 @@ impl Session {
     }
 
     fn scopes(&self, req: &Req) {
-        let Some(c) = &self.prog.current else {
+        if self.prog.currents().next().is_none() {
             return self.fail(req, "not stopped");
+        }
+        let id = req.args["frameId"].as_i64().unwrap_or(-1);
+        let Some(c) = self.prog.find(Some(id), None) else {
+            return self.fail(req, &format!("unknown frameId {id}"));
         };
-        let fi = match c.frame_index(Some(req.args["frameId"].as_i64().unwrap_or(-1))) {
-            Ok(fi) => fi,
-            Err(m) => return self.fail(req, &m),
-        };
+        let fi = c.frame_index(Some(id)).unwrap_or(0);
         let scopes: Vec<Value> = c.stop.frames[fi]
             .scopes
             .iter()
@@ -1123,16 +1429,22 @@ impl Session {
         let r = req.args["variablesReference"].as_i64().unwrap_or(0);
         let Some((c, t)) = self
             .prog
-            .current
-            .as_ref()
+            .find(None, Some(r))
             .and_then(|c| c.refs.get(&r).map(|t| (c, t)))
         else {
             return self.fail(req, &format!("unknown variablesReference {r}"));
         };
         let vars = c.vars_at(t).cloned().unwrap_or_default();
+        let start = req.args["start"].as_u64().unwrap_or(0) as usize;
+        let count = req.args["count"]
+            .as_u64()
+            .filter(|n| *n > 0)
+            .map_or(usize::MAX, |n| n as usize);
         let list: Vec<Value> = vars
             .iter()
             .enumerate()
+            .skip(start)
+            .take(count)
             .map(|(i, v)| {
                 let mut path = t.2.clone();
                 path.push(i);
@@ -1140,6 +1452,9 @@ impl Session {
                 let mut j = json!({"name": v.name, "value": v.value, "variablesReference": vr});
                 if let Some(ty) = &v.ty {
                     j["type"] = ty.clone().into();
+                }
+                if v.indexed && !v.children.is_empty() {
+                    j["indexedVariables"] = v.children.len().into();
                 }
                 j
             })
@@ -1165,7 +1480,7 @@ impl Session {
         let r = req.args["variablesReference"].as_i64().unwrap_or(0);
         let name = req.args["name"].as_str().unwrap_or("");
         let value = req.args["value"].as_str().unwrap_or("");
-        let done = self.prog.current.as_mut().and_then(|c| {
+        let done = self.prog.find_mut(None, Some(r)).and_then(|c| {
             let t = c.refs.get(&r)?.clone();
             let idx = c.vars_at(&t)?.iter().position(|v| v.name == name)?;
             let mut full = t.2.clone();
@@ -1179,7 +1494,7 @@ impl Session {
         let expr = req.args["expression"].as_str().unwrap_or("").trim();
         let value = req.args["value"].as_str().unwrap_or("");
         let frame = req.args["frameId"].as_i64();
-        let done = self.prog.current.as_mut().and_then(|c| {
+        let done = self.prog.find_mut(frame, None).and_then(|c| {
             let fi = c.frame_index(frame).ok()?;
             let (si, path) = c.find(fi, expr)?;
             c.set_at(fi, si, &path, value)
@@ -1187,18 +1502,37 @@ impl Session {
         self.answer_set(req, done);
     }
 
-    /// Runs the program to its next stop, or to its end.
-    fn resume(&mut self, mode: Mode) {
-        self.prog.current = None;
+    /// The stops of a queue.
+    fn queue(&self, queue: Option<i64>) -> Vec<Stop> {
+        match queue {
+            None => self.shared.script.stops.clone(),
+            Some(t) => self.shared.script.program(t).to_vec(),
+        }
+    }
+
+    /// Thread `thread` runs (the single queue in a plain script, the thread's in thread mode)
+    /// to its next stop, or to its end.
+    fn resume(&mut self, thread: i64, mode: Mode) {
         let shared = self.shared.clone();
-        let stops = &shared.script.stops;
+        let queue = shared.script.thread_mode.then_some(thread);
+        self.prog.take_current(queue);
+        let stops = self.queue(queue);
         let step = mode == Mode::Pause || (mode == Mode::Step && shared.script.stepping);
-        let mut i = self.prog.next;
+        let mut i = match queue {
+            None => self.prog.next,
+            Some(t) => self.prog.pos.get(&t).copied().unwrap_or(0),
+        };
         let mut found: Option<(usize, String)> = None;
         while i < stops.len() {
             let stop = &stops[i];
             if step {
-                let reason = if mode == Mode::Pause { "pause" } else { "step" };
+                let reason = if mode == Mode::Pause {
+                    "pause"
+                } else if stop.keep_reason {
+                    stop.reason.as_str()
+                } else {
+                    "step"
+                };
                 found = Some((i, reason.to_string()));
                 break;
             }
@@ -1243,29 +1577,113 @@ impl Session {
         }
         match found {
             Some((i, reason)) => {
-                self.prog.epoch += 1;
-                let stop = &stops[i];
-                self.prog.next = i + 1;
-                self.prog.current =
-                    Some(Current::build(stop, self.prog.epoch, &self.prog.overrides));
-                self.out.event(
-                    "stopped",
-                    json!({"reason": reason, "threadId": stop.thread, "allThreadsStopped": true}),
-                );
-            }
-            None => {
-                self.prog.next = stops.len();
-                if mode == Mode::Pause || shared.script.run_forever {
-                    return;
+                match queue {
+                    None => self.prog.next = i + 1,
+                    Some(t) => {
+                        self.prog.pos.insert(t, i + 1);
+                    }
                 }
-                self.exit_sequence();
+                let delay = stops[i].delay_ms;
+                if delay > 0 && mode != Mode::Pause {
+                    self.prog.next_token += 1;
+                    let token = self.prog.next_token;
+                    let thread = stops[i].thread;
+                    self.prog.pending.insert(
+                        thread,
+                        Pending {
+                            token,
+                            queue,
+                            index: i,
+                            reason,
+                        },
+                    );
+                    let fire = self.fire.clone();
+                    tokio::spawn(async move {
+                        tokio::time::sleep(Duration::from_millis(delay)).await;
+                        let _ = fire.send(Fire { thread, token });
+                    });
+                } else {
+                    self.emit_stop(queue, i, reason);
+                }
             }
+            None => match queue {
+                None => {
+                    self.prog.next = stops.len();
+                    if mode == Mode::Pause || shared.script.run_forever {
+                        return;
+                    }
+                    self.exit_sequence();
+                }
+                Some(t) => {
+                    self.prog.pos.insert(t, stops.len());
+                    if mode == Mode::Pause {
+                        return;
+                    }
+                    // the thread ends
+                    self.prog.alive.retain(|(id, _)| *id != t);
+                    self.out
+                        .event("thread", json!({"reason": "exited", "threadId": t}));
+                    if self.prog.alive.is_empty() && !shared.script.run_forever {
+                        self.exit_sequence();
+                    }
+                }
+            },
+        }
+    }
+
+    /// A delayed stop is due.
+    fn fire_due(&mut self, thread: i64, token: u64) {
+        if self.prog.pending.get(&thread).map(|p| p.token) != Some(token) {
+            return;
+        }
+        let p = self.prog.pending.remove(&thread).unwrap();
+        self.emit_stop(p.queue, p.index, p.reason);
+    }
+
+    /// The program stops at stop `index` of `queue`: its thread events, then `stopped`.
+    fn emit_stop(&mut self, queue: Option<i64>, index: usize, reason: String) {
+        let shared = self.shared.clone();
+        let stops = self.queue(queue);
+        let stop = &stops[index];
+        self.prog.epoch += 1;
+        for event in &stop.events {
+            match event {
+                ThreadEvent::Started(id, name) => {
+                    if !self.prog.alive.iter().any(|(i, _)| i == id) {
+                        self.prog.alive.push((*id, name.clone()));
+                    }
+                    self.out
+                        .event("thread", json!({"reason": "started", "threadId": id}));
+                }
+                ThreadEvent::Exited(id) => {
+                    self.prog.alive.retain(|(i, _)| i != id);
+                    self.out
+                        .event("thread", json!({"reason": "exited", "threadId": id}));
+                }
+            }
+        }
+        let cur = Current::build(stop, self.prog.epoch, &self.prog.overrides);
+        self.prog.install(cur, shared.script.thread_mode);
+        shared
+            .sent
+            .lock()
+            .unwrap()
+            .push((stop.thread, stop.line, reason.clone()));
+        if !self.quiet {
+            let mut body = json!({"reason": reason, "threadId": stop.thread,
+                "allThreadsStopped": shared.script.all_stopped});
+            if self.hint {
+                body["preserveFocusHint"] = true.into();
+            }
+            self.out.event("stopped", body);
         }
     }
 
     fn exit_sequence(&mut self) {
         self.prog.exited = true;
         self.prog.current = None;
+        self.prog.others.clear();
+        self.prog.pending.clear();
         let code = self.shared.script.exit_code;
         match self.role {
             Role::Single => {

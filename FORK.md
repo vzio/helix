@@ -173,6 +173,13 @@ statusline element; `:debug-eval` (raw input) in `typed.rs`; the `space G` addit
 `keymap/default.rs`; the terminal panel hiding the debug panel in `terminal/panel.rs`; in
 `vortex-dap`, the client's `Requester`, child sessions, bodyless responses, the TCP connect retry,
 and `supportsStartDebuggingRequest`; `SetVariable`/`SetExpression` and signed exit codes in
+`vortex-dap-types`. Spectator mode adds: `Editor::current_stack_frame` showing the recorded frame in
+rewind (and the last one while a step runs) and `[editor.debugger]` in `vortex-view/src/editor.rs`;
+not opening a frame's missing file in `handlers/dap.rs`; the time-per-line decoration in
+`ui/editor.rs`; playback and REWIND in the `debug` statusline element; `std-paths`, `lib-paths` and
+`capabilities` in `DebugAdapterConfig` (`vortex-core`); the step requests' `singleThread` and
+granularity, paged `variables`, the configured capabilities and the arrival time of `stopped`
+events in `vortex-dap`; `supportsSingleThreadExecutionRequests` and `SteppingGranularity` in
 `vortex-dap-types`.
 
 The hex view changes core files: the `hex` field of `Document` and what it changes there
