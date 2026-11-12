@@ -462,8 +462,7 @@ pub mod completers {
         for rt_dir in vortex_loader::runtime_dirs() {
             names.extend(theme::Loader::read_names(&rt_dir.join("themes")));
         }
-        names.push("default".into());
-        names.push("base16_default".into());
+        names.extend(theme::BUILT_IN_THEMES.iter().map(|&name| name.to_owned()));
         names.sort();
         names.dedup();
 

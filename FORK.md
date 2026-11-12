@@ -90,6 +90,7 @@ git blame FILE
 - [Terminal panel](#terminal-panel)
 - [Hex view](#hex-view)
 - [Dashboard](#dashboard)
+- [The vortex theme](#the-vortex-theme)
 - [Practice](#practice)
 - [Tutor](#tutor)
 
@@ -113,6 +114,7 @@ Each feature lives in its own modules, to keep rebasing on upstream cheap:
 | Terminal panel | `vortex-terminal/` (the shell: pty, emulator, OSC 133, bash/zsh integration), `vortex-view/src/terminal.rs` (panel state, `[editor.terminal]`), `vortex-term/src/terminal/` (drawing, focus, input encoding, the `vx` shim), `vortex-term/tests/test/terminal.rs` |
 | Hex view | `vortex-view/src/hex.rs` (the bytes: windowed reads, the overwritten bytes, undo, cursors, search, the row layout), `vortex-term/src/ui/hex_view.rs` (drawing, the statusline texts), `vortex-term/src/commands/hex.rs` (keys, mouse, prompts, `:hex`), `vortex-term/tests/test/hex_view.rs` |
 | Dashboard | `vortex-term/src/dashboard.rs` (when it is up, its keys), `vortex-term/src/dashboard/` (`stats.rs` the background reading, `languages.rs` the line counts, `render.rs` the layout and the panels, `timeline.rs` when things move, `title.rs` the title, `vortex.rs` the vortex, `wrap.rs` long values on two rows, `snapshots/` the drawings the tests compare with), `vortex-vcs/src/git/summary.rs` (the git summary), `vortex-term/tests/test/dashboard.rs` |
+| The vortex theme | `theme.toml` (the theme), `helix_theme.toml` (upstream's default theme), the built-in themes in `vortex-view/src/theme.rs` |
 | Practice | `vortex-term/src/practice.rs`, `vortex-term/src/practice/`, `runtime/practice/`, `vortex-term/tests/test/practice.rs` |
 
 Hooks into core files: commands and keys in `vortex-term/src/commands.rs`,
@@ -174,6 +176,10 @@ The dashboard changes core files: the `dashboard` field of `EditorView`, its key
 and no cursor in `cursor`, in `ui/editor.rs`; the startup decision in `Application::new` (and
 no file picker for `vx <folder>` when it shows); `:dashboard` in `typed.rs`; `dashboard` and
 `dashboard-background` (`DashboardBackground`) in `vortex-view/src/editor.rs`; `Args::initial_working_dir` in `args.rs`, used by `main.rs`.
+
+The vortex theme changes `vortex-view/src/theme.rs` (the built-in themes and their names, the
+`default` alias), the `:theme` completion in `vortex-term/src/ui/mod.rs` and the theme check in
+`xtask`.
 
 The hunk actions add `Editor::save_messages` (`vortex-view/src/editor.rs`), a message shown
 instead of `'file' written` when a document's save completes (`handle_document_write` in
@@ -674,7 +680,8 @@ exercise).
 | `diagnostic.conflict` | `diagnostic.error` | the text of the block |
 | `conflict.diagnostic.inline` | `error.diagnostic.inline` | the inline message |
 
-No bundled theme sets them, so conflicts look like errors with their own gutter symbol.
+The default theme, `vortex`, underlines the text of a block twice (`diagnostic.conflict`); with
+the other bundled themes conflicts look like errors with their own gutter symbol.
 
 ### Limitations
 
@@ -1477,6 +1484,22 @@ one; with named colors each band takes the nearest stop.
   under a picker too; over a slow connection (ssh) prefer `load` or `static`.
 - The vortex's center is the window's, mostly under the panels; the eye shows only in windows
   much larger than the text.
+
+## The vortex theme
+
+The editor's default theme is the owner's own, `vortex`: near-black greys, reds for keywords,
+strings and errors, purples for types, numbers and the modes, and colors for every screen of this
+fork (the file tree, the terminal panel, the hex view, the dashboard and its vortex, `:practice`).
+It is built into the binary, like the 16-color `base16_default`, so it works without a runtime
+directory. Upstream's default theme is built in beside it as `helix`:
+
+```toml
+theme = "helix"
+```
+
+`default`, the name the built-in theme had before, still loads `vortex` (in `theme = "default"`
+and in a theme's `inherits = "default"`), so older configs keep working; it is no longer listed by
+`:theme`. A terminal without true color still starts with `base16_default`.
 
 ## Practice
 

@@ -15,9 +15,24 @@ use vortex_loader::merge_toml_values;
 use crate::graphics::UnderlineStyle;
 pub use crate::graphics::{Color, Modifier, Style};
 
+/// The name of the editor's default theme, Vortex's own (`theme.toml`).
+pub const DEFAULT_THEME_NAME: &str = "vortex";
+
+/// The name of upstream's default theme, built in next to it (`helix_theme.toml`).
+pub const UPSTREAM_THEME_NAME: &str = "helix";
+
+/// The themes built into the binary, so they load without a runtime directory. `default`, the
+/// name the default theme had before it was Vortex's, still loads it too.
+pub const BUILT_IN_THEMES: &[&str] = &[DEFAULT_THEME_NAME, UPSTREAM_THEME_NAME, "base16_default"];
+
 pub static DEFAULT_THEME_DATA: LazyLock<Value> = LazyLock::new(|| {
     let bytes = include_bytes!("../../theme.toml");
     toml::from_str(str::from_utf8(bytes).unwrap()).expect("Failed to parse base default theme")
+});
+
+pub static UPSTREAM_THEME_DATA: LazyLock<Value> = LazyLock::new(|| {
+    let bytes = include_bytes!("../../helix_theme.toml");
+    toml::from_str(str::from_utf8(bytes).unwrap()).expect("Failed to parse upstream's theme")
 });
 
 pub static BASE16_DEFAULT_THEME_DATA: LazyLock<Value> = LazyLock::new(|| {
@@ -26,14 +41,39 @@ pub static BASE16_DEFAULT_THEME_DATA: LazyLock<Value> = LazyLock::new(|| {
 });
 
 pub static DEFAULT_THEME: LazyLock<Theme> = LazyLock::new(|| Theme {
-    name: "default".into(),
+    name: DEFAULT_THEME_NAME.into(),
     ..Theme::from(DEFAULT_THEME_DATA.clone())
+});
+
+pub static UPSTREAM_THEME: LazyLock<Theme> = LazyLock::new(|| Theme {
+    name: UPSTREAM_THEME_NAME.into(),
+    ..Theme::from(UPSTREAM_THEME_DATA.clone())
 });
 
 pub static BASE16_DEFAULT_THEME: LazyLock<Theme> = LazyLock::new(|| Theme {
     name: "base16_default".into(),
     ..Theme::from(BASE16_DEFAULT_THEME_DATA.clone())
 });
+
+/// A built-in theme by name, `default` included.
+fn built_in(name: &str) -> Option<&'static LazyLock<Theme>> {
+    match name {
+        DEFAULT_THEME_NAME | "default" => Some(&DEFAULT_THEME),
+        UPSTREAM_THEME_NAME => Some(&UPSTREAM_THEME),
+        "base16_default" => Some(&BASE16_DEFAULT_THEME),
+        _ => None,
+    }
+}
+
+/// The data of a built-in theme by name, `default` included, for themes that inherit from it.
+fn built_in_data(name: &str) -> Option<&'static LazyLock<Value>> {
+    match name {
+        DEFAULT_THEME_NAME | "default" => Some(&DEFAULT_THEME_DATA),
+        UPSTREAM_THEME_NAME => Some(&UPSTREAM_THEME_DATA),
+        "base16_default" => Some(&BASE16_DEFAULT_THEME_DATA),
+        _ => None,
+    }
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum Mode {
@@ -114,11 +154,8 @@ impl Loader {
 
     /// Loads a theme searching directories in priority order, returning any warnings
     pub fn load_with_warnings(&self, name: &str) -> Result<(Theme, Vec<String>)> {
-        if name == "default" {
-            return Ok((self.default(), Vec::new()));
-        }
-        if name == "base16_default" {
-            return Ok((self.base16_default(), Vec::new()));
+        if let Some(theme) = built_in(name) {
+            return Ok(((**theme).clone(), Vec::new()));
         }
 
         let mut visited_paths = HashSet::new();
@@ -154,11 +191,10 @@ impl Loader {
                 anyhow!("Expected 'inherits' to be a string: {}", parent_theme_name)
             })?;
 
-            let parent_theme_toml = match parent_theme_name {
-                // load default themes's toml from const.
-                "default" => DEFAULT_THEME_DATA.clone(),
-                "base16_default" => BASE16_DEFAULT_THEME_DATA.clone(),
-                _ => self.load_theme(parent_theme_name, visited_paths)?,
+            let parent_theme_toml = match built_in_data(parent_theme_name) {
+                // the built-in themes' toml comes from consts
+                Some(data) => (**data).clone(),
+                None => self.load_theme(parent_theme_name, visited_paths)?,
             };
 
             self.merge_themes(parent_theme_toml, theme_toml)
@@ -257,7 +293,7 @@ impl Loader {
         }
     }
 
-    /// Returns the default theme
+    /// Returns the default theme, Vortex's own
     pub fn default(&self) -> Theme {
         DEFAULT_THEME.clone()
     }
@@ -803,6 +839,61 @@ mod tests {
         );
         // a narrower scope falls back to the broader one, before the fallback scope
         assert_eq!(theme.get_or("conflict.diagnostic.inline", "error"), green);
+    }
+
+    #[test]
+    fn the_built_in_themes_load_without_a_runtime() {
+        let loader = Loader::new(&[]);
+        for &name in BUILT_IN_THEMES {
+            let (theme, warnings) = loader.load_with_warnings(name).unwrap();
+            assert_eq!(theme.name(), name);
+            assert!(warnings.is_empty(), "{name}: {warnings:?}");
+        }
+        assert!(loader.load("no_such_theme").is_err());
+    }
+
+    #[test]
+    fn the_default_theme_is_vortex_and_upstreams_is_built_in_beside_it() {
+        let loader = Loader::new(&[]);
+        let background = |theme: &Theme| theme.get("ui.background").bg;
+        let vortex = loader.default();
+        assert_eq!(vortex.name(), DEFAULT_THEME_NAME);
+        assert_eq!(background(&vortex), Some(Color::Rgb(0x0f, 0x0f, 0x0f)));
+        assert_eq!(loader.default_theme(true).name(), DEFAULT_THEME_NAME);
+        // `default`, its name before, still loads it
+        let default = loader.load("default").unwrap();
+        assert_eq!(default.name(), DEFAULT_THEME_NAME);
+        assert_eq!(background(&default), background(&vortex));
+        let upstream = loader.load(UPSTREAM_THEME_NAME).unwrap();
+        assert_ne!(background(&upstream), background(&vortex));
+        // 16-color terminals still get base16_default
+        assert_eq!(loader.default_theme(false).name(), "base16_default");
+    }
+
+    #[test]
+    fn a_theme_can_inherit_from_a_built_in_one() {
+        let dir = tempfile::tempdir().unwrap();
+        let themes = dir.path().join("themes");
+        std::fs::create_dir(&themes).unwrap();
+        let children = [
+            ("from_vortex", DEFAULT_THEME_NAME, DEFAULT_THEME_NAME),
+            ("from_default", "default", DEFAULT_THEME_NAME),
+            ("from_upstream", UPSTREAM_THEME_NAME, UPSTREAM_THEME_NAME),
+        ];
+        for (child, inherits, _) in children {
+            std::fs::write(
+                themes.join(format!("{child}.toml")),
+                format!("inherits = \"{inherits}\"\n\"ui.text\" = \"#123456\"\n"),
+            )
+            .unwrap();
+        }
+        let loader = Loader::new(&[dir.path().to_path_buf()]);
+        for (child, _, parent) in children {
+            let theme = loader.load(child).unwrap();
+            let parent = loader.load(parent).unwrap();
+            assert_eq!(theme.get("ui.text").fg, Some(Color::Rgb(0x12, 0x34, 0x56)));
+            assert_eq!(theme.get("ui.background"), parent.get("ui.background"));
+        }
     }
 
     #[test]

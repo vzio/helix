@@ -238,7 +238,10 @@ pub mod tasks {
         let themes_to_check: HashSet<_> = themes.collect();
 
         let theme_names = [
-            vec!["default".to_string(), "base16_default".to_string()],
+            vortex_view::theme::BUILT_IN_THEMES
+                .iter()
+                .map(|&name| name.to_string())
+                .collect(),
             Loader::read_names(&crate::path::themes()),
         ]
         .concat();
