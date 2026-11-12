@@ -173,6 +173,14 @@ hint = { fg = "n_8", bg = "n_1" }
 "ui.virtual.inline-blame" = { fg = "n_5", modifiers = ["italic"] }
 "ui.virtual.inline-blame.hash" = "n_6"
 
+# Watch mode: the session's changes in the gutter, the hunk followed to, the WATCH indicator
+"diff.watch.plus" = "n_10"
+"diff.watch.delta" = "red_light"
+"diff.watch.minus" = "red_light"
+"ui.highlight.watch" = { bg = "purple_dark" }
+"ui.statusline.watch.following" = { fg = "n_11", bg = "purple_mid", modifiers = ["bold"] }
+"ui.statusline.watch.paused" = { fg = "background", bg = "red_faded", modifiers = ["bold"] }
+
 # Terminal panel and its SH indicator
 "ui.terminal" = { fg = "text", bg = "background" }
 "ui.statusline.shell" = { fg = "n_8", bg = "n_2" }

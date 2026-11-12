@@ -35,7 +35,7 @@ pub mod staging;
 
 pub mod conflict;
 
-pub use diff::{DiffHandle, Hunk};
+pub use diff::{Diff, DiffHandle, Hunk};
 
 mod status;
 

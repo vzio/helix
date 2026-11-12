@@ -322,7 +322,7 @@ fn highlight(
 }
 
 /// Mixes `color` over `background`, if both are true colors.
-fn blend(background: Option<Color>, color: Option<Color>, alpha: f32) -> Option<Color> {
+pub(crate) fn blend(background: Option<Color>, color: Option<Color>, alpha: f32) -> Option<Color> {
     match (background?, color?) {
         (Color::Rgb(br, bg, bb), Color::Rgb(r, g, b)) => {
             let mix = |back: u8, front: u8| {

@@ -5,7 +5,7 @@
 //! and sees a change, rebuilds what it shows, in the background with [`Pending`] when that is
 //! slow (`git status`).
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
@@ -18,6 +18,10 @@ use crate::job;
 
 /// Quiet time after the last file event before the views refresh.
 const DEBOUNCE: Duration = Duration::from_millis(200);
+
+/// Sees a batch of changed paths on the watcher's thread; what it returns runs on the main
+/// thread, see [`RepoWatch::start_tapped`].
+pub type Tap = Box<dyn Fn(&[PathBuf]) -> Box<dyn FnOnce(&mut Editor) + Send> + Send>;
 
 /// A watch on the working tree of a repository (what git doesn't ignore), on its `HEAD` and on
 /// its index. Shared with [`Arc`]: it stops when the last view holding it is dropped.
@@ -32,6 +36,13 @@ impl RepoWatch {
     /// Watches the repository `cwd` is in. `None` when it isn't in one, or it can't be watched
     /// (logged): the views then just don't update.
     pub fn start(editor: &Editor, cwd: &Path) -> Option<Arc<RepoWatch>> {
+        Self::start_tapped(editor, cwd, None)
+    }
+
+    /// Like [`Self::start`], with a `tap` that sees each batch of changed paths first, on the
+    /// watcher's thread, and returns what to do on the main thread once the open buffers of the
+    /// changed files were checked (watch mode reads the changed files there).
+    pub fn start_tapped(editor: &Editor, cwd: &Path, tap: Option<Tap>) -> Option<Arc<RepoWatch>> {
         let trust_full = editor
             .workspace_trust
             .query(
@@ -62,6 +73,7 @@ impl RepoWatch {
         let runtime = tokio::runtime::Handle::current();
         let watcher = Watcher::spawn(config, move |paths| {
             let bump = bump.clone();
+            let then = tap.as_ref().map(|tap| tap(&paths));
             let _runtime = runtime.enter();
             job::dispatch_blocking(move |editor, _| {
                 // the same rule as when switching buffers: reload the unmodified ones, warn
@@ -69,6 +81,9 @@ impl RepoWatch {
                 crate::handlers::disk::check_paths(editor, &paths);
                 // a merge, rebase or cherry-pick may have started or ended
                 crate::handlers::conflicts::refresh(editor);
+                if let Some(then) = then {
+                    then(editor);
+                }
                 bump.fetch_add(1, Ordering::Relaxed);
                 vortex_event::request_redraw();
             });

@@ -165,6 +165,16 @@ impl EditorView {
             decorations.add_decoration(line_decoration);
         }
 
+        // watch mode: the hunk following just jumped to, fading out
+        if let Some((lines, style)) = crate::watch::flash_style(editor, doc.id()) {
+            let flash = move |renderer: &mut TextRenderer, pos: LinePos| {
+                if lines.contains(&pos.doc_line) {
+                    renderer.set_style(Rect::new(inner.x, pos.visual_line, inner.width, 1), style);
+                }
+            };
+            decorations.add_decoration(flash);
+        }
+
         let syntax_highlighter =
             Self::doc_syntax_highlighter(doc, view_offset.anchor, inner.height, &loader);
         let mut overlays = Vec::new();
@@ -1322,6 +1332,19 @@ impl EditorView {
                     .map(|coords| (coords, view.id))
             })
         };
+
+        // clicking and scrolling are moving: watch mode's following pauses
+        if matches!(
+            kind,
+            MouseEventKind::Down(_)
+                | MouseEventKind::Drag(_)
+                | MouseEventKind::ScrollUp
+                | MouseEventKind::ScrollDown
+                | MouseEventKind::ScrollLeft
+                | MouseEventKind::ScrollRight
+        ) {
+            crate::watch::moved(cxt.editor);
+        }
 
         match kind {
             MouseEventKind::Down(MouseButton::Left) => {

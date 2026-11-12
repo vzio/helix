@@ -16,6 +16,7 @@ pub mod logging;
 pub mod practice;
 pub mod terminal;
 pub mod ui;
+pub mod watch;
 
 use std::env::var_os;
 

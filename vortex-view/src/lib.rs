@@ -22,6 +22,7 @@ pub mod terminal;
 pub mod theme;
 pub mod tree;
 pub mod view;
+pub mod watch;
 pub mod watcher;
 
 use std::num::NonZeroUsize;

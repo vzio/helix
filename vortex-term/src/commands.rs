@@ -275,7 +275,11 @@ impl MappableCommand {
                     cx.editor.set_error(format!("no such command: '{name}'"));
                 }
             }
-            Self::Static { fun, .. } => (fun)(cx),
+            Self::Static { name, fun, .. } => {
+                // moving pauses watch mode's following, most other commands end it
+                crate::watch::before_command(cx.editor, name);
+                (fun)(cx)
+            }
             Self::Macro { keys, .. } => {
                 // Protect against recursive macros.
                 if cx.editor.macro_replaying.contains(&'@') {
@@ -2437,6 +2441,13 @@ fn searcher(cx: &mut Context, direction: Direction) {
 }
 
 fn search_next_or_prev_impl(cx: &mut Context, movement: Movement, direction: Direction) {
+    // in watch mode, and after it until a search, `n`/`N` go through the session's changes
+    if movement == Movement::Move
+        && cx.register.is_none()
+        && crate::watch::jump(cx.editor, direction == Direction::Forward)
+    {
+        return;
+    }
     let count = cx.count();
     let register = cx
         .register

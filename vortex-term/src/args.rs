@@ -20,6 +20,8 @@ pub struct Args {
     pub config_file: Option<PathBuf>,
     pub files: IndexMap<PathBuf, Vec<Position>>,
     pub working_directory: Option<PathBuf>,
+    /// `--watch [folder]`: start in watch mode (fork feature).
+    pub watch: bool,
 }
 
 impl Args {
@@ -105,6 +107,15 @@ impl Args {
                 // The terminal panel's `$EDITOR` is `vx --wait`, which waits there until the
                 // buffer is closed; outside the panel an editor always waits for itself.
                 "--wait" => {}
+                // `--watch [folder]`: watch mode, in the folder when one follows
+                "--watch" => {
+                    args.watch = true;
+                    if let Some(folder) =
+                        argv.next_if(|arg| !arg.starts_with('-') && Path::new(arg).is_dir())
+                    {
+                        args.working_directory = Some(vortex_stdx::path::canonicalize(folder));
+                    }
+                }
                 arg if arg.starts_with("--") => {
                     anyhow::bail!("unexpected double dash argument: {}", arg)
                 }

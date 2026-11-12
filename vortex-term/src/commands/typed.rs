@@ -2823,6 +2823,60 @@ fn worktrees(cx: &mut compositor::Context, _args: Args, event: PromptEvent) -> a
     Ok(())
 }
 
+fn watch(cx: &mut compositor::Context, _args: Args, event: PromptEvent) -> anyhow::Result<()> {
+    if event != PromptEvent::Validate {
+        return Ok(());
+    }
+    crate::watch::toggle(cx.editor)
+}
+
+fn watch_stop(cx: &mut compositor::Context, _args: Args, event: PromptEvent) -> anyhow::Result<()> {
+    if event != PromptEvent::Validate {
+        return Ok(());
+    }
+    if cx.editor.watch.is_active() {
+        crate::watch::end(cx.editor);
+    } else {
+        cx.editor.set_status("Not watching");
+    }
+    Ok(())
+}
+
+fn watch_clear(
+    cx: &mut compositor::Context,
+    _args: Args,
+    event: PromptEvent,
+) -> anyhow::Result<()> {
+    if event != PromptEvent::Validate {
+        return Ok(());
+    }
+    let watching = cx.editor.watch.is_active();
+    crate::watch::clear(cx.editor);
+    cx.editor.set_status(if watching {
+        "Watch ended and its changes forgotten"
+    } else {
+        "Watch session forgotten"
+    });
+    Ok(())
+}
+
+fn watch_changes(
+    cx: &mut compositor::Context,
+    _args: Args,
+    event: PromptEvent,
+) -> anyhow::Result<()> {
+    if event != PromptEvent::Validate {
+        return Ok(());
+    }
+    cx.jobs.callback(async move {
+        let call = move |editor: &mut Editor, compositor: &mut Compositor| {
+            crate::watch::open_changes(editor, compositor);
+        };
+        Ok(Callback::EditorCompositor(Box::new(call)))
+    });
+    Ok(())
+}
+
 /// `:sh`: types the command in the terminal panel's shell and focuses the panel.
 fn run_shell_command(
     cx: &mut compositor::Context,
@@ -4286,6 +4340,50 @@ pub const TYPABLE_COMMAND_LIST: &[TypableCommand] = &[
         },
     },
     TypableCommand {
+        name: "watch",
+        aliases: &[],
+        doc: "Watch mode: follow the changes made to the working tree as they happen (an agent at work). Moving pauses following, n/N go through the changes, any other action ends it. Again to stop.",
+        fun: watch,
+        completer: CommandCompleter::none(),
+        signature: Signature {
+            positionals: (0, Some(0)),
+            ..Signature::DEFAULT
+        },
+    },
+    TypableCommand {
+        name: "watch-stop",
+        aliases: &[],
+        doc: "End watch mode. Its changes stay marked, n/N go through them, until :watch-clear.",
+        fun: watch_stop,
+        completer: CommandCompleter::none(),
+        signature: Signature {
+            positionals: (0, Some(0)),
+            ..Signature::DEFAULT
+        },
+    },
+    TypableCommand {
+        name: "watch-clear",
+        aliases: &[],
+        doc: "Forget the watch session: its markers go, and n/N search again.",
+        fun: watch_clear,
+        completer: CommandCompleter::none(),
+        signature: Signature {
+            positionals: (0, Some(0)),
+            ..Signature::DEFAULT
+        },
+    },
+    TypableCommand {
+        name: "watch-changes",
+        aliases: &[],
+        doc: "Open the picker of the changes of the watch session, the newest first. Enter goes to the change.",
+        fun: watch_changes,
+        completer: CommandCompleter::none(),
+        signature: Signature {
+            positionals: (0, Some(0)),
+            ..Signature::DEFAULT
+        },
+    },
+    TypableCommand {
         name: "reset-diff-change",
         aliases: &["diffget", "diffg"],
         doc: "Reset the diff change at the cursor position.",
@@ -4494,6 +4592,9 @@ pub(super) fn execute_command(
             .expect("arg parsing cannot fail when validation is turned off")
     };
 
+    if event == PromptEvent::Validate {
+        crate::watch::before_typed(cx.editor, cmd.name);
+    }
     (cmd.fun)(cx, args, event).map_err(|err| anyhow!("'{}': {err}", cmd.name))
 }
 
