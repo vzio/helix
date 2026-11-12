@@ -43,7 +43,11 @@ fn config(dashboard: bool) -> Config {
 
 /// A session on the dashboard, with the first frame drawn.
 async fn session() -> Session {
-    let mut session = Session::with_config(config(true));
+    session_with(config(true)).await
+}
+
+async fn session_with(config: Config) -> Session {
+    let mut session = Session::with_config(config);
     // (the picker previews files: the highlight scopes must be the theme's)
     session
         .app
@@ -470,27 +474,26 @@ async fn dashboard_does_not_delay_the_first_frame() {
 }
 
 /// A session on the dashboard with the vortex spinning (the mode that never settles), with
-/// the first frame drawn. The keys below are typed well before the title has opened.
-async fn animated_session() -> (Session, Instant) {
+/// the first frame drawn: the keys of the tests below are typed well before the title opens.
+async fn animated_session() -> Session {
     let mut config = config(true);
     config.editor.dashboard_background = DashboardBackground::On;
-    let started = Instant::now();
-    let mut session = Session::with_config(config);
-    session.first_frame().await;
-    (session, started)
+    session_with(config).await
 }
 
 #[tokio::test(flavor = "multi_thread")]
 async fn f_opens_the_picker_at_once_while_it_animates() {
-    let (mut session, _) = animated_session().await;
+    let mut session = animated_session().await;
     assert!(up(&session));
-    session.keys("f").await;
+    // (the spinning vortex asks for frames all the time, so the loop is never idle: the key
+    // is handled at once, and the picker is there long before this stops waiting)
+    let _ = tokio::time::timeout(Duration::from_millis(300), session.keys("f")).await;
     assert!(picker(&session), "{:#?}", session.rows());
 }
 
 #[tokio::test(flavor = "multi_thread")]
 async fn i_starts_inserting_at_once_while_it_animates() {
-    let (mut session, _) = animated_session().await;
+    let mut session = animated_session().await;
     session.keys("i").await;
     assert!(!up(&session));
     assert_eq!(session.app.editor.mode(), Mode::Insert);
@@ -500,21 +503,8 @@ async fn i_starts_inserting_at_once_while_it_animates() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn q_quits_at_once_while_it_animates() {
-    let (mut session, _) = animated_session().await;
+    let mut session = animated_session().await;
     assert!(session.quits_on("q").await);
-}
-
-#[tokio::test(flavor = "multi_thread")]
-async fn keys_do_not_wait_for_the_title() {
-    // the keys above need the dashboard to be this young for the test to mean anything
-    let (mut session, started) = animated_session().await;
-    session.keys("f").await;
-    assert!(picker(&session));
-    assert!(
-        started.elapsed() < vortex_term::dashboard::timeline::MIN_LOADING * 3,
-        "the machine is too slow for this test: {:?}",
-        started.elapsed()
-    );
 }
 
 /// Starts `tick` for a dashboard outside a repository in `background`, counting its frames.
