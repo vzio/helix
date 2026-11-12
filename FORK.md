@@ -1473,7 +1473,7 @@ one; with named colors each band takes the nearest stop.
 - The stats aren't refreshed while the dashboard is up: `:dashboard` reads them again.
 - `l` isn't offered when the repository couldn't be opened, even though the commit log might.
 - The actions are keys only, not clickable.
-- In the `on` mode the whole screen is redrawn about 30 times a second while the dashboard is up,
+- In the `on` mode the whole screen is redrawn about 20 times a second while the dashboard is up,
   under a picker too; over a slow connection (ssh) prefer `load` or `static`.
 - The vortex's center is the window's, mostly under the panels; the eye shows only in windows
   much larger than the text.
