@@ -25,11 +25,14 @@ use crate::{CommitInfo, FileChange};
 #[cfg(test)]
 mod log_test;
 #[cfg(test)]
+mod summary_test;
+#[cfg(test)]
 mod test;
 
 pub mod blame;
 mod log;
 pub mod stage;
+pub mod summary;
 
 pub use log::for_each_log_entry;
 

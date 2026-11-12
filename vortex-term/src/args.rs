@@ -23,6 +23,17 @@ pub struct Args {
 }
 
 impl Args {
+    /// The directory to start in: the `-w` flag wins, else the first file when it is a
+    /// directory (`vx <folder>`), else none: the process keeps its own.
+    pub fn initial_working_dir(&self) -> Option<&Path> {
+        self.working_directory.as_deref().or_else(|| {
+            self.files
+                .first()
+                .map(|(path, _)| path.as_path())
+                .filter(|path| path.is_dir())
+        })
+    }
+
     #[allow(clippy::too_many_lines)]
     pub fn parse_args() -> Result<Args> {
         let mut args = Args::default();
@@ -170,4 +181,52 @@ fn split_path_row(s: &str) -> Option<(PathBuf, Position)> {
     let path = path.into();
     let pos = Position::new(row.saturating_sub(1), 0);
     Some((path, pos))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn args(files: &[&Path], working_directory: Option<&Path>) -> Args {
+        Args {
+            files: files
+                .iter()
+                .map(|path| (path.to_path_buf(), vec![Position::default()]))
+                .collect(),
+            working_directory: working_directory.map(Path::to_path_buf),
+            ..Args::default()
+        }
+    }
+
+    #[test]
+    fn a_folder_is_the_working_directory() {
+        let dir = tempfile::tempdir().unwrap();
+        let args = args(&[dir.path()], None);
+        assert_eq!(args.initial_working_dir(), Some(dir.path()));
+    }
+
+    #[test]
+    fn a_file_is_not() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("a.txt");
+        std::fs::write(&file, "x").unwrap();
+        assert_eq!(args(&[&file], None).initial_working_dir(), None);
+        assert_eq!(args(&[], None).initial_working_dir(), None);
+    }
+
+    #[test]
+    fn only_the_first_file_counts() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("a.txt");
+        std::fs::write(&file, "x").unwrap();
+        assert_eq!(args(&[&file, dir.path()], None).initial_working_dir(), None);
+    }
+
+    #[test]
+    fn the_flag_wins() {
+        let folder = tempfile::tempdir().unwrap();
+        let flag = tempfile::tempdir().unwrap();
+        let args = args(&[folder.path()], Some(flag.path()));
+        assert_eq!(args.initial_working_dir(), Some(flag.path()));
+    }
 }

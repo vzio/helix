@@ -111,10 +111,8 @@ FLAGS:
 
     // NOTE: Set the working directory early so the correct configuration is loaded. Be aware that
     // Application::new() depends on this logic so it must be updated if this changes.
-    if let Some(path) = &args.working_directory {
-        vortex_stdx::env::set_current_working_dir(path)?;
-    } else if let Some((path, _)) = args.files.first().filter(|p| p.0.is_dir()) {
-        // If the first file is a directory, it will be the working directory unless -w was specified
+    if let Some(path) = args.initial_working_dir() {
+        // `-w`, else a folder as the first file, which then is the working directory
         vortex_stdx::env::set_current_working_dir(path)?;
     } else if let Err(err) = std::env::current_dir() {
         eprintln!("Couldn't determine the current working directory: {err}");

@@ -486,6 +486,9 @@ pub struct Config {
     pub file_explorer: FileExplorerConfig,
     /// File tree overlay, opened with `space e` and `space E` (fork feature).
     pub explorer: ExplorerConfig,
+    /// Whether `vx` and `vx <folder>` open on the dashboard rather than an empty buffer or the
+    /// file picker (fork feature). `:dashboard` shows it either way. Defaults to true.
+    pub dashboard: bool,
     /// Inline git blame (fork feature).
     pub inline_blame: InlineBlameConfig,
     /// The lists of changes: the uncommitted changes and the commits (fork feature).
@@ -1305,6 +1308,7 @@ impl Default for Config {
             file_picker: FilePickerConfig::default(),
             file_explorer: FileExplorerConfig::default(),
             explorer: ExplorerConfig::default(),
+            dashboard: true,
             inline_blame: InlineBlameConfig::default(),
             changes: ChangesConfig::default(),
             statusline: StatusLineConfig::default(),

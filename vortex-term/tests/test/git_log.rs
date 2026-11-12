@@ -241,10 +241,15 @@ impl Session {
     }
 
     pub(super) fn with_config(config: vortex_term::config::Config) -> Self {
-        let mut app = helpers::AppBuilder::new()
+        let app = helpers::AppBuilder::new()
             .with_config(config)
             .build()
             .unwrap();
+        Self::with_app(app)
+    }
+
+    /// A session of an application that is already built.
+    pub(super) fn with_app(mut app: Application) -> Self {
         app.editor.theme = theme();
         let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
         Self {
@@ -273,6 +278,20 @@ impl Session {
             .wait_for_screen("the log", |rows| on_screen(rows, "Initial commit"))
             .await;
         session
+    }
+
+    /// Draws the first frame, as the event loop does before it waits for the first event.
+    pub(super) async fn first_frame(&mut self) {
+        // (zero time: the frame is drawn when the loop is first polled, then it would wait)
+        let _ = tokio::time::timeout(Duration::ZERO, self.app.event_loop(&mut self.input)).await;
+    }
+
+    /// Types `keys`, and whether the application quit on them.
+    pub(super) async fn quits_on(&mut self, keys: &str) -> bool {
+        for key in parse_macro(keys).unwrap() {
+            self.tx.send(Ok(Event::Key(KeyEvent::from(key)))).unwrap();
+        }
+        !self.app.event_loop_until_idle(&mut self.input).await
     }
 
     pub(super) async fn keys(&mut self, keys: &str) {

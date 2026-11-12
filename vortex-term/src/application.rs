@@ -127,6 +127,15 @@ impl Application {
 
         let jobs = Jobs::new();
 
+        // `vx` and `vx <folder>` open on the dashboard (this fork), `vx <file>` never does
+        let dashboard = config.load().editor.dashboard
+            && !args.load_tutor
+            && match args.files.len() {
+                0 => stdin().is_terminal() || cfg!(feature = "integration"),
+                1 => args.files.first().is_some_and(|(dir, _)| dir.is_dir()),
+                _ => false,
+            };
+
         if args.load_tutor {
             let path = vortex_loader::runtime_file(Path::new("tutor"));
             editor.open(&path, Action::VerticalSplit)?;
@@ -137,8 +146,10 @@ impl Application {
 
             // If the first file is a directory, skip it and open a picker
             if let Some((first, _)) = files_it.next_if(|(p, _)| p.is_dir()) {
-                let picker = ui::file_picker(&editor, first);
-                compositor.push(Box::new(overlaid(picker)));
+                if !dashboard {
+                    let picker = ui::file_picker(&editor, first);
+                    compositor.push(Box::new(overlaid(picker)));
+                }
             }
 
             // If there are any more files specified, open them
@@ -216,6 +227,12 @@ impl Application {
             editor
                 .new_file_from_stdin(Action::VerticalSplit)
                 .unwrap_or_else(|_| editor.new_file(Action::VerticalSplit));
+        }
+
+        if dashboard {
+            if let Some(view) = compositor.find::<ui::EditorView>() {
+                view.open_dashboard(&mut editor);
+            }
         }
 
         // git merge conflicts in the repository of the working directory, for `space D` and the

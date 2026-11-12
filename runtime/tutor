@@ -43,6 +43,21 @@
  This tutor is a buffer without a file. Try :w /tmp/tutor.txt,
  then :q, and open it again with vx /tmp/tutor.txt.
 
+ vx alone, or vx FOLDER (which also makes FOLDER the working
+ directory), opens on the dashboard (this fork): the project's
+ branch, remote, uncommitted changes and languages in a git
+ repository, and a key for each way to start. Opening a file
+ from anywhere replaces it; every other key works as usual.
+
+  :dashboard     show the dashboard again
+                 On the dashboard:
+  i              start typing in the empty buffer under it
+  Esc            the empty buffer, in normal mode
+  f  e  l  q     file picker, file tree, git history, quit
+
+ Try it: :dashboard, then Esc. To start without it, set
+ dashboard = false under [editor] in your config.
+
 
 
 =================================================================

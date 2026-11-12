@@ -1,0 +1,12 @@
+
+            ╶╮  V O R T E X
+       fork of helix-editor/helix
+
+
+      i    Start typing
+      f    Find a file     space f
+      e    File tree       space e
+      l    Git history     space l
+      q    Quit                 :q
+
+

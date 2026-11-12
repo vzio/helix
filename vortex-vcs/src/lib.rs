@@ -22,6 +22,13 @@ mod blame_stub;
 #[cfg(not(feature = "git"))]
 pub use blame_stub::{head_commit_id, BlameCommit, BlameError, CommitId, FileBlame, LineBlame};
 
+#[cfg(feature = "git")]
+pub use git::summary;
+
+#[cfg(not(feature = "git"))]
+#[path = "summary_stub.rs"]
+pub mod summary;
+
 mod diff;
 
 pub mod staging;
