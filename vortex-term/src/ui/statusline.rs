@@ -153,6 +153,7 @@ where
         }
         vortex_view::editor::StatusLineElement::Selections => render_selections,
         vortex_view::editor::StatusLineElement::Shell => render_shell,
+        vortex_view::editor::StatusLineElement::Debug => render_debug,
         vortex_view::editor::StatusLineElement::PrimarySelectionLength => {
             render_primary_selection_length
         }
@@ -411,6 +412,35 @@ where
             None => Style::default(),
         });
     write(context, Span::styled(" SH ", style));
+}
+
+/// The debug session: `DBG running`, `DBG stopped: breakpoint`, `DBG exited 3` (kept after the
+/// session ended, until the next one starts).
+fn render_debug<'a, F>(context: &mut RenderContext<'a>, write: F)
+where
+    F: Fn(&mut RenderContext<'a>, Span<'a>) + Copy,
+{
+    use vortex_view::{debug::Status, graphics::Color, theme::Modifier};
+
+    let status = &context.editor.debug.status;
+    let (scope, fallback) = match status {
+        Status::Idle => return,
+        Status::Starting | Status::Running => ("ui.statusline.debug.running", Color::Yellow),
+        Status::Stopped { .. } => ("ui.statusline.debug.stopped", Color::Red),
+        Status::Ended { code: Some(0) } | Status::Ended { code: None } => {
+            ("ui.statusline.debug.exited", Color::Green)
+        }
+        Status::Ended { .. } => ("ui.statusline.debug.failed", Color::Red),
+    };
+    let theme = &context.editor.theme;
+    let style = theme
+        .try_get_exact(scope)
+        .or_else(|| theme.try_get_exact("ui.statusline.debug"))
+        .unwrap_or_else(|| Style::default().fg(fallback).add_modifier(Modifier::BOLD));
+    write(
+        context,
+        Span::styled(format!(" DBG {} ", status.label()), style),
+    );
 }
 
 fn render_primary_selection_length<'a, F>(context: &mut RenderContext<'a>, write: F)

@@ -2159,21 +2159,12 @@ fn debug_eval(cx: &mut compositor::Context, args: Args, event: PromptEvent) -> a
     if event != PromptEvent::Validate {
         return Ok(());
     }
-
-    if let Some(debugger) = cx.editor.debug_adapters.get_active_client() {
-        let (frame, thread_id) = match (debugger.active_frame, debugger.thread_id) {
-            (Some(frame), Some(thread_id)) => (frame, thread_id),
-            _ => {
-                bail!("Cannot find current stack frame to access variables")
-            }
-        };
-
-        // TODO: support no frame_id
-
-        let frame_id = debugger.stack_frames[&thread_id][frame].id;
-        let response = vortex_lsp::block_on(debugger.eval(args.join(" "), Some(frame_id)))?;
-        cx.editor.set_status(response.result);
+    if cx.editor.debug_adapters.get_active_client().is_none() {
+        bail!("No debug session");
     }
+    let expression = args.join(" ");
+    crate::debug::show(cx.editor);
+    crate::debug::load::evaluate(cx.editor, expression);
     Ok(())
 }
 
@@ -3884,11 +3875,12 @@ pub const TYPABLE_COMMAND_LIST: &[TypableCommand] = &[
     TypableCommand {
         name: "debug-eval",
         aliases: &[],
-        doc: "Evaluate expression in current debug context.",
+        doc: "Evaluate an expression in the selected frame of the debug session; the debug console shows the result.",
         fun: debug_eval,
         completer: CommandCompleter::none(),
         signature: Signature {
             positionals: (1, Some(1)),
+            raw_after: Some(0),
             ..Signature::DEFAULT
         },
     },

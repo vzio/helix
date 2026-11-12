@@ -119,6 +119,8 @@ pub fn toggle_focus(editor: &mut Editor) {
         // the shell may have changed files
         crate::handlers::disk::check_all(editor);
     } else if ensure_shell(editor) {
+        // it shares its place with the debug panel
+        editor.debug.hide();
         editor.terminal.focus();
     }
 }
@@ -128,6 +130,7 @@ pub fn run(editor: &mut Editor, command: &str) {
     if !ensure_shell(editor) {
         return;
     }
+    editor.debug.hide();
     editor.terminal.focus();
     if let Some(shell) = &editor.terminal.shell {
         if !command.is_empty() {

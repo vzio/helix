@@ -259,6 +259,9 @@ pub fn default() -> HashMap<Mode, KeyTrie> {
                 },
                 "e" => dap_enable_exceptions,
                 "E" => dap_disable_exceptions,
+                "p" => debug_panel,
+                "w" => dap_watch,
+                "x" => dap_evaluate,
             },
             "w" => { "Window"
                 "C-w" | "w" => rotate_view,
@@ -345,6 +348,7 @@ pub fn default() -> HashMap<Mode, KeyTrie> {
         "$" => shell_keep_pipe,
         "C-z" => suspend,
         "C-t" => toggle_terminal,
+        "C-g" => debug_panel_focus,
 
         "C-a" => increment,
         "C-x" => decrement,

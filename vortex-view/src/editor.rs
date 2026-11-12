@@ -823,6 +823,7 @@ impl Default for StatusLineConfig {
             center: vec![],
             right: vec![
                 E::Diagnostics,
+                E::Debug,
                 E::Shell,
                 E::Selections,
                 E::Register,
@@ -903,6 +904,9 @@ pub enum StatusLineElement {
     /// `SH` while the terminal panel's shell runs, colored by what it does: at the prompt, running
     /// a command, or how the last command ended (fork feature)
     Shell,
+
+    /// The debug session: running, stopped and why, or how the program exited (fork feature)
+    Debug,
 
     /// The number of characters currently in primary selection
     PrimarySelectionLength,
@@ -1392,6 +1396,25 @@ pub struct Breakpoint {
     pub condition: Option<String>,
     pub hit_condition: Option<String>,
     pub log_message: Option<String>,
+    /// Kept in the list and the gutter, but not sent to the debug adapter (fork feature).
+    pub disabled: bool,
+    /// What each debug session made of it: a session's events name its own ids (fork feature).
+    pub sessions: Vec<SessionBreakpoint>,
+}
+
+/// A breakpoint as one debug session knows it.
+#[derive(Debug, Clone)]
+pub struct SessionBreakpoint {
+    pub session: dap::registry::DebugAdapterId,
+    pub id: Option<usize>,
+    pub verified: bool,
+}
+
+impl Breakpoint {
+    /// Verified when any session verified it.
+    pub fn refresh_verified(&mut self) {
+        self.verified = self.sessions.iter().any(|session| session.verified);
+    }
 }
 
 use futures_util::stream::{Flatten, Once};
@@ -1416,6 +1439,8 @@ pub struct Editor {
     pub mode: Mode,
     /// The terminal panel below the splits (fork feature).
     pub terminal: crate::terminal::Panel,
+    /// The debug panel and what it shows (fork feature).
+    pub debug: crate::debug::DebugState,
     /// Messages shown instead of `'file' written` when the save of these documents completes
     /// (fork feature: a hunk revert says how to undo it).
     pub save_messages: HashMap<DocumentId, String>,
@@ -1576,6 +1601,7 @@ impl Editor {
         Self {
             mode: Mode::Normal,
             terminal: crate::terminal::Panel::default(),
+            debug: crate::debug::DebugState::default(),
             save_messages: HashMap::new(),
             tree: Tree::new(area),
             next_document_id: DocumentId::default(),

@@ -1,0 +1,638 @@
+//! The panel's keys, mouse and focus. Keys are modal, like the fork's pickers: they act on the
+//! row under the cursor of the current section. `Space` (and anything after it) goes to the
+//! editor's keymap, so `Space G n` steps from the panel.
+
+use std::path::{Path, PathBuf};
+
+use vortex_core::{Position, Selection};
+use vortex_view::{
+    align_view,
+    debug::{self, Row, Section, Target, Tree, VarPath, Watch},
+    editor::Action,
+    input::{KeyEvent, MouseButton, MouseEvent, MouseEventKind},
+    keyboard::{KeyCode, KeyModifiers},
+    Align, Editor,
+};
+
+use super::{breakpoints, load};
+use crate::{
+    compositor::{self, Compositor},
+    ui::{self, Prompt, PromptEvent},
+};
+
+/// `C-g`: focuses the debug panel, or goes back to the editor.
+pub const FOCUS_KEY: KeyEvent = KeyEvent {
+    code: KeyCode::Char('g'),
+    modifiers: KeyModifiers::CONTROL,
+};
+
+/// Shows the panel; the terminal panel, which shares its place, hides.
+pub fn show(editor: &mut Editor) {
+    editor.terminal.hide();
+    editor.debug.show();
+}
+
+/// Shows or hides the panel.
+pub fn toggle(editor: &mut Editor) {
+    if editor.debug.visible {
+        editor.debug.hide();
+    } else {
+        show(editor);
+    }
+}
+
+/// `C-g`: from the editor, shows and focuses the panel; from the panel, back to the editor.
+pub fn toggle_focus(editor: &mut Editor) {
+    if editor.debug.is_focused() {
+        editor.debug.unfocus();
+    } else {
+        show(editor);
+        editor.debug.focus();
+    }
+}
+
+/// Shows and focuses `section`.
+pub fn focus_section(editor: &mut Editor, section: Section) {
+    show(editor);
+    editor.debug.focus();
+    editor.debug.select(section);
+}
+
+/// The rows of `section`, searched.
+pub fn rows(editor: &Editor, section: Section) -> Vec<Row> {
+    let state = &editor.debug;
+    let rows = match section {
+        Section::Variables => state.var_rows(false),
+        Section::Watch => state.var_rows(true),
+        Section::Stack => match editor.debug_adapters.get_active_client() {
+            Some(client) => debug::stack_rows(
+                &state.threads,
+                &client.stack_frames,
+                &client.thread_states,
+                client.thread_id,
+                client.active_frame,
+                &state.expanded_threads,
+            ),
+            None => debug::stack_rows(
+                &[],
+                &Default::default(),
+                &Default::default(),
+                None,
+                None,
+                &state.expanded_threads,
+            ),
+        },
+        Section::Breakpoints => debug::breakpoint_rows(
+            &editor.breakpoints,
+            &vortex_stdx::env::current_working_dir(),
+        ),
+        Section::Console => state.console_rows(),
+    };
+    debug::filter_rows(rows, state.filters.get(&section).map(String::as_str))
+}
+
+fn current_target(editor: &Editor) -> Option<Target> {
+    let section = editor.debug.section;
+    let rows = rows(editor, section);
+    let row = editor
+        .debug
+        .cursor(section)
+        .row
+        .min(rows.len().saturating_sub(1));
+    rows.into_iter().nth(row).map(|row| row.target)
+}
+
+/// Moves the cursor of the current section by `by` rows (clamped).
+fn move_cursor(editor: &mut Editor, by: isize) {
+    let section = editor.debug.section;
+    let count = rows(editor, section).len();
+    let cursor = editor.debug.cursor_mut(section);
+    let row = (cursor.row as isize + by).clamp(0, count.saturating_sub(1) as isize);
+    cursor.row = row as usize;
+}
+
+fn move_to(editor: &mut Editor, row: usize) {
+    let section = editor.debug.section;
+    let count = rows(editor, section).len();
+    editor.debug.cursor_mut(section).row = row.min(count.saturating_sub(1));
+}
+
+/// Rows a page moves: half the panel.
+fn half_page(editor: &Editor) -> isize {
+    (editor.debug.area.height.saturating_sub(1) / 2).max(1) as isize
+}
+
+/// What a key in the focused panel did.
+pub enum Handled {
+    /// Not the panel's: the editor's keymap gets it.
+    No,
+    Yes,
+    /// The panel's, and it opens a prompt.
+    Prompt(Box<Prompt>),
+}
+
+/// Handles a key while the panel is focused.
+pub fn handle_key(editor: &mut Editor, key: KeyEvent) -> Handled {
+    use KeyCode::*;
+    let plain = key.modifiers.is_empty() || key.modifiers == KeyModifiers::SHIFT;
+    let ctrl = key.modifiers == KeyModifiers::CONTROL;
+    let section = editor.debug.section;
+
+    if std::mem::take(&mut editor.debug.pending_g) && key.code == Char('g') && plain {
+        move_to(editor, 0);
+        return Handled::Yes;
+    }
+
+    match key.code {
+        // the editor's: its Space menu, the command line, the terminal panel
+        Char(' ') | Char(':') if plain => return Handled::No,
+        Char('t') if ctrl => return Handled::No,
+        Char('g') if ctrl => editor.debug.unfocus(),
+        Esc => {
+            if editor
+                .debug
+                .filters
+                .get(&section)
+                .is_some_and(|filter| !filter.is_empty())
+            {
+                editor.debug.filters.remove(&section);
+            } else {
+                editor.debug.unfocus();
+            }
+        }
+        Char('q') if plain => editor.debug.unfocus(),
+        Tab if key.modifiers == KeyModifiers::SHIFT => editor.debug.select(section.cycle(-1)),
+        Tab | Char('w') if plain => editor.debug.select(section.cycle(1)),
+        Char('b') if plain => editor.debug.select(section.cycle(-1)),
+        Char(digit @ '1'..='5') if plain => editor
+            .debug
+            .select(Section::ALL[digit as usize - '1' as usize]),
+        Char('j') | Down if plain => move_cursor(editor, 1),
+        Char('k') | Up if plain => move_cursor(editor, -1),
+        Char('n') if ctrl => move_cursor(editor, 1),
+        Char('p') if ctrl => move_cursor(editor, -1),
+        Char('d') if ctrl => move_cursor(editor, half_page(editor)),
+        Char('u') if ctrl => move_cursor(editor, -half_page(editor)),
+        PageDown => move_cursor(editor, half_page(editor) * 2),
+        PageUp => move_cursor(editor, -half_page(editor) * 2),
+        Home => move_to(editor, 0),
+        End | Char('G') if plain || key.code == End => move_to(editor, usize::MAX),
+        Char('g') if plain => editor.debug.pending_g = true,
+        Enter => return activate(editor),
+        Char('l') | Right if plain => set_open(editor, true),
+        Char('h') | Left if plain => set_open(editor, false),
+        Char('s') if plain => return Handled::Prompt(Box::new(search_prompt(editor, section))),
+        Char('i') if plain => {
+            if editor.debug.area.width < super::render::WIDE {
+                editor.debug.select(Section::Console);
+            }
+            return Handled::Prompt(Box::new(evaluate_prompt()));
+        }
+        Char('c') if plain => return change(editor),
+        Char('m') if plain => return log_message(editor),
+        Char('a') if plain => return add_watch(editor),
+        Char('d') if plain => delete(editor),
+        Char('t') if plain => toggle_breakpoint(editor),
+        Char('y') if plain => yank(editor),
+        _ => {}
+    }
+    Handled::Yes
+}
+
+/// Enter: opens or closes a node, selects a frame or a thread, or goes to a breakpoint. In the
+/// console it evaluates an expression.
+fn activate(editor: &mut Editor) -> Handled {
+    if editor.debug.section == Section::Console {
+        return Handled::Prompt(Box::new(evaluate_prompt()));
+    }
+    match current_target(editor) {
+        Some(Target::Var(path)) => {
+            let open = editor.debug.is_expanded(&path);
+            open_node(editor, path, !open);
+        }
+        Some(Target::Thread(thread)) => load::select_frame(editor, thread, 0),
+        Some(Target::Frame { thread, index }) => load::select_frame(editor, thread, index),
+        Some(Target::Breakpoint { path, line }) => goto_line(editor, &path, line),
+        _ => {}
+    }
+    Handled::Yes
+}
+
+fn open_node(editor: &mut Editor, path: VarPath, open: bool) {
+    let has_children = editor
+        .debug
+        .node(&path)
+        .is_some_and(|node| node.has_children());
+    if !has_children {
+        return;
+    }
+    editor.debug.set_expanded(&path, open);
+    if open {
+        load::expand(editor, path);
+    }
+}
+
+/// `l` / `h`: opens or closes the node (or thread) under the cursor; `h` on a closed node goes to
+/// its parent.
+fn set_open(editor: &mut Editor, open: bool) {
+    match current_target(editor) {
+        Some(Target::Var(path)) => {
+            let is_open = editor.debug.is_expanded(&path)
+                && editor
+                    .debug
+                    .node(&path)
+                    .is_some_and(|node| node.has_children());
+            if open || is_open {
+                open_node(editor, path, open);
+            } else if path.names.len() > 1 {
+                let parent = Target::Var(VarPath {
+                    tree: path.tree.clone(),
+                    names: path.names[..path.names.len() - 1].to_vec(),
+                });
+                let section = editor.debug.section;
+                if let Some(row) = rows(editor, section)
+                    .iter()
+                    .position(|r| r.target == parent)
+                {
+                    move_to(editor, row);
+                }
+            }
+        }
+        Some(Target::Thread(thread)) => {
+            let current = editor
+                .debug_adapters
+                .get_active_client()
+                .and_then(|client| client.thread_id);
+            if Some(thread) != current {
+                if open {
+                    editor.debug.expanded_threads.insert(thread);
+                    load::load_thread(editor, thread);
+                } else {
+                    editor.debug.expanded_threads.remove(&thread);
+                }
+            }
+        }
+        Some(Target::Frame { thread, .. }) if !open => {
+            let section = editor.debug.section;
+            if let Some(row) = rows(editor, section)
+                .iter()
+                .position(|r| r.target == Target::Thread(thread))
+            {
+                move_to(editor, row);
+            }
+        }
+        _ => {}
+    }
+}
+
+/// Opens `path` at `line` (0-based) in the focused split.
+pub fn goto_line(editor: &mut Editor, path: &Path, line: usize) {
+    if let Err(err) = editor.open(path, Action::Replace) {
+        editor.set_error(format!("Couldn't open {}: {err}", path.display()));
+        return;
+    }
+    let (view, doc) = vortex_view::current!(editor);
+    let text = doc.text();
+    let line = line.min(text.len_lines().saturating_sub(1));
+    let pos = vortex_core::pos_at_coords(text.slice(..), Position::new(line, 0), true);
+    doc.set_selection(view.id, Selection::point(pos));
+    align_view(doc, view, Align::Center);
+}
+
+/// `s`: searches the section as you type; Esc gives back the search before.
+fn search_prompt(editor: &Editor, section: Section) -> Prompt {
+    let before = editor.debug.filters.get(&section).cloned();
+    let line = before.clone().unwrap_or_default();
+    Prompt::new(
+        "search: ".into(),
+        None,
+        ui::completers::none,
+        move |cx: &mut compositor::Context, input: &str, event: PromptEvent| {
+            let filters = &mut cx.editor.debug.filters;
+            match event {
+                PromptEvent::Update | PromptEvent::Validate => {
+                    if input.is_empty() {
+                        filters.remove(&section);
+                    } else {
+                        filters.insert(section, input.to_owned());
+                    }
+                    cx.editor.debug.cursor_mut(section).row = 0;
+                }
+                PromptEvent::Abort => match &before {
+                    Some(before) => {
+                        filters.insert(section, before.clone());
+                    }
+                    None => {
+                        filters.remove(&section);
+                    }
+                },
+            }
+        },
+    )
+    .with_line(line, editor)
+}
+
+/// An input on the command line that calls `done` with what was typed.
+fn input(
+    label: &'static str,
+    history: Option<char>,
+    line: String,
+    editor: &Editor,
+    done: impl Fn(&mut Editor, &str) -> anyhow::Result<()> + 'static,
+) -> Prompt {
+    Prompt::new(
+        label.into(),
+        history,
+        ui::completers::none,
+        move |cx: &mut compositor::Context, input: &str, event: PromptEvent| {
+            if event != PromptEvent::Validate {
+                return;
+            }
+            if let Err(err) = done(cx.editor, input) {
+                cx.editor.set_error(err.to_string());
+            }
+        },
+    )
+    .with_line(line, editor)
+}
+
+/// The console's input: evaluates in the selected frame. Its history is the `=` register.
+pub fn evaluate_prompt() -> Prompt {
+    Prompt::new(
+        "evaluate: ".into(),
+        Some('='),
+        ui::completers::none,
+        |cx: &mut compositor::Context, input: &str, event: PromptEvent| {
+            if event == PromptEvent::Validate && !input.trim().is_empty() {
+                load::evaluate(cx.editor, input.trim().to_owned());
+            }
+        },
+    )
+}
+
+/// The input that adds a watch expression.
+pub fn watch_prompt(editor: &Editor, line: String) -> Prompt {
+    input("watch: ", None, line, editor, |editor, text| {
+        let text = text.trim();
+        if !text.is_empty() {
+            editor.debug.watches.push(Watch {
+                expression: text.to_owned(),
+                node: None,
+            });
+            editor.debug.generation += 1;
+            load::reload_frame(editor);
+        }
+        Ok(())
+    })
+}
+
+/// `c`: changes the value under the cursor, the watch expression, or the breakpoint's
+/// condition.
+fn change(editor: &mut Editor) -> Handled {
+    match current_target(editor) {
+        Some(Target::Var(path)) => {
+            if let (Tree::Watch(index), 1) = (&path.tree, path.names.len()) {
+                if editor.debug.section == Section::Watch {
+                    let index = *index;
+                    let expression = editor.debug.watches[index].expression.clone();
+                    return Handled::Prompt(Box::new(input(
+                        "watch: ",
+                        None,
+                        expression,
+                        editor,
+                        move |editor, text| {
+                            if let Some(watch) = editor.debug.watches.get_mut(index) {
+                                watch.expression = text.trim().to_owned();
+                                watch.node = None;
+                            }
+                            editor.debug.generation += 1;
+                            load::reload_frame(editor);
+                            Ok(())
+                        },
+                    )));
+                }
+            }
+            let Some(node) = editor.debug.node(&path) else {
+                return Handled::Yes;
+            };
+            if path.tree == Tree::Scopes && path.names.len() == 1 {
+                return Handled::Yes;
+            }
+            let value = node.value.clone();
+            Handled::Prompt(Box::new(input(
+                "value: ",
+                None,
+                value,
+                editor,
+                move |editor, text| load::set_value(editor, path.clone(), text.to_owned()),
+            )))
+        }
+        Some(Target::Breakpoint { path, line }) => {
+            let condition = breakpoint(editor, &path, line)
+                .and_then(|b| b.condition.clone())
+                .unwrap_or_default();
+            Handled::Prompt(Box::new(input(
+                "condition: ",
+                None,
+                condition,
+                editor,
+                move |editor, text| {
+                    breakpoints::edit(editor, &path, line, |b| {
+                        b.condition = (!text.is_empty()).then(|| text.to_owned())
+                    })
+                    .map(|_| ())
+                },
+            )))
+        }
+        _ => Handled::Yes,
+    }
+}
+
+fn breakpoint<'a>(
+    editor: &'a Editor,
+    path: &Path,
+    line: usize,
+) -> Option<&'a vortex_view::editor::Breakpoint> {
+    editor
+        .breakpoints
+        .get(path)?
+        .iter()
+        .find(|b| b.line == line)
+}
+
+/// `m`: the breakpoint's log message (a logpoint logs it instead of stopping).
+fn log_message(editor: &mut Editor) -> Handled {
+    let Some(Target::Breakpoint { path, line }) = current_target(editor) else {
+        return Handled::Yes;
+    };
+    let message = breakpoint(editor, &path, line)
+        .and_then(|b| b.log_message.clone())
+        .unwrap_or_default();
+    Handled::Prompt(Box::new(input(
+        "log message: ",
+        None,
+        message,
+        editor,
+        move |editor, text| {
+            breakpoints::edit(editor, &path, line, |b| {
+                b.log_message = (!text.is_empty()).then(|| text.to_owned())
+            })
+            .map(|_| ())
+        },
+    )))
+}
+
+/// `a`: adds a watch expression; on a variable, watches it.
+fn add_watch(editor: &mut Editor) -> Handled {
+    let line = match (editor.debug.section, current_target(editor)) {
+        (Section::Variables, Some(Target::Var(path))) => match editor.debug.node(&path) {
+            Some(node) if path.names.len() > 1 => {
+                let expression = node
+                    .evaluate_name
+                    .clone()
+                    .unwrap_or_else(|| node.name.clone());
+                editor.debug.watches.push(Watch {
+                    expression,
+                    node: None,
+                });
+                editor.debug.generation += 1;
+                load::reload_frame(editor);
+                editor.set_status("Watching it: 2 shows the watches");
+                return Handled::Yes;
+            }
+            _ => String::new(),
+        },
+        _ => String::new(),
+    };
+    Handled::Prompt(Box::new(watch_prompt(editor, line)))
+}
+
+/// `d`: deletes the watch or the breakpoint under the cursor; in the console, clears it.
+fn delete(editor: &mut Editor) {
+    match (editor.debug.section, current_target(editor)) {
+        (Section::Watch, Some(Target::Var(path))) => {
+            if let Tree::Watch(index) = path.tree {
+                if index < editor.debug.watches.len() {
+                    editor.debug.watches.remove(index);
+                    // the paths of the watches after it moved up
+                    editor
+                        .debug
+                        .expanded
+                        .retain(|p| !matches!(p.tree, Tree::Watch(_)));
+                    move_cursor(editor, 0);
+                }
+            }
+        }
+        (_, Some(Target::Breakpoint { path, line })) => {
+            breakpoints::remove(editor, &path, line);
+            move_cursor(editor, 0);
+        }
+        (Section::Console, _) => {
+            editor.debug.console.clear();
+            move_to(editor, 0);
+        }
+        _ => {}
+    }
+}
+
+/// `t`: turns the breakpoint under the cursor off or on.
+fn toggle_breakpoint(editor: &mut Editor) {
+    if let Some(Target::Breakpoint { path, line }) = current_target(editor) {
+        if let Err(err) = breakpoints::edit(editor, &path, line, |b| b.disabled = !b.disabled) {
+            editor.set_error(err.to_string());
+        }
+    }
+}
+
+/// `y`: yanks the value under the cursor (the line, in the console).
+fn yank(editor: &mut Editor) {
+    let text = match current_target(editor) {
+        Some(Target::Var(path)) => editor.debug.node(&path).map(|node| node.value.clone()),
+        Some(Target::ConsoleLine(index)) => editor
+            .debug
+            .console
+            .lines
+            .get(index)
+            .map(|line| line.text.clone()),
+        Some(Target::Breakpoint { path, line }) => Some(format!("{}:{}", path.display(), line + 1)),
+        Some(Target::Frame { thread, index }) => editor
+            .debug_adapters
+            .get_active_client()
+            .and_then(|client| client.stack_frames.get(&thread)?.get(index))
+            .map(|frame| frame.name.clone()),
+        _ => None,
+    };
+    if let Some(text) = text {
+        let register = editor.config().default_yank_register;
+        match editor.registers.write(register, vec![text]) {
+            Ok(()) => editor.set_status(format!("Yanked to register {register}")),
+            Err(err) => editor.set_error(err.to_string()),
+        }
+    }
+}
+
+/// The mouse over the panel: a click focuses it and puts the cursor on the row (a second click
+/// on the same row acts like Enter, a click on a tab switches to it), the wheel scrolls. A click
+/// elsewhere gives the keys back to the editor. Returns whether the event was the panel's.
+pub fn handle_mouse(mouse: &MouseEvent, editor: &mut Editor, compositor: &mut Compositor) -> bool {
+    // a picker or a popup over the panel gets its clicks
+    if !editor.debug.visible || compositor.layer_count() > 1 {
+        return false;
+    }
+    let area = editor.debug.area;
+    let over = mouse.column >= area.x
+        && mouse.column < area.right()
+        && mouse.row >= area.y
+        && mouse.row < area.bottom();
+    if !over {
+        if matches!(mouse.kind, MouseEventKind::Down(_)) {
+            editor.debug.unfocus();
+        }
+        return false;
+    }
+    match mouse.kind {
+        MouseEventKind::Down(MouseButton::Left) => {
+            editor.debug.focus();
+            let Some(hit) = super::render::hit(editor, mouse.column, mouse.row) else {
+                return true;
+            };
+            match hit {
+                super::render::Hit::Tab(section) => editor.debug.select(section),
+                super::render::Hit::Row(section, row) => {
+                    let again =
+                        editor.debug.section == section && editor.debug.cursor(section).row == row;
+                    editor.debug.select(section);
+                    move_to(editor, row);
+                    if again {
+                        let _ = activate(editor);
+                    }
+                }
+            }
+        }
+        MouseEventKind::ScrollDown | MouseEventKind::ScrollUp => {
+            let by = if mouse.kind == MouseEventKind::ScrollDown {
+                3
+            } else {
+                -3
+            };
+            if let Some(super::render::Hit::Row(section, _)) =
+                super::render::hit(editor, mouse.column, mouse.row)
+            {
+                editor.debug.select(section);
+            }
+            move_cursor(editor, by);
+        }
+        _ => {}
+    }
+    true
+}
+
+/// The file and 0-based line of the cursor in the focused split.
+pub fn cursor_line(editor: &Editor) -> Option<(PathBuf, usize)> {
+    let (view, doc) = vortex_view::current_ref!(editor);
+    let line = doc
+        .selection(view.id)
+        .primary()
+        .cursor_line(doc.text().slice(..));
+    Some((doc.path()?.to_owned(), line))
+}

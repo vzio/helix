@@ -1,8 +1,8 @@
 use crate::{
     registry::DebugAdapterId,
     requests::{DisconnectArguments, TerminateArguments},
-    transport::{Payload, Request, Response, Transport},
-    Error, ProgressMap, ProgressState, Result,
+    transport::{Payload, Response, Transport},
+    Error, ProgressMap, ProgressState, Requester, Result,
 };
 use vortex_core::syntax::config::{DebugAdapterConfig, DebuggerQuirks};
 use vortex_dap_types::*;
@@ -16,14 +16,15 @@ use std::{
     net::{IpAddr, Ipv4Addr, SocketAddr},
     path::PathBuf,
     process::Stdio,
-    sync::atomic::{AtomicU64, Ordering},
+    sync::{atomic::AtomicU64, Arc},
+    time::Duration,
 };
 use tokio::{
     io::{AsyncBufRead, AsyncWrite, BufReader, BufWriter},
     net::TcpStream,
     process::{Child, Command},
-    sync::mpsc::{channel, unbounded_channel, UnboundedReceiver, UnboundedSender},
-    time,
+    sync::mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender},
+    time::{self, Instant},
 };
 
 #[derive(Debug)]
@@ -31,7 +32,7 @@ pub struct Client {
     id: DebugAdapterId,
     _process: Option<Child>,
     server_tx: UnboundedSender<Payload>,
-    request_counter: AtomicU64,
+    request_counter: Arc<AtomicU64>,
     connection_type: Option<ConnectionType>,
     starting_request_args: Option<Value>,
     /// The socket address of the debugger, if using TCP transport.
@@ -47,7 +48,20 @@ pub struct Client {
     pub quirks: DebuggerQuirks,
     /// The config which was used to start this debugger.
     pub config: Option<DebugAdapterConfig>,
+    /// The session which started this one with a `startDebugging` request.
+    pub parent: Option<DebugAdapterId>,
+    /// Set by the editor once it sent the configuration (breakpoints, `configurationDone`), so
+    /// that a second `initialized` event is ignored.
+    pub configured: bool,
+    /// The display name of the session: the name of the configuration.
+    pub name: String,
 }
+
+/// How long to wait for a spawned adapter to accept connections.
+const TCP_PROCESS_TIMEOUT: Duration = Duration::from_secs(10);
+/// How long to wait for an adapter at a known address.
+const TCP_TIMEOUT: Duration = Duration::from_secs(2);
+const TCP_RETRY_DELAY: Duration = Duration::from_millis(50);
 
 impl Client {
     // Spawn a process and communicate with it by either TCP or stdio
@@ -83,7 +97,7 @@ impl Client {
             id,
             _process: process,
             server_tx,
-            request_counter: AtomicU64::new(0),
+            request_counter: Arc::new(AtomicU64::new(0)),
             caps: None,
             connection_type: None,
             starting_request_args: None,
@@ -95,6 +109,9 @@ impl Client {
             active_frame: None,
             quirks: DebuggerQuirks::default(),
             config: None,
+            parent: None,
+            configured: false,
+            name: String::new(),
         };
 
         tokio::spawn(Self::recv(id, server_rx, client_tx));
@@ -106,9 +123,20 @@ impl Client {
         addr: std::net::SocketAddr,
         id: DebugAdapterId,
     ) -> Result<(Self, UnboundedReceiver<(DebugAdapterId, Payload)>)> {
-        let stream = TcpStream::connect(addr).await?;
+        let deadline = Instant::now() + TCP_TIMEOUT;
+        let stream = loop {
+            match TcpStream::connect(addr).await {
+                Ok(stream) => break stream,
+                Err(err) if Instant::now() >= deadline => return Err(err.into()),
+                Err(_) => time::sleep(TCP_RETRY_DELAY).await,
+            }
+        };
         let (rx, tx) = stream.into_split();
-        Self::streams(Box::new(BufReader::new(rx)), Box::new(tx), None, id, None)
+        let mut result = Self::streams(Box::new(BufReader::new(rx)), Box::new(tx), None, id, None);
+        if let Ok((client, _)) = &mut result {
+            client.socket = Some(addr);
+        }
+        result
     }
 
     pub fn stdio(
@@ -170,7 +198,7 @@ impl Client {
     ) -> Result<(Self, UnboundedReceiver<(DebugAdapterId, Payload)>)> {
         let port = Self::get_port().await.unwrap();
 
-        let process = Command::new(cmd)
+        let mut process = Command::new(cmd)
             .args(args)
             .args(port_format.replace("{}", &port.to_string()).split(' '))
             // silence messages
@@ -180,10 +208,27 @@ impl Client {
             // Do not kill debug adapter when leaving, it should exit automatically
             .spawn()?;
 
-        // Wait for adapter to become ready for connection
-        time::sleep(time::Duration::from_millis(500)).await;
+        // Wait for the adapter to become ready for connection
         let socket = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), port);
-        let stream = TcpStream::connect(socket).await?;
+        let deadline = Instant::now() + TCP_PROCESS_TIMEOUT;
+        let stream = loop {
+            match TcpStream::connect(socket).await {
+                Ok(stream) => break stream,
+                Err(err) => {
+                    if let Some(status) = process.try_wait()? {
+                        return Err(Error::Other(anyhow!(
+                            "the debug adapter `{cmd}` exited ({status}) before accepting connections"
+                        )));
+                    }
+                    if Instant::now() >= deadline {
+                        return Err(Error::Other(anyhow!(
+                            "could not connect to the debug adapter `{cmd}` on port {port}: {err}"
+                        )));
+                    }
+                    time::sleep(TCP_RETRY_DELAY).await;
+                }
+            }
+        };
 
         let (rx, tx) = stream.into_split();
         let mut result = Self::streams(
@@ -208,18 +253,14 @@ impl Client {
         client_tx: UnboundedSender<(DebugAdapterId, Payload)>,
     ) {
         while let Some(msg) = server_rx.recv().await {
-            match msg {
-                Payload::Event(ev) => {
-                    client_tx
-                        .send((id, Payload::Event(ev)))
-                        .expect("Failed to send");
-                }
+            let payload = match msg {
+                Payload::Event(ev) => Payload::Event(ev),
+                Payload::Request(req) => Payload::Request(req),
                 Payload::Response(_) => unreachable!(),
-                Payload::Request(req) => {
-                    client_tx
-                        .send((id, Payload::Request(req)))
-                        .expect("Failed to send");
-                }
+            };
+            // The editor dropped the receiver (the client was removed): end quietly.
+            if client_tx.send((id, payload)).is_err() {
+                break;
             }
         }
     }
@@ -232,12 +273,21 @@ impl Client {
         self.connection_type
     }
 
-    fn next_request_id(&self) -> u64 {
-        // > The `seq` for the first message sent by a client or debug adapter
-        // > is 1, and for each subsequent message is 1 greater than the
-        // > previous message sent by that actor
-        // <https://microsoft.github.io/debug-adapter-protocol/specification#Base_Protocol_ProtocolMessage>
-        self.request_counter.fetch_add(1, Ordering::Relaxed) + 1
+    /// A cheap handle to send requests without borrowing the client.
+    ///
+    /// Its view of the capabilities is a snapshot: make it after `initialize`.
+    pub fn requester(&self) -> Requester {
+        let supports_configuration_done = self
+            .caps
+            .as_ref()
+            .and_then(|caps| caps.supports_configuration_done_request)
+            .unwrap_or(false);
+        Requester::new(
+            self.id,
+            self.server_tx.clone(),
+            self.request_counter.clone(),
+            supports_configuration_done,
+        )
     }
 
     // Internal, called by specific DAP commands when resuming
@@ -251,64 +301,18 @@ impl Client {
     }
 
     /// Execute a RPC request on the debugger.
-    pub fn call<R: vortex_dap_types::Request>(
+    pub fn call<R: vortex_dap_types::Request + 'static>(
         &self,
         arguments: R::Arguments,
-    ) -> impl Future<Output = Result<Value>>
-    where
-        R::Arguments: serde::Serialize,
-    {
-        let server_tx = self.server_tx.clone();
-        let id = self.next_request_id();
-
-        async move {
-            use std::time::Duration;
-            use tokio::time::timeout;
-
-            let arguments = Some(serde_json::to_value(arguments)?);
-
-            let (callback_tx, mut callback_rx) = channel(1);
-
-            let req = Request {
-                back_ch: Some(callback_tx),
-                seq: id,
-                command: R::COMMAND.to_string(),
-                arguments,
-            };
-
-            server_tx
-                .send(Payload::Request(req))
-                .map_err(|e| Error::Other(e.into()))?;
-
-            // TODO: specifiable timeout, delay other calls until initialize success
-            let response = timeout(Duration::from_secs(20), callback_rx.recv())
-                .await
-                .map_err(|_| Error::Timeout(id))? // return Timeout
-                .ok_or(Error::StreamClosed)??;
-
-            if !response.success {
-                let message = response
-                    .message
-                    .clone()
-                    .unwrap_or_else(|| "DAP request failed".to_string());
-                return Err(Error::Other(anyhow!(message)));
-            }
-
-            Ok(response.body.unwrap_or_default())
-        }
+    ) -> impl Future<Output = Result<Value>> {
+        self.requester().call::<R>(arguments)
     }
 
-    pub async fn request<R: vortex_dap_types::Request>(
+    pub fn request<R: vortex_dap_types::Request + 'static>(
         &self,
         params: R::Arguments,
-    ) -> Result<R::Result>
-    where
-        R::Arguments: serde::Serialize,
-    {
-        // a future that resolves into the response
-        let json = self.call::<R>(params).await?;
-        let response = serde_json::from_value(json)?;
-        Ok(response)
+    ) -> impl Future<Output = Result<R::Result>> {
+        self.requester().request::<R>(params)
     }
 
     pub fn reply(
@@ -383,6 +387,7 @@ impl Client {
             supports_memory_references: Some(false),
             supports_progress_reporting: Some(true),
             supports_invalidated_event: Some(false),
+            supports_start_debugging_request: Some(true),
         };
 
         let response = self.request::<requests::Initialize>(args).await?;
@@ -405,6 +410,13 @@ impl Client {
     ) -> impl Future<Output = Result<Value>> {
         self.connection_type = None;
         self.call::<requests::Terminate>(args)
+    }
+
+    /// Remembers how the session started, for a restart, when the request is sent through a
+    /// [`Requester`].
+    pub fn set_start(&mut self, connection_type: ConnectionType, args: serde_json::Value) {
+        self.connection_type = Some(connection_type);
+        self.starting_request_args = Some(args);
     }
 
     pub fn launch(&mut self, args: serde_json::Value) -> impl Future<Output = Result<Value>> {
@@ -433,40 +445,11 @@ impl Client {
         file: PathBuf,
         breakpoints: Vec<SourceBreakpoint>,
     ) -> Result<Option<Vec<Breakpoint>>> {
-        let args = requests::SetBreakpointsArguments {
-            source: Source {
-                path: Some(file),
-                name: None,
-                source_reference: None,
-                presentation_hint: None,
-                origin: None,
-                sources: None,
-                adapter_data: None,
-                checksums: None,
-            },
-            breakpoints: Some(breakpoints),
-            source_modified: Some(false),
-        };
-
-        let response = self.request::<requests::SetBreakpoints>(args).await?;
-
-        Ok(response.breakpoints)
+        self.requester().set_breakpoints(file, breakpoints).await
     }
 
     pub async fn configuration_done(&self) -> Result<()> {
-        if !self
-            .caps
-            .as_ref()
-            .and_then(|caps| caps.supports_configuration_done_request)
-            .unwrap_or(false)
-        {
-            return Ok(());
-        }
-
-        self.call::<requests::ConfigurationDone>(Some(requests::ConfigurationDoneArguments {}))
-            .await?;
-
-        Ok(())
+        self.requester().configuration_done().await
     }
 
     pub fn continue_thread(&self, thread_id: ThreadId) -> impl Future<Output = Result<Value>> {
@@ -479,15 +462,7 @@ impl Client {
         &self,
         thread_id: ThreadId,
     ) -> Result<(Vec<StackFrame>, Option<usize>)> {
-        let args = requests::StackTraceArguments {
-            thread_id,
-            start_frame: None,
-            levels: None,
-            format: None,
-        };
-
-        let response = self.request::<requests::StackTrace>(args).await?;
-        Ok((response.stack_frames, response.total_frames))
+        self.requester().stack_trace(thread_id).await
     }
 
     pub fn threads(&self) -> impl Future<Output = Result<Value>> {
@@ -495,23 +470,11 @@ impl Client {
     }
 
     pub async fn scopes(&self, frame_id: usize) -> Result<Vec<Scope>> {
-        let args = requests::ScopesArguments { frame_id };
-
-        let response = self.request::<requests::Scopes>(args).await?;
-        Ok(response.scopes)
+        self.requester().scopes(frame_id).await
     }
 
     pub async fn variables(&self, variables_reference: usize) -> Result<Vec<Variable>> {
-        let args = requests::VariablesArguments {
-            variables_reference,
-            filter: None,
-            start: None,
-            count: None,
-            format: None,
-        };
-
-        let response = self.request::<requests::Variables>(args).await?;
-        Ok(response.variables)
+        self.requester().variables(variables_reference).await
     }
 
     pub fn step_in(&self, thread_id: ThreadId) -> impl Future<Output = Result<Value>> {

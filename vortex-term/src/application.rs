@@ -687,7 +687,8 @@ impl Application {
                 vortex_event::request_redraw();
             }
             EditorEvent::DebuggerEvent((id, payload)) => {
-                let needs_render = self.editor.handle_debugger_message(id, payload).await;
+                let needs_render =
+                    crate::debug::handle_message(&mut self.editor, id, payload).await;
                 if needs_render {
                     self.render().await;
                 }
@@ -757,7 +758,14 @@ impl Application {
             event => {
                 let event = event.into();
                 crate::practice::before_event(&event, cx.editor, &mut self.compositor);
-                let redraw = crate::terminal::handle_event(&event, cx.editor, &mut self.compositor)
+                let debug_mouse = match &event {
+                    vortex_view::input::Event::Mouse(mouse) => {
+                        crate::debug::handle_mouse(mouse, cx.editor, &mut self.compositor)
+                    }
+                    _ => false,
+                };
+                let redraw = debug_mouse
+                    || crate::terminal::handle_event(&event, cx.editor, &mut self.compositor)
                     || self.compositor.handle_event(&event, &mut cx);
                 crate::practice::after_event(cx.editor, &mut self.compositor);
                 redraw

@@ -248,6 +248,9 @@ pub fn breakpoints<'doc>(
     let error = theme.get("error");
     let info = theme.get("info");
     let breakpoint_style = theme.get("ui.debug.breakpoint");
+    let disabled = theme
+        .try_get_exact("ui.debug.breakpoint.disabled")
+        .unwrap_or_else(|| theme.get("ui.text.inactive"));
 
     let breakpoints = doc.path().and_then(|path| editor.breakpoints.get(path));
 
@@ -275,6 +278,10 @@ pub fn breakpoints<'doc>(
                 breakpoint_style
             };
 
+            if breakpoint.disabled {
+                write!(out, "○").unwrap();
+                return Some(disabled);
+            }
             let sym = if breakpoint.verified { "●" } else { "◯" };
             write!(out, "{}", sym).unwrap();
             Some(style)
@@ -286,7 +293,7 @@ fn execution_pause_indicator<'doc>(
     editor: &'doc Editor,
     doc: &'doc Document,
     theme: &Theme,
-    is_focused: bool,
+    _is_focused: bool,
 ) -> GutterFn<'doc> {
     let style = theme.get("ui.debug.active");
     let current_stack_frame = editor.current_stack_frame();
@@ -303,11 +310,8 @@ fn execution_pause_indicator<'doc>(
 
     Box::new(
         move |line: usize, _selected: bool, first_visual_line: bool, out: &mut String| {
-            if !first_visual_line
-                || !is_focused
-                || line != frame_line?
-                || !should_display_for_current_doc
-            {
+            // shown in every split of the file, also while the debug panel has the keys
+            if !first_visual_line || line != frame_line? || !should_display_for_current_doc {
                 return None;
             }
 
