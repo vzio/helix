@@ -71,8 +71,8 @@ pub fn focus_section(editor: &mut Editor, section: Section) {
 pub fn rows(editor: &Editor, section: Section) -> Vec<Row> {
     let state = &editor.debug;
     let rows = match section {
-        Section::Variables => state.var_rows(false),
-        Section::Watch => state.var_rows(true),
+        Section::Variables => state.var_rows(false, super::memory::shown(editor)),
+        Section::Watch => state.var_rows(true, super::memory::shown(editor)),
         Section::Stack => match state.spectator.history.current() {
             Some(snapshot) => debug::rewind_stack_rows(snapshot, state.spectator.history.frame),
             None => {
@@ -124,7 +124,7 @@ fn current_target_in(editor: &Editor, section: Section) -> Option<Target> {
     rows.into_iter().nth(row).map(|row| row.target)
 }
 
-fn current_target(editor: &Editor) -> Option<Target> {
+pub fn current_target(editor: &Editor) -> Option<Target> {
     let section = editor.debug.section;
     let rows = rows(editor, section);
     let row = editor
@@ -228,6 +228,7 @@ pub fn handle_key(editor: &mut Editor, key: KeyEvent) -> Handled {
             editor.set_status("Time labels cleared");
         }
         Char('*') if plain => toggle_mark(editor),
+        Char('M') if plain => super::memory::open_selected(editor),
         // the editor's: the command line, the terminal panel
         Char(':') if plain => return Handled::No,
         Char('t') if ctrl => return Handled::No,
@@ -809,8 +810,18 @@ pub fn settings_rows(editor: &Editor) -> Vec<Row> {
         ),
         None => {
             let (requests, bytes) = debug::history::estimate(&caps, 8, 2, 12);
+            // each memory view: its window, read a page at a time
+            let views = super::memory::open_views(editor);
+            let window = caps.memory.unwrap_or(16 * 1024);
+            let requests = requests + views * window.div_ceil(1024);
+            let bytes = bytes + views * window * 2;
+            let views = match views {
+                0 => String::new(),
+                1 => ", 1 memory view".into(),
+                n => format!(", {n} memory views"),
+            };
             format!(
-                "about {requests} requests and {} per stop (8 frames, estimated)",
+                "about {requests} requests and {} per stop (8 frames{views}, estimated)",
                 format_bytes(bytes)
             )
         }

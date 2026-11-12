@@ -404,10 +404,11 @@ impl Client {
             supports_variable_type: Some(true),
             supports_variable_paging: Some(true),
             supports_run_in_terminal_request: Some(true),
-            supports_memory_references: Some(false),
+            supports_memory_references: Some(true),
             supports_progress_reporting: Some(true),
             supports_invalidated_event: Some(false),
             supports_start_debugging_request: Some(true),
+            supports_memory_event: Some(true),
         };
 
         let mut response = self.request::<requests::Initialize>(args).await?;

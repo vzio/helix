@@ -20,6 +20,9 @@ use std::{
 
 use crate::ViewId;
 
+pub mod memory;
+pub use memory::{Cell, MemorySource};
+
 /// Whether the start of a file looks like the bytes of a binary file rather than text: a NUL in
 /// its first KiB, or the signature of a PDF or a PNG. A byte order mark means text in a UTF
 /// encoding, whatever follows.
@@ -213,11 +216,33 @@ struct Edit {
     new: u8,
 }
 
+/// The bytes overwritten in one stay in overwrite mode.
+#[derive(Debug, Clone, Default)]
+struct Step {
+    edits: Vec<Edit>,
+    /// The step was written to the debugged program's memory: undoing or redoing it writes
+    /// memory again.
+    written: bool,
+}
+
+/// What `u` or `U` changed.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Undone {
+    /// Where to put the cursor: the first byte of the step undone, the last of a step redone.
+    pub offset: u64,
+    /// The step had been written to memory.
+    pub written: bool,
+    /// The bytes it changed.
+    pub offsets: Vec<u64>,
+}
+
 /// Where the bytes come from.
 enum Source {
     File(File),
-    /// Bytes in memory, for previews and tests. They can't be written.
-    Memory(Vec<u8>),
+    /// Bytes held by the buffer, for previews and tests. They can't be written.
+    Bytes(Vec<u8>),
+    /// The memory of a debugged program, read through its debug adapter.
+    Debuggee(Box<MemorySource>),
 }
 
 /// The last window of the file read, which drawing and moving mostly read again.
@@ -241,8 +266,8 @@ pub struct HexBuffer {
     edits: BTreeMap<u64, u8>,
     /// The steps that `u` undoes and `U` redoes. A step is the bytes overwritten in one stay in
     /// overwrite mode, like an insert in a text buffer.
-    undo: Vec<Vec<Edit>>,
-    redo: Vec<Vec<Edit>>,
+    undo: Vec<Step>,
+    redo: Vec<Step>,
     /// The bytes overwritten in the stay in overwrite mode under way.
     pending: Vec<Edit>,
     cursors: HashMap<ViewId, HexCursor>,
@@ -270,7 +295,31 @@ impl HexBuffer {
     /// A buffer of bytes in memory, which can't be written.
     pub fn from_bytes(bytes: Vec<u8>) -> Self {
         let len = bytes.len() as u64;
-        Self::new(Source::Memory(bytes), len)
+        Self::new(Source::Bytes(bytes), len)
+    }
+
+    /// The memory of a debugged program: the whole address space, its offsets the addresses.
+    pub fn debuggee(memory: MemorySource) -> Self {
+        Self::new(Source::Debuggee(Box::new(memory)), u64::MAX)
+    }
+
+    /// The debugged program's memory, for a buffer that shows it.
+    pub fn memory(&self) -> Option<&MemorySource> {
+        match &self.source {
+            Source::Debuggee(memory) => Some(memory),
+            _ => None,
+        }
+    }
+
+    pub fn memory_mut(&mut self) -> Option<&mut MemorySource> {
+        match &mut self.source {
+            Source::Debuggee(memory) => Some(memory),
+            _ => None,
+        }
+    }
+
+    pub fn is_memory(&self) -> bool {
+        matches!(self.source, Source::Debuggee(_))
     }
 
     fn new(source: Source, len: u64) -> Self {
@@ -379,6 +428,23 @@ impl HexBuffer {
         (self.read_file(offset, &mut byte) == 1).then_some(byte[0])
     }
 
+    /// What the bytes in `range` are, as drawn: overwritten bytes included, and in memory the
+    /// bytes not read yet, unreadable or not recorded.
+    pub fn cells(&self, range: Range<u64>) -> Vec<Cell> {
+        let end = range.end.min(self.len);
+        let start = range.start.min(end);
+        let edited = |offset: u64, cell: Cell| match (self.edits.get(&offset), cell) {
+            (Some(&byte), Cell::Byte(_) | Cell::Changed(_)) => Cell::Byte(byte),
+            _ => cell,
+        };
+        match &self.source {
+            Source::Debuggee(memory) => (start..end)
+                .map(|offset| edited(offset, memory.cell(offset)))
+                .collect(),
+            _ => self.bytes(start..end).into_iter().map(Cell::Byte).collect(),
+        }
+    }
+
     /// Reads from the file, through the window cache for small reads.
     fn read_file(&self, offset: u64, buf: &mut [u8]) -> usize {
         if offset >= self.len || buf.is_empty() {
@@ -387,9 +453,19 @@ impl HexBuffer {
         let want = buf.len().min((self.len - offset) as usize);
         let buf = &mut buf[..want];
         match &self.source {
-            Source::Memory(bytes) => {
+            Source::Bytes(bytes) => {
                 let start = offset as usize;
                 buf.copy_from_slice(&bytes[start..start + want]);
+                want
+            }
+            // the bytes read, up to the first one that isn't
+            Source::Debuggee(memory) => {
+                for (i, slot) in buf.iter_mut().enumerate() {
+                    match memory.byte(offset + i as u64) {
+                        Some(byte) => *slot = byte,
+                        None => return i,
+                    }
+                }
                 want
             }
             Source::File(file) => {
@@ -438,33 +514,104 @@ impl HexBuffer {
     /// Ends the step under way: `u` undoes it at once.
     pub fn commit(&mut self) {
         if !self.pending.is_empty() {
-            self.undo.push(std::mem::take(&mut self.pending));
+            self.undo.push(Step {
+                edits: std::mem::take(&mut self.pending),
+                written: false,
+            });
             self.redo.clear();
         }
     }
 
     /// Undoes the last step and returns the offset of its first byte.
     pub fn undo(&mut self) -> Option<u64> {
-        self.commit();
-        let step = self.undo.pop()?;
-        for edit in step.iter().rev() {
-            self.set(edit.offset, edit.old);
-        }
-        let first = step.first().map(|edit| edit.offset);
-        self.redo.push(step);
-        first
+        self.undo_step().map(|undone| undone.offset)
     }
 
     /// Redoes the last step undone and returns the offset of its last byte.
     pub fn redo(&mut self) -> Option<u64> {
+        self.redo_step().map(|redone| redone.offset)
+    }
+
+    /// Undoes the last step, saying what it changed.
+    pub fn undo_step(&mut self) -> Option<Undone> {
+        self.commit();
+        let step = self.undo.pop()?;
+        for edit in step.edits.iter().rev() {
+            self.set(edit.offset, edit.old);
+        }
+        let undone = Undone {
+            offset: step.edits.first()?.offset,
+            written: step.written,
+            offsets: step.edits.iter().map(|edit| edit.offset).collect(),
+        };
+        self.redo.push(step);
+        Some(undone)
+    }
+
+    /// Redoes the last step undone, saying what it changed.
+    pub fn redo_step(&mut self) -> Option<Undone> {
         self.commit();
         let step = self.redo.pop()?;
-        for edit in &step {
+        for edit in &step.edits {
             self.set(edit.offset, edit.new);
         }
-        let last = step.last().map(|edit| edit.offset);
+        let redone = Undone {
+            offset: step.edits.last()?.offset,
+            written: step.written,
+            offsets: step.edits.iter().map(|edit| edit.offset).collect(),
+        };
         self.undo.push(step);
-        last
+        Some(redone)
+    }
+
+    /// Whether `u` (`undo`) or `U` would change a step written to memory, which writes memory
+    /// again.
+    pub fn next_step_written(&self, undo: bool) -> bool {
+        if undo && !self.pending.is_empty() {
+            return false;
+        }
+        let stack = if undo { &self.undo } else { &self.redo };
+        stack.last().is_some_and(|step| step.written)
+    }
+
+    /// The overwritten bytes not written yet, in runs of consecutive offsets; only `offsets`
+    /// when given.
+    pub fn edit_runs(&self, offsets: Option<&[u64]>) -> Vec<(u64, Vec<u8>)> {
+        let mut runs: Vec<(u64, Vec<u8>)> = Vec::new();
+        for (&offset, &byte) in &self.edits {
+            if offsets.is_some_and(|offsets| !offsets.contains(&offset)) {
+                continue;
+            }
+            match runs.last_mut() {
+                Some((start, bytes)) if *start + bytes.len() as u64 == offset => bytes.push(byte),
+                _ => runs.push((offset, vec![byte])),
+            }
+        }
+        runs
+    }
+
+    /// The bytes at `offsets` (all the overwritten bytes when `None`) were written to the
+    /// debugged program's memory: they are its bytes now, no longer edits, and the steps that
+    /// made them are marked written.
+    pub fn memory_written(&mut self, offsets: Option<&[u64]>) {
+        self.commit();
+        let written: Vec<(u64, u8)> = self
+            .edits
+            .iter()
+            .filter(|(offset, _)| offsets.is_none_or(|offsets| offsets.contains(offset)))
+            .map(|(&offset, &byte)| (offset, byte))
+            .collect();
+        for (offset, byte) in written {
+            self.edits.remove(&offset);
+            if let Source::Debuggee(memory) = &mut self.source {
+                memory.written(offset, byte);
+            }
+        }
+        if offsets.is_none() {
+            for step in &mut self.undo {
+                step.written = true;
+            }
+        }
     }
 
     /// Sets the byte at `offset`, keeping it among the edits only if it differs from the file.
@@ -480,8 +627,16 @@ impl HexBuffer {
     /// bytes are written, never the whole file. Returns the number of bytes written. The undo
     /// history stays, so writing can be undone like in a text buffer.
     pub fn write_in_place(&mut self, path: &Path) -> io::Result<usize> {
-        if let Source::Memory(_) = self.source {
-            return Err(io::Error::other("these bytes have no file to write to"));
+        match self.source {
+            Source::File(_) => (),
+            Source::Bytes(_) => {
+                return Err(io::Error::other("these bytes have no file to write to"))
+            }
+            Source::Debuggee(_) => {
+                return Err(io::Error::other(
+                    "memory isn't a file: :w writes the changed bytes to the program's memory",
+                ))
+            }
         }
         self.commit();
         let file = std::fs::OpenOptions::new().write(true).open(path)?;
@@ -520,6 +675,9 @@ impl HexBuffer {
         if pattern.is_empty() || pattern.len() as u64 > self.len {
             return None;
         }
+        if let Source::Debuggee(memory) = &self.source {
+            return self.find_in_memory(memory, pattern, from, forward);
+        }
         let from = from.min(self.len);
         if forward {
             self.find_forward(pattern, from, self.len)
@@ -535,6 +693,40 @@ impl HexBuffer {
                     self.find_backward(pattern, from, self.len)
                         .map(|at| (at, true))
                 })
+        }
+    }
+
+    /// [`Self::find`] in a debugged program's memory: the address space is too big to read
+    /// through, so it looks through the bytes read so far (around where the view has been).
+    fn find_in_memory(
+        &self,
+        memory: &MemorySource,
+        pattern: &[u8],
+        from: u64,
+        forward: bool,
+    ) -> Option<(u64, bool)> {
+        let mut matches: Vec<u64> = Vec::new();
+        for (start, mut bytes) in memory.runs() {
+            for (i, byte) in bytes.iter_mut().enumerate() {
+                if let Some(&edited) = self.edits.get(&(start + i as u64)) {
+                    *byte = edited;
+                }
+            }
+            matches.extend(memchr::memmem::find_iter(&bytes, pattern).map(|at| start + at as u64));
+        }
+        if forward {
+            matches
+                .iter()
+                .find(|&&at| at >= from)
+                .map(|&at| (at, false))
+                .or_else(|| matches.first().map(|&at| (at, true)))
+        } else {
+            matches
+                .iter()
+                .rev()
+                .find(|&&at| at < from)
+                .map(|&at| (at, false))
+                .or_else(|| matches.last().map(|&at| (at, true)))
         }
     }
 
@@ -583,9 +775,34 @@ impl HexBuffer {
         }
         let overlap = pattern.len() as u64 - 1;
         let start = range.start.saturating_sub(overlap);
-        let bytes = self.bytes(start..range.end + overlap);
-        memchr::memmem::find_iter(&bytes, pattern)
-            .map(|at| start + at as u64)
+        let end = range.end.saturating_add(overlap);
+        let found: Vec<u64> = if self.is_memory() {
+            // runs of bytes read: an unreadable byte matches nothing
+            let cells = self.cells(start..end);
+            let mut found = Vec::new();
+            let mut run_start = 0;
+            for i in 0..=cells.len() {
+                if cells.get(i).and_then(|cell| cell.byte()).is_none() {
+                    let run: Vec<u8> = cells[run_start..i]
+                        .iter()
+                        .filter_map(|c| c.byte())
+                        .collect();
+                    found.extend(
+                        memchr::memmem::find_iter(&run, pattern)
+                            .map(|at| start + (run_start + at) as u64),
+                    );
+                    run_start = i + 1;
+                }
+            }
+            found
+        } else {
+            let bytes = self.bytes(start..end);
+            memchr::memmem::find_iter(&bytes, pattern)
+                .map(|at| start + at as u64)
+                .collect()
+        };
+        found
+            .into_iter()
             .map(|at| at..at + pattern.len() as u64)
             .filter(|found| found.end > range.start && found.start < range.end)
             .collect()

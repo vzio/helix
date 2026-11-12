@@ -146,6 +146,9 @@ fn role_style(theme: &Theme, role: Role) -> Style {
             .try_get_exact("ui.debug.frozen")
             .unwrap_or_else(|| fg_only(theme.get("info"))),
         Role::Rewind => rewind_style(theme),
+        Role::Memory => theme
+            .try_get_exact("ui.debug.memory")
+            .unwrap_or_else(|| fg_only(theme.get("info"))),
     }
 }
 
@@ -285,7 +288,13 @@ fn hint_text(editor: &Editor) -> String {
         return "Space pause · +/- speed · < > thread · e std/lib/own · r to cursor · Esc: editor"
             .into();
     }
-    "Space play · n step · +/- speed · f to a change · r to cursor · < > thread · z freeze · o alone · p run/pause thread · e std/lib/own · [ rewind · * mark · x clear times · R capture · Esc: editor (Space menu)".into()
+    // the values whose memory can be shown have a badge, and `M` shows it
+    let memory = if super::memory::shown(editor) {
+        format!("M {} memory · ", vortex_view::debug::MEMORY_BADGE)
+    } else {
+        String::new()
+    };
+    format!("Space play · n step · +/- speed · f to a change · r to cursor · < > thread · z freeze · o alone · p run/pause thread · e std/lib/own · [ rewind · * mark · {memory}x clear times · R capture · Esc: editor (Space menu)")
 }
 
 fn status_text(editor: &Editor) -> String {

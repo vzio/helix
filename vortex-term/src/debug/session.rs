@@ -204,6 +204,7 @@ fn handle_event(editor: &mut Editor, id: DebugAdapterId, event: Event) -> bool {
             };
             editor.debug.session_name = session_name;
             editor.debug.generation += 1;
+            super::memory::on_stop(editor, id);
             load::after_stop(editor, id, thread_id, reason_for_playback);
         }
         Event::Continued(events::ContinuedBody {
@@ -262,8 +263,15 @@ fn handle_event(editor: &mut Editor, id: DebugAdapterId, event: Event) -> bool {
             }
         }
         Event::Capabilities(events::CapabilitiesBody { capabilities }) => {
+            // only the capabilities that changed (DAP): the others stay, and so do the ones the
+            // configuration assumes
             let client = editor.debug_adapters.get_client_mut(id).unwrap();
-            client.caps = Some(capabilities);
+            let overrides = client.config.as_ref().and_then(|c| c.capabilities.clone());
+            client.caps = Some(merge_capabilities(
+                client.caps.take(),
+                capabilities,
+                overrides,
+            ));
             return false;
         }
         Event::Process(events::ProcessBody {
@@ -277,11 +285,28 @@ fn handle_event(editor: &mut Editor, id: DebugAdapterId, event: Event) -> bool {
             }
             return false;
         }
-        Event::Module(_) | Event::LoadedSource(_) | Event::Memory(_) => {
+        Event::Memory(_) => super::memory::on_memory_event(editor, id),
+        Event::Module(_) | Event::LoadedSource(_) => {
             return false;
         }
     }
     true
+}
+
+/// `changed` over `caps`, then the `overrides` of the configuration over both.
+fn merge_capabilities(
+    caps: Option<vortex_dap::DebuggerCapabilities>,
+    changed: vortex_dap::DebuggerCapabilities,
+    overrides: Option<serde_json::Map<String, Value>>,
+) -> vortex_dap::DebuggerCapabilities {
+    let object = |caps: &vortex_dap::DebuggerCapabilities| match serde_json::to_value(caps) {
+        Ok(Value::Object(map)) => map,
+        _ => serde_json::Map::new(),
+    };
+    let mut merged = caps.as_ref().map(object).unwrap_or_default();
+    merged.extend(object(&changed).into_iter().filter(|(_, v)| !v.is_null()));
+    merged.extend(overrides.unwrap_or_default());
+    serde_json::from_value(Value::Object(merged)).unwrap_or(changed)
 }
 
 /// The adapter is ready for its configuration: the breakpoints, the exception filters, then
@@ -459,6 +484,7 @@ fn remove_tree_with(editor: &mut Editor, id: DebugAdapterId, disconnect: bool) {
         });
     }
     editor.debug_adapters.remove_client(id);
+    super::memory::session_ended(editor, id);
     editor.debug.threads.retain(|entry| entry.session != id);
     let spectator = &mut editor.debug.spectator;
     spectator.frozen.retain(|key| key.session != id);
@@ -574,4 +600,32 @@ fn start_child(
         }
     });
     Ok(json!({}))
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    fn caps(json: Value) -> vortex_dap::DebuggerCapabilities {
+        serde_json::from_value(json).unwrap()
+    }
+
+    #[test]
+    fn a_capabilities_event_changes_only_what_it_names() {
+        let initial = caps(json!({"supportsReadMemoryRequest": true, "supportsSetVariable": true}));
+        let changed = caps(json!({"supportsRestartRequest": true}));
+        let merged = merge_capabilities(Some(initial), changed, None);
+        assert_eq!(merged.supports_read_memory_request, Some(true));
+        assert_eq!(merged.supports_set_variable, Some(true));
+        assert_eq!(merged.supports_restart_request, Some(true));
+
+        // the configuration's assumptions still win
+        let overrides = json!({"supportsSingleThreadExecutionRequests": true});
+        let merged = merge_capabilities(
+            Some(merged),
+            caps(json!({"supportsSingleThreadExecutionRequests": false})),
+            overrides.as_object().cloned(),
+        );
+        assert_eq!(merged.supports_single_thread_execution_requests, Some(true));
+    }
 }

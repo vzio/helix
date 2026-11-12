@@ -23,6 +23,7 @@ fn variable_node(variable: vortex_dap::Variable) -> VarNode {
         ty: variable.ty,
         reference: variable.variables_reference,
         evaluate_name: variable.evaluate_name,
+        memory_reference: variable.memory_reference,
         ..Default::default()
     }
 }
@@ -35,6 +36,7 @@ fn evaluation_node(expression: &str, result: vortex_dap::Result<EvaluateResponse
             ty: response.ty,
             reference: response.variables_reference,
             evaluate_name: Some(expression.to_owned()),
+            memory_reference: response.memory_reference,
             ..Default::default()
         },
         Err(err) => VarNode {

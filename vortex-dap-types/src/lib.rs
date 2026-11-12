@@ -406,6 +406,8 @@ pub mod requests {
         pub supports_invalidated_event: Option<bool>,
         #[serde(skip_serializing_if = "Option::is_none")]
         pub supports_start_debugging_request: Option<bool>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        pub supports_memory_event: Option<bool>,
     }
 
     #[derive(Debug)]
@@ -787,6 +789,68 @@ pub mod requests {
         type Arguments = SetVariableArguments;
         type Result = SetVariableResponse;
         const COMMAND: &'static str = "setVariable";
+    }
+
+    #[derive(Debug, PartialEq, Eq, Clone, Deserialize, Serialize)]
+    #[serde(rename_all = "camelCase")]
+    pub struct ReadMemoryArguments {
+        pub memory_reference: String,
+        /// Bytes from the reference, negative before it.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        pub offset: Option<i64>,
+        pub count: usize,
+    }
+
+    #[derive(Debug, PartialEq, Eq, Clone, Deserialize, Serialize)]
+    #[serde(rename_all = "camelCase")]
+    pub struct ReadMemoryResponse {
+        /// The address of the first byte of `data`: hex after `0x`, else decimal.
+        pub address: String,
+        /// Bytes that couldn't be read after the last byte of `data`.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub unreadable_bytes: Option<usize>,
+        /// The bytes read, in base64.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub data: Option<String>,
+    }
+
+    #[derive(Debug)]
+    pub enum ReadMemory {}
+
+    impl Request for ReadMemory {
+        type Arguments = ReadMemoryArguments;
+        type Result = ReadMemoryResponse;
+        const COMMAND: &'static str = "readMemory";
+    }
+
+    #[derive(Debug, PartialEq, Eq, Clone, Deserialize, Serialize)]
+    #[serde(rename_all = "camelCase")]
+    pub struct WriteMemoryArguments {
+        pub memory_reference: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        pub offset: Option<i64>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        pub allow_partial: Option<bool>,
+        /// The bytes to write, in base64.
+        pub data: String,
+    }
+
+    #[derive(Debug, Default, PartialEq, Eq, Clone, Deserialize, Serialize)]
+    #[serde(rename_all = "camelCase")]
+    pub struct WriteMemoryResponse {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub offset: Option<i64>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub bytes_written: Option<usize>,
+    }
+
+    #[derive(Debug)]
+    pub enum WriteMemory {}
+
+    impl Request for WriteMemory {
+        type Arguments = WriteMemoryArguments;
+        type Result = WriteMemoryResponse;
+        const COMMAND: &'static str = "writeMemory";
     }
 
     #[derive(Debug, PartialEq, Eq, Clone, Deserialize, Serialize)]

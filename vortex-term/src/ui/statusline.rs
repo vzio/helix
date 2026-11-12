@@ -504,7 +504,11 @@ where
 {
     if let Some(hex) = context.doc.hex() {
         let cursor = hex.cursor(context.view.id);
-        let text = super::hex_view::position(hex, &cursor);
+        let mut text = super::hex_view::position(hex, &cursor);
+        // memory (this fork): which stop the bytes are from, when not the live one
+        if let Some(note) = crate::debug::memory::note(context.editor, context.doc) {
+            text = format!("{text}  {note}");
+        }
         write(context, format!(" {text} ").into());
         return;
     }
@@ -532,6 +536,10 @@ where
     F: Fn(&mut RenderContext<'a>, Span<'a>) + Copy,
 {
     if let Some(hex) = context.doc.hex() {
+        // memory has no size to be a percentage of
+        if hex.is_memory() {
+            return;
+        }
         let offset = hex.cursor(context.view.id).offset;
         let percent = (offset + 1) * 100 / hex.len().max(1);
         write(context, format!("{}%", percent.min(100)).into());
@@ -589,6 +597,7 @@ where
     F: Fn(&mut RenderContext<'a>, Span<'a>) + Copy,
 {
     let file_type = match context.doc.is_hex() {
+        true if context.doc.memory().is_some() => "memory",
         true => "hex",
         false => context.doc.language_name().unwrap_or(DEFAULT_LANGUAGE_NAME),
     };
@@ -602,10 +611,11 @@ where
 {
     let title = {
         let rel_path = context.doc.relative_path();
+        // (a buffer without a path has its own name: `[scratch]`, `memory: buf`)
         let path = rel_path
             .as_ref()
             .map(|p| p.to_string_lossy())
-            .unwrap_or_else(|| SCRATCH_BUFFER_NAME.into());
+            .unwrap_or_else(|| context.doc.display_name());
         format!(" {} ", path)
     };
 
@@ -621,7 +631,7 @@ where
             .doc
             .path()
             .as_ref()
-            .map_or_else(|| SCRATCH_BUFFER_NAME.into(), |p| p.to_string_lossy());
+            .map_or_else(|| context.doc.display_name(), |p| p.to_string_lossy());
         format!(" {} ", path)
     };
 

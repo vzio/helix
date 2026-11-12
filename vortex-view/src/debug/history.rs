@@ -18,6 +18,9 @@ pub struct Caps {
     pub collection: Option<usize>,
     /// Stops kept; the oldest go first.
     pub history: Option<usize>,
+    /// Bytes recorded per open memory view at each stop: what it shows and a margin around it,
+    /// at most this many (`None`: all of that).
+    pub memory: Option<usize>,
 }
 
 impl Default for Caps {
@@ -26,6 +29,7 @@ impl Default for Caps {
             depth: Some(3),
             collection: Some(100),
             history: Some(2000),
+            memory: Some(4096),
         }
     }
 }
@@ -61,22 +65,39 @@ pub const HISTORY_STEPS: &[Option<usize>] = &[
     None,
 ];
 
+pub const MEMORY_STEPS: &[Option<usize>] = &[
+    Some(0),
+    Some(256),
+    Some(1024),
+    Some(4096),
+    Some(16384),
+    Some(65536),
+    None,
+];
+
 /// The rows of the capture settings.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Setting {
     Depth,
     Collection,
     History,
+    Memory,
 }
 
 impl Setting {
-    pub const ALL: [Setting; 3] = [Setting::Depth, Setting::Collection, Setting::History];
+    pub const ALL: [Setting; 4] = [
+        Setting::Depth,
+        Setting::Collection,
+        Setting::History,
+        Setting::Memory,
+    ];
 
     pub fn title(self) -> &'static str {
         match self {
             Setting::Depth => "depth",
             Setting::Collection => "collection size",
             Setting::History => "history",
+            Setting::Memory => "memory window",
         }
     }
 
@@ -85,6 +106,7 @@ impl Setting {
             Setting::Depth => DEPTH_STEPS,
             Setting::Collection => COLLECTION_STEPS,
             Setting::History => HISTORY_STEPS,
+            Setting::Memory => MEMORY_STEPS,
         }
     }
 }
@@ -95,6 +117,7 @@ impl Caps {
             Setting::Depth => self.depth,
             Setting::Collection => self.collection,
             Setting::History => self.history,
+            Setting::Memory => self.memory,
         }
     }
 
@@ -103,6 +126,7 @@ impl Caps {
             Setting::Depth => &mut self.depth,
             Setting::Collection => &mut self.collection,
             Setting::History => &mut self.history,
+            Setting::Memory => &mut self.memory,
         }
     }
 
@@ -131,11 +155,16 @@ impl Caps {
             (Setting::History, Some(n)) => format!("{n} stops"),
             (Setting::Depth, Some(n)) => format!("{n} levels"),
             (Setting::Collection, Some(n)) => format!("{n} elements"),
+            (Setting::Memory, Some(0)) => "off".into(),
+            (Setting::Memory, Some(n)) => format!("{} per view", format_bytes(n)),
         }
     }
 
     pub fn is_unlimited(&self) -> bool {
-        self.depth.is_none() || self.collection.is_none() || self.history.is_none()
+        self.depth.is_none()
+            || self.collection.is_none()
+            || self.history.is_none()
+            || self.memory.is_none()
     }
 
     pub fn records(&self) -> bool {
@@ -157,6 +186,8 @@ pub struct Snapshot {
     /// be loaded.
     pub scopes: Vec<Option<Vec<VarNode>>>,
     pub watches: Vec<Watch>,
+    /// The bytes of each open memory view, around what it showed.
+    pub memory: Vec<MemoryWindow>,
     /// Requests the capture made.
     pub requests: usize,
     /// About how much memory it takes.
@@ -195,8 +226,23 @@ impl Snapshot {
                 watch.expression.len() + watch.node.as_ref().map_or(0, VarNode::approx_bytes)
             })
             .sum();
-        self.bytes = std::mem::size_of::<Snapshot>() + frames + scopes + watches;
+        let memory: usize = self
+            .memory
+            .iter()
+            .map(|window| std::mem::size_of::<MemoryWindow>() + window.bytes.len() * 2)
+            .sum();
+        self.bytes = std::mem::size_of::<Snapshot>() + frames + scopes + watches + memory;
     }
+}
+
+/// The bytes of a memory view recorded at a stop.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MemoryWindow {
+    /// The document of the memory view.
+    pub doc: crate::DocumentId,
+    pub start: u64,
+    /// `None` where unreadable.
+    pub bytes: Vec<Option<u8>>,
 }
 
 /// The recorded stops of the session, and where rewind is.
@@ -383,6 +429,7 @@ mod tests {
             frames: Vec::new(),
             scopes: Vec::new(),
             watches: Vec::new(),
+            memory: Vec::new(),
             requests: 10,
             bytes: 100,
             truncated: false,

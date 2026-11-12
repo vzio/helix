@@ -666,6 +666,13 @@ pub fn show_current(editor: &mut Editor, follow: bool) {
 
 /// Jumps to `frame`: centered, or while playing only scrolled into view.
 pub fn show_frame(editor: &mut Editor, frame: &StackFrame, follow: bool) {
+    // a memory view keeps its place: the source moves in another view
+    vortex_view::handlers::dap::in_source_view(editor, |editor| {
+        show_frame_here(editor, frame, follow)
+    })
+}
+
+fn show_frame_here(editor: &mut Editor, frame: &StackFrame, follow: bool) {
     if !follow {
         jump_to_stack_frame(editor, frame);
         return;

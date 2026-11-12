@@ -944,6 +944,23 @@ impl Document {
         Ok(doc)
     }
 
+    /// A document showing a debugged program's memory in the hex view (this fork): it has no
+    /// path and no text, and its name says what it shows.
+    pub fn open_memory(
+        memory: crate::hex::MemorySource,
+        config: Arc<dyn DynAccess<Config>>,
+        syn_loader: Arc<ArcSwap<syntax::Loader>>,
+    ) -> Self {
+        let mut doc = Self::from(Rope::new(), None, config, syn_loader);
+        doc.hex = Some(Box::new(crate::hex::HexBuffer::debuggee(memory)));
+        doc
+    }
+
+    /// The debugged program's memory, for a document that shows it.
+    pub fn memory(&self) -> Option<&crate::hex::MemorySource> {
+        self.hex.as_ref()?.memory()
+    }
+
     /// The bytes of the document, if it is in the hex view.
     pub fn hex(&self) -> Option<&crate::hex::HexBuffer> {
         self.hex.as_deref()
@@ -978,6 +995,9 @@ impl Document {
     /// Leaves the hex view, unless bytes are overwritten and not written. The text is still the
     /// one before the hex view (empty for a file opened in it): reload it from the file.
     pub fn leave_hex(&mut self) -> anyhow::Result<()> {
+        if self.memory().is_some() {
+            bail!("this is a program's memory: it has no text to show");
+        }
         if let Some(hex) = &self.hex {
             if hex.is_modified() {
                 bail!(
@@ -1166,6 +1186,9 @@ impl Document {
         // state without blocking any further edits.
         let text = self.text().clone();
 
+        if self.memory().is_some() {
+            bail!("memory isn't a file: :w in its view writes the changed bytes to the program");
+        }
         let path = match path {
             Some(path) => vortex_stdx::path::canonicalize(path),
             None => {
@@ -2402,6 +2425,9 @@ impl Document {
     }
 
     pub fn display_name(&self) -> Cow<'_, str> {
+        if let Some(memory) = self.memory() {
+            return format!("memory: {}", memory.label).into();
+        }
         self.relative_path()
             .map_or_else(|| SCRATCH_BUFFER_NAME.into(), |path| path.to_string_lossy())
     }

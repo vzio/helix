@@ -628,6 +628,7 @@ impl MappableCommand {
         dap_live, "Back from rewind to the live position",
         dap_capture_settings, "Open the debugger's capture settings",
         dap_clear_time_labels, "Clear the time-per-line labels",
+        dap_memory, "Show the memory of the value under the debug panel's cursor",
         dap_evaluate, "Evaluate an expression in the debug console",
         shell_pipe, "Pipe selections through shell command",
         shell_pipe_to, "Pipe selections into shell command ignoring output",

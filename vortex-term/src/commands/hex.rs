@@ -166,6 +166,18 @@ pub fn handle_key(cx: &mut Context, key: KeyEvent, keys: &mut HexKeys) -> bool {
     };
     if target.cursor().overwrite {
         keys.pending = None;
+        // memory can only be overwritten while its program is paused, and that can change
+        // while overwriting (it runs, a rewind starts)
+        if let Some(why) = crate::debug::memory::not_editable(cx.editor) {
+            if let Some(target) = Target::of(cx.editor) {
+                target.hex.commit();
+                let cursor = target.hex.cursor_mut(target.view);
+                cursor.overwrite = false;
+                cursor.digit = 0;
+            }
+            cx.editor.set_status(why);
+            return true;
+        }
         return overwrite_key(cx, key);
     }
     if let Some(prefix) = keys.pending.take() {
@@ -255,15 +267,17 @@ fn read_only_key(cx: &mut Context, key: KeyEvent, keys: &mut HexKeys) -> bool {
         Char('/') => search_prompt(cx, Direction::Forward),
         Char('?') => search_prompt(cx, Direction::Backward),
         Char('G') => goto_prompt(cx),
-        Char('u') => match target.hex.undo() {
-            Some(offset) => target.move_to(offset),
-            None => cx.editor.set_status("Already at oldest change"),
-        },
-        Char('U') => match target.hex.redo() {
-            Some(offset) => target.move_to(offset),
-            None => cx.editor.set_status("Already at newest change"),
-        },
+        Char('u') | Char('U') => undo(cx, key.code == Char('u')),
         Char('i') => {
+            if target.hex.is_memory() {
+                if let Some(why) = crate::debug::memory::not_editable(cx.editor) {
+                    cx.editor.set_status(why);
+                    return true;
+                }
+            }
+            let Some(target) = Target::of(cx.editor) else {
+                return true;
+            };
             if target.hex.is_empty() {
                 cx.editor
                     .set_status("the file is empty: no byte to overwrite");
@@ -282,11 +296,49 @@ fn read_only_key(cx: &mut Context, key: KeyEvent, keys: &mut HexKeys) -> bool {
     true
 }
 
+/// `u` (`undo`) or `U`. In memory, a step already written is written back at once, so
+/// memory keeps what the view shows: only while the program is paused.
+fn undo(cx: &mut Context, undo: bool) {
+    let Some(target) = Target::of(cx.editor) else {
+        return;
+    };
+    let memory = target.hex.is_memory();
+    if memory && target.hex.next_step_written(undo) {
+        if let Some(why) = crate::debug::memory::not_editable(cx.editor) {
+            cx.editor.set_status(why);
+            return;
+        }
+    }
+    let Some(mut target) = Target::of(cx.editor) else {
+        return;
+    };
+    let step = if undo {
+        target.hex.undo_step()
+    } else {
+        target.hex.redo_step()
+    };
+    match step {
+        Some(step) => {
+            target.move_to(step.offset);
+            if memory && step.written {
+                crate::debug::memory::write_back(cx.editor, step.offsets, undo);
+            }
+        }
+        None if undo => cx.editor.set_status("Already at oldest change"),
+        None => cx.editor.set_status("Already at newest change"),
+    }
+}
+
 /// The second key of a `g` sequence.
 fn goto_key(cx: &mut Context, prefix: char, key: KeyEvent) {
     let Some(mut target) = Target::of(cx.editor) else {
         return;
     };
+    if target.hex.is_memory() && matches!(key.code, KeyCode::Char('g' | 'e')) && prefix == 'g' {
+        cx.editor
+            .set_status("memory has no first or last byte: G goes to an address");
+        return;
+    }
     let offset = target.cursor().offset;
     let per_row = target.per_row();
     match (prefix, key.code) {
@@ -371,6 +423,9 @@ fn type_char(target: &mut Target, c: char) -> Result<(), &'static str> {
     let cursor = target.cursor();
     let last = target.last();
     let Some(byte) = target.hex.byte(cursor.offset) else {
+        if target.hex.is_memory() {
+            return Err("this memory is unreadable (??): nothing to overwrite there");
+        }
         return Ok(());
     };
     match (cursor.column, cursor.layout) {
@@ -412,6 +467,9 @@ fn type_char(target: &mut Target, c: char) -> Result<(), &'static str> {
             // all of the character or nothing: half of it would be a broken UTF-8 sequence
             if cursor.offset + encoded.len() as u64 - 1 > last {
                 return Err("no room for this character before the end of the file");
+            }
+            if (0..encoded.len() as u64).any(|i| target.hex.byte(cursor.offset + i).is_none()) {
+                return Err("this memory is unreadable (??): nothing to overwrite there");
             }
             for (i, &byte) in encoded.iter().enumerate() {
                 target.hex.overwrite(cursor.offset + i as u64, byte);
@@ -510,15 +568,32 @@ fn search_next(editor: &mut Editor, direction: Direction) {
                 editor.set_status("Wrapped around document");
             }
         }
-        None => editor.set_error(format!("not found: {}", hex::hex_text(&pattern))),
+        None => {
+            // memory is too big to search through: only the bytes read so far are searched
+            let read = target.hex.memory().map(|memory| memory.cached_bytes());
+            match read {
+                Some(read) => editor.set_error(format!(
+                    "not found in the {} of memory read so far: {}",
+                    hex_view::size(read),
+                    hex::hex_text(&pattern)
+                )),
+                None => editor.set_error(format!("not found: {}", hex::hex_text(&pattern))),
+            }
+        }
     }
 }
 
 // Going to an offset
 
 fn goto_prompt(cx: &mut Context) {
+    let memory = doc!(cx.editor).memory().is_some();
     let prompt = ui::Prompt::new(
-        "goto offset:".into(),
+        if memory {
+            "goto address:"
+        } else {
+            "goto offset:"
+        }
+        .into(),
         None,
         ui::completers::none,
         |cx: &mut compositor::Context, input: &str, event: PromptEvent| {

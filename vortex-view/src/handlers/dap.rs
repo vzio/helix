@@ -25,7 +25,41 @@ pub fn dap_pos_to_pos(doc: &vortex_core::Rope, line: usize, column: usize) -> Op
 }
 
 /// Opens the frame's source at its line (and range, when the adapter gives one).
+/// Runs `f` in a view showing source code: the focused view, unless it shows a debugged
+/// program's memory (this fork), which keeps its place and the focus while the source moves in
+/// another view (a split of it when there is none).
+pub fn in_source_view<R>(editor: &mut Editor, f: impl FnOnce(&mut Editor) -> R) -> R {
+    let focused = editor.tree.focus;
+    let shows_memory = |editor: &Editor, view: crate::ViewId| {
+        let doc = editor.tree.get(view).doc;
+        editor.documents[&doc].memory().is_some()
+    };
+    if !shows_memory(editor, focused) {
+        return f(editor);
+    }
+    let other = editor
+        .tree
+        .views()
+        .map(|(view, _)| view.id)
+        .find(|&view| !shows_memory(editor, view));
+    match other {
+        Some(view) => editor.tree.focus = view,
+        None => {
+            editor.new_file(Action::VerticalSplit);
+        }
+    }
+    let result = f(editor);
+    if editor.tree.contains(focused) {
+        editor.tree.focus = focused;
+    }
+    result
+}
+
 pub fn jump_to_stack_frame(editor: &mut Editor, frame: &vortex_dap::StackFrame) {
+    in_source_view(editor, |editor| jump_in_view(editor, frame))
+}
+
+fn jump_in_view(editor: &mut Editor, frame: &vortex_dap::StackFrame) {
     let path = if let Some(vortex_dap::Source {
         path: Some(ref path),
         ..

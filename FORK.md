@@ -113,8 +113,8 @@ Each feature lives in its own modules, to keep rebasing on upstream cheap:
 | `x` on an empty line | `vortex-term/src/handlers/line_select.rs` |
 | Move lines | `vortex-term/src/commands/move_lines.rs` |
 | Terminal panel | `vortex-terminal/` (the shell: pty, emulator, OSC 133, bash/zsh integration), `vortex-view/src/terminal.rs` (panel state, `[editor.terminal]`), `vortex-term/src/terminal/` (drawing, focus, input encoding, the `vx` shim), `vortex-term/tests/test/terminal.rs` |
-| The debugger | `vortex-term/src/debug/` (`session.rs` the sessions, the adapter's events and reverse requests, `load.rs` what the panel loads at a stop, `breakpoints.rs` breakpoints per session, `panel.rs` the keys and the mouse, `render.rs` the drawing; spectator mode: `playback.rs` automatic stepping, fast forward and run to cursor, `threads.rs` spectating, freezing and running threads alone, `record.rs` what each stop records, `rewind.rs` scrubbing, `cpu.rs` a thread's CPU time from the OS), `vortex-view/src/debug/` (`mod.rs` the panel's state and rows; `spectator.rs`, `history.rs`, `timing.rs`, `config.rs` spectator mode's state, `[editor.debugger]`), `vortex-term/src/ui/text_decorations/step_times.rs` (the time per line), `vortex-dap/src/requester.rs` (requests that borrow nothing, for background tasks), child sessions in `vortex-dap/src/registry.rs`, `vortex-term/src/commands/dap.rs` (the `space G` commands, the templates), `vortex-term/tests/test/debug/` (a scripted fake adapter and the tests) |
-| Hex view | `vortex-view/src/hex.rs` (the bytes: windowed reads, the overwritten bytes, undo, cursors, search, the row layout), `vortex-term/src/ui/hex_view.rs` (drawing, the statusline texts), `vortex-term/src/commands/hex.rs` (keys, mouse, prompts, `:hex`), `vortex-term/tests/test/hex_view.rs` |
+| The debugger | `vortex-term/src/debug/` (`session.rs` the sessions, the adapter's events and reverse requests, `load.rs` what the panel loads at a stop, `breakpoints.rs` breakpoints per session, `panel.rs` the keys and the mouse, `render.rs` the drawing; spectator mode: `playback.rs` automatic stepping, fast forward and run to cursor, `threads.rs` spectating, freezing and running threads alone, `record.rs` what each stop records, `rewind.rs` scrubbing, `cpu.rs` a thread's CPU time from the OS; `memory.rs` a debugged program's memory in the hex view: opening, reading, refreshing, writing, recording for rewind), `vortex-view/src/debug/` (`mod.rs` the panel's state and rows; `spectator.rs`, `history.rs`, `timing.rs`, `config.rs` spectator mode's state, `[editor.debugger]`), `vortex-term/src/ui/text_decorations/step_times.rs` (the time per line), `vortex-dap/src/requester.rs` (requests that borrow nothing, for background tasks), child sessions in `vortex-dap/src/registry.rs`, `vortex-term/src/commands/dap.rs` (the `space G` commands, the templates), `vortex-term/tests/test/debug/` (a scripted fake adapter and the tests) |
+| Hex view | `vortex-view/src/hex/mod.rs` (the bytes: windowed reads, the overwritten bytes, undo, cursors, search, the row layout), `vortex-view/src/hex/memory.rs` (a debugged program's memory as the bytes: the page cache, what each byte is as drawn), `vortex-term/src/ui/hex_view.rs` (drawing, the statusline texts), `vortex-term/src/commands/hex.rs` (keys, mouse, prompts, `:hex`), `vortex-term/tests/test/hex_view.rs` |
 | Dashboard | `vortex-term/src/dashboard.rs` (when it is up, its keys), `vortex-term/src/dashboard/` (`stats.rs` the background reading, `languages.rs` the line counts, `render.rs` the layout and the panels, `timeline.rs` when things move, `title.rs` the title, `vortex.rs` the vortex, `wrap.rs` long values on two rows, `snapshots/` the drawings the tests compare with), `vortex-vcs/src/git/summary.rs` (the git summary), `vortex-term/tests/test/dashboard.rs` |
 | The vortex theme | `theme.toml` (the theme), `helix_theme.toml` (upstream's default theme), the built-in themes in `vortex-view/src/theme.rs` |
 | Practice | `vortex-term/src/practice.rs`, `vortex-term/src/practice/`, `runtime/practice/`, `vortex-term/tests/test/practice.rs` |
@@ -180,7 +180,15 @@ not opening a frame's missing file in `handlers/dap.rs`; the time-per-line decor
 `capabilities` in `DebugAdapterConfig` (`vortex-core`); the step requests' `singleThread` and
 granularity, paged `variables`, the configured capabilities and the arrival time of `stopped`
 events in `vortex-dap`; `supportsSingleThreadExecutionRequests` and `SteppingGranularity` in
-`vortex-dap-types`.
+`vortex-dap-types`. Memory in the hex view adds: `Document::open_memory`, the memory's name in
+`display_name` and `save_impl` refusing it in `vortex-view/src/document.rs`; `in_source_view` in
+`handlers/dap.rs` (a stop moves the source in another view than a memory view); reading memory
+after each frame, `Esc` going first to a hex view that overwrites or selects, and the hex view
+leaving its keys to an open sticky menu, in `ui/editor.rs`; `:debug-memory` and `:w` writing memory
+in `typed.rs`; a name for buffers without a path and the memory note in `ui/statusline.rs`;
+`readMemory`/`writeMemory`, `supportsMemoryReferences` and `supportsMemoryEvent` in `vortex-dap`
+and `vortex-dap-types`; a `capabilities` event merged into the capabilities instead of replacing
+them, in `vortex-term/src/debug/session.rs`.
 
 The hex view changes core files: the `hex` field of `Document` and what it changes there
 (`open_hex`, `enter_hex`/`leave_hex`, `apply` refusing transactions, `is_modified`, `save_impl`
@@ -1157,6 +1165,7 @@ says how to start them (see [Adapters](#adapters)).
 | `space G z`, `a` | Freeze or thaw the spectated thread; only it runs during steps (or all do) |
 | `space G [`, `]`, `L` | Rewind to the stop before, forward, back to live |
 | `space G R`, `X` | The capture settings; clear the time labels |
+| `space G M`, `:debug-memory [expr\|0xaddr]` | [Memory](#memory) of the value under the panel's cursor, of an expression, at an address |
 | `Ctrl-g` | Focus the panel, or go back to the editor |
 
 The panel opens when a session starts (the editor keeps the keys) and hides when it ends; `space G
@@ -1196,6 +1205,7 @@ Its keys, when focused, are modal like the fork's pickers:
 | `*` | Mark a variable: fast forward stops when it changes |
 | `[` `]`, `{` `}`, `L` | Rewind one stop back or forward, ten, back to live |
 | `R`, `x` | The capture settings; clear the time labels |
+| `M` | The [memory](#memory) of the value under the cursor (`▦` after it), in the hex view |
 | `:`, `Ctrl-t` | The command line; the terminal panel |
 | `q`, `Esc`, `Ctrl-g` | Back to the editor |
 
@@ -1358,9 +1368,57 @@ follow = "own"             # std, lib or own
 capture-depth = 3          # or "unlimited"
 capture-collection = 100   # or "unlimited"
 history = 2000             # stops; 0 records nothing; or "unlimited"
+capture-memory = 4096      # bytes per memory view; 0 records none; or "unlimited"
 time-labels = true
 time-threshold = 1         # milliseconds
 ```
+
+### Memory
+
+A debugged program's memory shows in the [hex view](#hex-view), with its colors, hex and bin modes,
+ASCII column, search, `v`/`y`, `G` to an address and statusline. Whether memory is offered depends
+only on the adapter's capabilities and on each value, never on the language:
+
+- An adapter that reads memory (`supportsReadMemoryRequest`) gives the values that live in memory a
+  `memoryReference`: those get a `▦` after them in Variables and Watch (`ui.debug.memory`), and `M`
+  (`space G M` from the editor) opens their memory, in a split, the cursor on their address in the
+  middle. `M` on another value says `<name> has no memory to show`. Without the capability there
+  is no `▦` anywhere, and `M` or `:debug-memory` say `this debugger (<name>) doesn't support viewing
+  memory`. Messages only: no popup, nothing greyed out.
+- `:debug-memory 0x7ffee3b4a010` opens at an address (read through the reference of a memory view
+  of the session already open, else through the address itself, which is what lldb-dap's references
+  are); `:debug-memory <expression>` evaluates it in the selected frame and opens the memory its
+  value points to, or says `<expression> doesn't point to memory`. Without an argument it is `M`.
+- The view's offsets are the addresses, `0x00007ffee3b4a010` with the grey `0x`; its name is
+  `memory: <value>`, and the position element shows the address, the byte and where it is from the
+  value (`buf+0x10`). The address space is huge: the view scrolls freely and reads only what it
+  draws, a 1 KiB page at a time (`readMemory`, through the value's reference with an offset), and
+  `gg`/`ge` say that memory has no first or last byte. Unreadable bytes (unmapped or freed memory,
+  a read that failed) show as `??` (`ui.hex.unreadable`), never as an error.
+- At every stop the pages on screen are read again, and the bytes the program changed since the
+  stop before stay highlighted (`ui.hex.changed`) until the next one. An adapter's `memory` event
+  reads them again too. While the program runs, the view keeps its last stop's bytes and the
+  statusline says `running · the last stop's bytes`; after the session, `session ended · its last
+  bytes`. A stop never replaces a memory view: the source moves in another split.
+- During playback and fast forward the views are read at most at the screen's rate (about 30 times a
+  second), not at every step; the highlight is then against the refresh before.
+- **Overwrite**: `i` as in a file, only where the adapter writes memory (`supportsWriteMemoryRequest`;
+  else `this debugger (<name>) can't write memory`), and only while the program is paused: refused,
+  with a message, while it runs, plays, fast forwards, or in REWIND, and on `??`. `:w` sends the
+  overwritten bytes with `writeMemory`, a request per run of bytes, and says
+  `wrote 4 bytes to memory: the debugger wrote 4`, then reloads the panel's values. `u` after writing
+  writes the old bytes back at once (`U` writes them again), so memory always holds what the view
+  shows. Memory is never a file: `:w <path>` is refused.
+- **Rewind**: at each recorded stop, every open memory view of the session records the bytes it
+  shows and 512 bytes on each side, at most `capture-memory` bytes (4 KiB by default) around the
+  middle of what it shows; the capture settings (`R`) have a `memory window` row and count the views
+  in the cost estimate. In REWIND a memory view shows those bytes, the ones that changed since the
+  recorded stop before highlighted, and anything outside them as `··` (`ui.hex.unrecorded`): never
+  live memory. A memory view opened after a stop wasn't recorded at it.
+
+The memory of a value stays the same document: `M` on it again focuses its view. A search (`/`)
+looks through the bytes read so far (the pages around where the view has been), since the address
+space can't be read through.
 
 ### Sessions
 
@@ -1452,6 +1510,8 @@ default `outFiles`, and breakpoints in TypeScript sources land only after the co
 | `ui.debug.frozen` | `❄ frozen` | `info` |
 | `ui.debug.hint` | the keys at the bottom of the panel | `ui.text.inactive` |
 | `ui.virtual.step-time` | the time per line | `ui.virtual.inline-blame`, then `ui.virtual.inlay-hint` |
+| `ui.debug.memory` | `▦`, a value whose memory can be shown | `info` |
+| `ui.hex.changed`, `ui.hex.unreadable`, `ui.hex.unrecorded` | in a [memory view](#memory): bytes the program changed since the stop before, `??`, `··` | bold `ui.debug.value.changed` (else `warning`); `ui.text.inactive`; `ui.virtual.whitespace` |
 
 The vortex theme sets them all.
 
@@ -1472,7 +1532,13 @@ DEBUGGER" section.
 - Long values are cut at the panel's width (`y` yanks the whole value).
 - `runInTerminal` uses the external terminal (`[editor.terminal] command`), not the terminal
   panel.
-- No data breakpoints, function breakpoints, disassembly, memory view or modules list.
+- No data breakpoints, function breakpoints, disassembly or modules list.
+- Memory: a search looks through the bytes read so far only. Overwriting a variable's memory
+  changes what the program reads only where its code reads that memory: an optimizer, and rustc
+  even in debug builds, can keep a copy in another stack slot or a register (a `let limit = 3`
+  compared through a copy kept its old value). Memory views are read through one reference each; an
+  address opened by `:debug-memory` without a view of the session open needs an adapter whose
+  references are addresses. lldb-dap writes memory from LLVM 21 (20 only reads it).
 - Spectator mode: rewind is history, never re-execution (no `stepBack`); it records the spectated
   thread's frames, not the other threads'. Stepping out of library code skips any of your code it
   calls back (a closure given to a library function). Fast forward compares values as text. An
@@ -1592,6 +1658,9 @@ buffers, the modified flag.
 - **Overwritten bytes** are a sparse map over the file (offset → byte), holding only the bytes that
   differ from the file, so the buffer is modified exactly when the map isn't empty. Undo steps
   record each byte's old and new values.
+- **A debugged program's memory** is another source of bytes for the same buffer, with the
+  addresses as offsets and pages read through the debug adapter as they are drawn: see the
+  debugger's [Memory](#memory).
 - **The text of the document** stays as it was (empty for a file opened in the hex view), and
   `Document::apply` refuses every transaction meanwhile: the keys that reach the keymap can't
   change it unseen. Going back to text reloads it from the file.
@@ -1610,6 +1679,9 @@ buffers, the modified flag.
 | `ui.hex.prefix` | the `0x` of the offsets | `ui.text.inactive`, `comment` |
 | `ui.hex.offset` | the digits of the offsets | `ui.linenr` |
 | `ui.hex.match` | search matches | `ui.highlight`, `ui.selection` |
+| `ui.hex.changed` | in a [memory view](#memory), bytes the program changed since the stop before | `ui.debug.value.changed`, `warning` (bold) |
+| `ui.hex.unreadable` | in a memory view, `??`: memory that can't be read | `ui.text.inactive`, `comment` |
+| `ui.hex.unrecorded` | in a memory view in REWIND, `··`: bytes not recorded at that stop | `ui.virtual.whitespace`, `ui.text.inactive` |
 
 Overwritten bytes use `diff.delta`, the selection `ui.selection` and the cursor `ui.cursor.primary`
 (`ui.cursor`, else reversed colors). The default theme sets the `ui.hex.*` byte colors.
