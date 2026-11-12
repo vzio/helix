@@ -303,7 +303,12 @@ mod tests {
     fn the_last_row_ends_with_an_ellipsis_only_when_the_rest_does_not_fit() {
         let rows = text(&wrap(&plain("alpha beta gamma"), 10, 2, Breaks::Words));
         assert_eq!(rows, ["alpha beta", "gamma"]);
-        let rows = text(&wrap(&plain("alpha beta gamma delta"), 10, 2, Breaks::Words));
+        let rows = text(&wrap(
+            &plain("alpha beta gamma delta"),
+            10,
+            2,
+            Breaks::Words,
+        ));
         assert_eq!(rows, ["alpha beta", "gamma del…"]);
         // exactly full is not cut
         let rows = text(&wrap(&plain("alpha beta gamma"), 10, 2, Breaks::Words));
@@ -334,7 +339,10 @@ mod tests {
         assert_eq!(text(&rows), ["origin  https://", "example.org/path"]);
         assert_eq!(
             rows[0],
-            [("origin  ".to_string(), red), ("https://".to_string(), blue)]
+            [
+                ("origin  ".to_string(), red),
+                ("https://".to_string(), blue)
+            ]
         );
         assert_eq!(rows[1], [("example.org/path".to_string(), blue)]);
         // a break in the middle of a styled run splits it in two spans of the same style
@@ -355,7 +363,10 @@ mod tests {
     fn the_ellipsis_takes_the_style_of_the_text_it_cuts() {
         let red = Style::default().fg(Color::Red);
         let blue = Style::default().fg(Color::Blue);
-        let spans = vec![("aaaa bbbb ".to_string(), red), ("cccc dddd".to_string(), blue)];
+        let spans = vec![
+            ("aaaa bbbb ".to_string(), red),
+            ("cccc dddd".to_string(), blue),
+        ];
         let rows = wrap(&spans, 8, 2, Breaks::Words);
         assert_eq!(text(&rows), ["aaaa", "bbbb cc…"]);
         let last = rows.last().unwrap().last().unwrap();
@@ -395,11 +406,8 @@ mod tests {
                             );
                         }
                         // nothing is lost but spaces, unless the end is cut
-                        let shown: String = text(&rows)
-                            .concat()
-                            .chars()
-                            .filter(|c| *c != ' ')
-                            .collect();
+                        let shown: String =
+                            text(&rows).concat().chars().filter(|c| *c != ' ').collect();
                         if shown.ends_with('…') {
                             assert!(all.starts_with(&shown[..shown.len() - '…'.len_utf8()]));
                         } else {

@@ -1249,46 +1249,46 @@ each way to start, over a vortex that spins behind it. `vx <file>` opens the fil
 the dashboard.
 
 ```text
-                    ░░░▒▒▒░ ░▒▒▓▓▓▓▓▒▒░░▒▓▓░ ░▒▒░░░                   ░                  ▒▓▒░▒▒▓▒
-      ░        ░░░▒░▒▓▓▓▓▓▓▒▒▒▒▒▒▓▓▓▒▒▒▓▓▓▓▒░░▒▓▒▒▒                  ░░                   ░▒ ░░▒▓
-   ░░░    ░▒░ ▒▒▒░▒▒▓▓▓▓▓▓░░░░▒▒░░ ░░▒▒▒▓▒▒▓▒▒▒▒▒▒▓▓▓▓▒▒▒▒▒░░░░    ░░ ░   ░                ▒░░  ▒
-      ░░░▒▓▒░▒▓▓▓▓▒▒▒▒▒▒▒    ░░░░                ░░░▓▓▓▓▒▓▓▓▒▒░░░░  ░░  ░  ░               ▒▒░▒ ░
-    ░▒▓▒▓▒▒░░▒▒▒▒▒▒░░                                                                     ░ ▒░░ ▒░
-░░▒ ░▒▓▓▓▓▒▒▒▓▓░░▒▒░    ██╗   ██╗ ██████╗ ██████╗ ████████╗███████╗██╗  ██╗        ░      ▒░▒▓▓░░
-▓▓▓▒░░▒▓▓▓▒▒▒░░░ ░░     ██║   ██║██╔═══██╗██╔══██╗╚══██╔══╝██╔════╝╚██╗██╔╝               ░ ░▓▓▓▒▒░
-▒▓▓▒░░▓▓▒▒░             ██║   ██║██║   ██║██████╔╝   ██║   █████╗   ╚███╔╝                     ▓▓▓▒▒
-▓▓▒ ░▒▒░                ╚██╗ ██╔╝██║   ██║██╔══██╗   ██║   ██╔══╝   ██╔██╗                     ░▒▓░░
-▓▒▒░░                    ╚████╔╝ ╚██████╔╝██║  ██║   ██║   ███████╗██╔╝ ██╗                    ▒▓▓▓
-▒▓▓▒░         ░  ░░       ╚═══╝   ╚═════╝ ╚═╝  ╚═╝   ╚═╝   ╚══════╝╚═╝  ╚═╝                   ░░▓▓▓░
-▒▓░          ░░                                                                               ▒░▓▓▓▒
-▒░                              fork of helix-editor/helix, by vzio                            ░▒▒▒▒
-                                                                                               ▓▒░░▓
-                       ░▓▓▒▓▓▒    ░░   ░░           ░░   ▒▓▓▓   ░        ▒▓▒                   ▒▓▓░░
-                                                                                                ▓▓▒▒
-              PROJECT                                                      /src/vortex          ▓▓▓▓
-          ░   branch    dashboard                                                              ░▓▓▓▓
-        ░░    commit    3768ea4  feat: remove microslop support and fix CI (#27)                ▓▓▓▒
-        ░     upstream  origin/main  3 unpushed                                                ░▓▓▓▓
-              remote    origin  https://github.com/vzio/vortex                                ▒▓▓▓▓▓
-              changes   2 staged · 5 unstaged · 1 untracked                                   ▒▓▓▒░▒
-   ░          rebase    in progress · 2 conflicted files                                     ▒▒▓▓  ░
-  ░░          worktrees /src/vortex-review  review                                         ░░▒▒▒▒░▒░
-  ░░                                                                                      ░▓▓▓░░▒▒░
-   ░                                                                                      ▒▓▓▒▒▒▓░
-  ░░░         LANGUAGES                                                   68,351 lines   ▓▒░▓▓▒▓░
-  ░░░         ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━  ▒▓▓▓▓▓▒░
-  ░░          ■ Rust          48,210   ■ Tree-sitter   12,650   ■ Markdown       3,377  ▓▓▓▓▓▓▒
-        ░     ■ TOML           1,904   ■ other          2,210                           ▓▓▓░░
-        ░                                                                               ▓▒
-             ▒▓▓▓░             ░ ░▓▓▓▒                                   ░░     ▒▓▓▓▓▓▓░
-            ░▓▓▓▒▒                                                             ░▓▓▓▓▓▒░
-             ░▓▓░▒░                 i    Start typing                ░░░  ░▒▒▓▒░▓▓▓▒░░░            ░
-        ░░    ▓▓░░▓                 f    Find a file     space f      ░░░░▒▓▓▓▒░ ░
-         ░    ░▒░░▒▒                e    File tree       space e  ░░░▒▓▓▓▓▓▓▓░
-                ░▒▓▓▒░░             l    Git history     space l  ▒▒▒▓▓▓▓▒▒░
-                 ▓▓▓▓▒▒░    ░       q    Quit                 :q  ▒▒▒░
-      ░          ░▓▓▓▒▓░    ░░                                         ░░░                   ░░
-      ░           ░▒▓▒▒▓░      ░░                                      ░                        ░░
+░········░░░░░░░░░▒▒▓▓██▓▓▓▓▓█████▓▓▒▒▓▓▓▓███████▓▓▒░░░·········░░▒▓██▓▓▒░░░░▒░░░▓████▓▒░········░▒█
+········░░░░░▒▒▓▓▓▓█████▓▓▓▓▓▒▒░░░░░░░░░▒▒▒▓▓▓▓█████▓██▓▓░░········░▒▓███▓▒░░░░░░░▒█████▓░········░▒
+·····░░░▒▓▓▒▓███████▓▓▒▒▒▒░░░░░░░░░░░░░░░░░░░░▒▒▒▒▓▓▒▓▓▓▓▓█▓▒░·······░▓█████▓░░░░░░░▓▓███▓▒········░
+··░░░▒▓▓█▓▓█████▒▒░░░░░░·░░░░░░░░▒▒▒▒░░░░░░░░░░░░░░░░░░░▒▒▓▓▓█▓▓▒░·····░▓████▓░░░░▒░░▒▓███▓░·······░
+░░▒▒▓█████▓▓▒▒░░░·····                                                       █▓▒░░░·░░░▓██▓░░·······
+▒▓██████▓▒░░░·····░░░░  ██╗   ██╗ ██████╗ ██████╗ ████████╗███████╗██╗  ██╗  ▓▓█▒░▒░░░░░▒▒▓▒░·······
+████▓▓▓▒░░·····░░▒▓█▓▓  ██║   ██║██╔═══██╗██╔══██╗╚══██╔══╝██╔════╝╚██╗██╔╝  ▓█▓▓▒░▒▒░░░░▒▓▒░░······
+██▒▒▒░░······░▒▓▓███▒▒  ██║   ██║██║   ██║██████╔╝   ██║   █████╗   ╚███╔╝   ▒▓██▓▒░▒▒░░░░▓▓▒░░·····
+▒░░░······░▒▒▓███▓▒░··  ╚██╗ ██╔╝██║   ██║██╔══██╗   ██║   ██╔══╝   ██╔██╗   ░▓███▓▒░░··░░▒██▒░···░·
+░░······░░▓████▓▒·····   ╚████╔╝ ╚██████╔╝██║  ██║   ██║   ███████╗██╔╝ ██╗  ·░▓███▓░░···░░▓█▒░░···▒
+······░░▓██▓█▓▒▒·····░    ╚═══╝   ╚═════╝ ╚═╝  ╚═╝   ╚═╝   ╚══════╝╚═╝  ╚═╝  ··░▒███▓░░··░░▒██▒░···░
+·····░▒▓█▓▒▒░░░····░▓█                                                       ··░░▒█▓▓▒░···░░▓█▒░····
+···░░▓█▒▒░······░░▓▓██          fork of helix-editor/helix, by vzio          ░··░░▓█▓▒░░··░░▒█▒▒····
+·░░▒██▓░░·····░░▓████▒                                                       ▒░·░░▒██▒░░···░▒█▓▒░···
+░▒▓███░·····░░▒███▓▒░░░░▒▓▓▓▓▒░░▒▒██████▒░░░·░░░▒▒▒▓▓▓▒░░▓██░·░██▓░░▓██▓··░▓▓▒░░░░▒▓█▓░░···░▒██▓░···
+▒▓▓█▓░·····░                                                                            ···░▓██▓░··░
+▓▒▓█░····░░▒  PROJECT                                                      /src/vortex  ···░████▒░·░
+▒▒▓░····░░▒▓  branch    dashboard                                                       ···░███▓▒░··
+▒▒▒····░▒▓██  commit    3768ea4  feat: remove microslop support and fix CI (#27)        ···░█▓▒░░░░·
+░░····░▒████  upstream  origin/main  3 unpushed                                         ···░█▓▒░░░░·
+░····░░▓███▒  remote    origin  https://github.com/vzio/vortex                          ··░▒█▒░░░▒▒░
+····░░▒██▓▓░  changes   2 staged · 5 unstaged · 1 untracked                             ··░▓█▒░·▒▓░░
+·░··░▒▓█▓▒░░  rebase    in progress · 2 conflicted files                                ·░▓▓▒░░·▓▒▒░
+░▒·░░▒██▓▒░·  worktrees /src/vortex-review  review                                      ▒▒█▓░░··▒░░░
+░░·░▒▓██▓░░·                                                                            ███▒░···░░░▓
+░░░░▓▓▓▓▒░··                                                                            ██▒░░··░▒░▓█
+··░░▓▓▓█▒░··  LANGUAGES                                                   68,351 lines  ▓▒░░···░░▓██
+··░░▓▓▓█░░··  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━  ▒░░···░░▒▓██
+·░░▒▒██▓▒░··  ■ Rust          48,210   ■ Tree-sitter   12,650   ■ Markdown       3,377  ▒░░░░░░▒▓▓█▓
+·░░▓▒▓█▓▒░··  ■ TOML           1,904   ■ other          2,210                           ░░░░░▒▓██▓▓░
+·░░▓▓▓█▒░░··                                                                            ▒░░░▓███▓▒░░
+·░░▒▓██▓░░···░░██▓▒░··░▓██▒░░░▓██▓··░▓███▒░░▒▓███▓▓▒░░░·░·░░░░░▓█████▓░░░░·░▒▒▓▓▓▒▒░░░░░░░▒▓███▒░░··
+··░░▓███▒░···░░▒██▒▒░·░░▓█▓▒░░░▒█                                 ▒▒░···░▓████▓▒░░░▒░░░▒▒▓▓██▓▒░░···
+··░░▒███▓░·····░▒█▓░░░·░▒▓█▓▒░░░░   i    Start typing             ░░░░▒▓██▓▓▓▒░░░░░░░▒▓███▓▓▒░░···░░
+··░░░▓▓██▓░····░░▓█▒░░··░▒▓██▒░░·   f    Find a file     space f  ▓█████▓▒▒░░░░░░░▒▓████▓█▓░░····░▒░
+···░░▒▓███▓▒░···░███▒░···░▒▓██▓░░   e    File tree       space e  █▓▒▒▒░░░░░░░▒▓▓██████▓▒░······▒▒▒▓
+···░░▒▓████▒░░···░███▒░···░░▒▓██▒   l    Git history     space l  ▒▒▒░░░░░░░▓███████▒▒▒░···░░··░▒▓██
+░···░░▒▓██▓█▒░····░▓█▓▒░░·░░░▒▓▓▓   q    Quit                 :q  ░░░░░▒▒▓▓████▓▒▒▒░·····░░░·░▒▓▓█▓█
+░····░▒████▓▒░····░▓█▓▓▓▒░░▒░▒▒▒▓                                 ▓▓████████▓▒░░░░·······░░░▒▓▓▒▒▒▒▓
+░░···░░▒████▒▒░····░▓▓▓▓▓▒░░░░▒▒▒▓▓█████▓░······░░░▒▒▒▓▓▓▓▓▓▓▓▓▒██▓▓▓▒▓▓▒░░·░░░░······░░▒▒▒█▓▒▒░░▒░·
 ```
 
 ### Usage
@@ -1343,13 +1343,15 @@ helix-editor/helix, by vzio".
 
 ### The vortex
 
-A whirlpool of particles fills the dashboard, drawn in the shades `░▒▓` by how many particles
-pass through each cell. It is a flow, not a turning picture: each particle falls from beyond the
-corners towards the eye along a logarithmic spiral with the golden pitch (the radius grows by φ
-every quarter turn), faster and faster as it nears the eye, while the three arms the particles
-crowd on turn slowly as a whole; each leaves a short trail that draws the streaks. Its colors run
-from the eye to the rim along the colors of the language bar (or `ui.dashboard.vortex.*`), mixed
-smoothly with true colors and fading into the background at the rim.
+A whirlpool fills the whole dashboard, every cell lit, from a faint `·` through `░▒▓` to `█`. It
+is a flow, not a turning picture, in two layers. The current: eight arms of logarithmic spirals
+with the golden pitch (the radius grows by φ every quarter turn), crossed by five finer ones of
+another pitch; a log spiral that turns looks the same as one that flows inwards, so the arms pour
+into the eye, and as the two sets drift at their own speeds their crossings shift like ripples.
+On it, particles ride the arms from beyond the corners towards the eye, faster and faster as they
+near it, each leaving a short bright streak. A cell's light picks its character and dims its
+color into the background; its distance to the eye picks the color, along the colors of the
+language bar (or `ui.dashboard.vortex.*`), mixed smoothly with true colors.
 
 The title, the stats and the actions each sit on a panel of the theme's background
 (`ui.dashboard.panel`) with a margin of a row and two columns around their text; the vortex is

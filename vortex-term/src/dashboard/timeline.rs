@@ -205,7 +205,13 @@ mod tests {
         for which in (0..7).filter(|which| !missing.contains(which)) {
             let at = if which == last { last_at } else { at };
             match which {
-                0 => stats.head.set_at(Ok(Head { branch: None, commit: None }), at),
+                0 => stats.head.set_at(
+                    Ok(Head {
+                        branch: None,
+                        commit: None,
+                    }),
+                    at,
+                ),
                 1 => stats.remote.set_at(Ok(None), at),
                 2 => stats.upstream.set_at(Ok(None), at),
                 3 => stats.changes.set_at(Ok(Changes::default()), at),
@@ -322,7 +328,9 @@ mod tests {
         let times: Vec<Instant> = (0..80).map(|i| born + ms(i * 150)).collect();
         let spin = |background, now| Timeline::new(born, background).spin(&stats, now);
 
-        assert!(times.iter().all(|&t| spin(DashboardBackground::Off, t).is_none()));
+        assert!(times
+            .iter()
+            .all(|&t| spin(DashboardBackground::Off, t).is_none()));
 
         let still = spin(DashboardBackground::Static, born).unwrap();
         assert!(times

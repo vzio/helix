@@ -1197,6 +1197,172 @@ pub(crate) mod tests {
         Timeline::new(born, background)
     }
 
+    const SIZES: [(u16, u16); 4] = [(160, 50), (100, 44), (60, 24), (120, 40)];
+    const MODES: [DashboardBackground; 3] = [
+        DashboardBackground::On,
+        DashboardBackground::Load,
+        DashboardBackground::Static,
+    ];
+
+    fn is_blank(surface: &Surface, x: u16, y: u16) -> bool {
+        surface[(x, y)].symbol.trim().is_empty()
+    }
+
+    /// The cells the vortex drew: those that differ from the same frame without a vortex.
+    fn vortex_cells(with: &Surface, without: &Surface) -> Vec<(u16, u16)> {
+        let area = with.area;
+        let mut cells = Vec::new();
+        for y in area.top()..area.bottom() {
+            for x in area.left()..area.right() {
+                if with[(x, y)].symbol != without[(x, y)].symbol {
+                    cells.push((x, y));
+                }
+            }
+        }
+        cells
+    }
+
+    #[test]
+    fn the_vortex_never_draws_on_the_panels() {
+        let born = Instant::now();
+        let stats = loaded(born);
+        for (width, height) in SIZES {
+            for mode in MODES {
+                let mut t = 0;
+                while t < 8000 {
+                    let now = born + Duration::from_millis(t);
+                    t += 97;
+                    let without = surface(
+                        &stats,
+                        width,
+                        height,
+                        timeline(born, DashboardBackground::Off),
+                        now,
+                    );
+                    let with = surface(&stats, width, height, timeline(born, mode), now);
+                    // a panel is the margin of 2 columns and 1 row around the text of a part: the
+                    // text is all there, and nothing else is in the margin
+                    for y in 0..height {
+                        for x in 0..width {
+                            if is_blank(&without, x, y) {
+                                continue;
+                            }
+                            assert_eq!(
+                                with[(x, y)].symbol,
+                                without[(x, y)].symbol,
+                                "{mode:?} {width}x{height} at {}ms: text lost at {x},{y}:\n{}",
+                                t - 97,
+                                text(&with)
+                            );
+                            for ty in y.saturating_sub(1)..=(y + 1).min(height - 1) {
+                                for tx in x.saturating_sub(2)..=(x + 2).min(width - 1) {
+                                    assert_eq!(
+                                        with[(tx, ty)].symbol,
+                                        without[(tx, ty)].symbol,
+                                        "{mode:?} {width}x{height} at {}ms: the vortex at \
+                                         {tx},{ty} is next to the text at {x},{y}:\n{}",
+                                        t - 97,
+                                        text(&with)
+                                    );
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn the_vortex_is_drawn_in_the_modes_that_have_one() {
+        let born = Instant::now();
+        let stats = loaded(born);
+        let now = settled(born);
+        let off = surface(
+            &stats,
+            160,
+            50,
+            timeline(born, DashboardBackground::Off),
+            now,
+        );
+        for mode in [DashboardBackground::On, DashboardBackground::Static] {
+            let with = surface(&stats, 160, 50, timeline(born, mode), now);
+            assert!(vortex_cells(&with, &off).len() > 100, "{mode:?}");
+        }
+    }
+
+    #[test]
+    fn the_off_mode_draws_no_shades_once_the_title_is_open() {
+        let born = Instant::now();
+        let stats = loaded(born);
+        let open = born + super::super::timeline::MIN_LOADING + super::super::timeline::TITLE;
+        for (width, height) in SIZES {
+            let mut t = open;
+            while t < born + Duration::from_secs(8) {
+                let drawn = surface(
+                    &stats,
+                    width,
+                    height,
+                    timeline(born, DashboardBackground::Off),
+                    t,
+                );
+                let shades = text(&drawn).chars().filter(|c| "░▒▓".contains(*c)).count();
+                assert_eq!(shades, 0, "{width}x{height}:\n{}", text(&drawn));
+                t += Duration::from_millis(397);
+            }
+        }
+    }
+
+    #[test]
+    fn a_small_window_draws_no_vortex() {
+        let born = Instant::now();
+        let stats = loaded(born);
+        for mode in MODES {
+            for t in (0..8000).step_by(331) {
+                let now = born + Duration::from_millis(t);
+                let off = surface(
+                    &stats,
+                    40,
+                    12,
+                    timeline(born, DashboardBackground::Off),
+                    now,
+                );
+                let with = surface(&stats, 40, 12, timeline(born, mode), now);
+                assert_eq!(text(&with), text(&off), "{mode:?} at {t}ms");
+            }
+        }
+    }
+
+    #[test]
+    fn the_first_frame_has_the_title_as_vx() {
+        let born = Instant::now();
+        let stats = loaded(born);
+        let drawn = surface(
+            &stats,
+            160,
+            50,
+            timeline(born, DashboardBackground::Off),
+            born,
+        );
+        let cells = title::LARGE.cells(0.0);
+        let open = title::LARGE.cells(1.0);
+        assert!(!cells.is_empty() && cells.len() < open.len());
+        let left = (160 - title::LARGE.width()) / 2;
+        let rows = title::LARGE.height();
+        // some row puts the title there, and nothing else is in its box
+        let found = (0..50 - rows).any(|top| {
+            let drawn_cells = cells.iter().all(|cell| {
+                drawn[(left + cell.x, top + cell.y)].symbol.as_str() == cell.c.to_string()
+            });
+            let used = (top..top + rows)
+                .flat_map(|y| (left..left + title::LARGE.width()).map(move |x| (x, y)))
+                .filter(|&(x, y)| !is_blank(&drawn, x, y))
+                .count();
+            drawn_cells && used == cells.len()
+        });
+        assert!(found, "no VX on:\n{}", text(&drawn));
+    }
+
     #[test]
     fn a_still_vortex() {
         let born = Instant::now();
