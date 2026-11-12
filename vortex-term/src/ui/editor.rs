@@ -1572,6 +1572,8 @@ impl Component for EditorView {
                 if key == key!(Esc)
                     && mode == Mode::Normal
                     && (cx.editor.terminal.is_visible() || cx.editor.debug.visible)
+                    // the focused debug panel takes Esc itself: back to the editor
+                    && !cx.editor.debug.is_focused()
                     && cx.editor.count.is_none()
                     && self.keymaps.pending().is_empty()
                     && self.keymaps.sticky().is_none()

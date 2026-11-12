@@ -108,6 +108,21 @@ pub async fn handle_message(editor: &mut Editor, id: DebugAdapterId, payload: Pa
 }
 
 fn handle_event(editor: &mut Editor, id: DebugAdapterId, event: Event) -> bool {
+    // output still counts after its session ended (a child's last words may come after its
+    // parent's `terminated`)
+    if let Event::Output(events::OutputBody {
+        category, output, ..
+    }) = &event
+    {
+        let kind = match category.as_deref() {
+            Some("telemetry") => return false,
+            Some("stdout") => LineKind::Stdout,
+            Some("stderr") => LineKind::Stderr,
+            _ => LineKind::Info,
+        };
+        editor.debug.console.push(kind, output);
+        return true;
+    }
     if editor.debug_adapters.get_client(id).is_none() {
         return false;
     }
@@ -173,17 +188,7 @@ fn handle_event(editor: &mut Editor, id: DebugAdapterId, event: Event) -> bool {
         Event::Thread(events::ThreadBody { reason, thread_id }) => {
             thread_event(editor, id, &reason, thread_id)
         }
-        Event::Output(events::OutputBody {
-            category, output, ..
-        }) => {
-            let kind = match category.as_deref() {
-                Some("telemetry") => return false,
-                Some("stdout") => LineKind::Stdout,
-                Some("stderr") => LineKind::Stderr,
-                _ => LineKind::Info,
-            };
-            editor.debug.console.push(kind, &output);
-        }
+        Event::Output(_) => {}
         Event::Breakpoint(events::BreakpointBody { reason, breakpoint }) => {
             breakpoints::event(editor, id, &reason, breakpoint)
         }

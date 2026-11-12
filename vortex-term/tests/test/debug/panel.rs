@@ -18,7 +18,7 @@ use vortex_view::{
 
 use super::{
     fake_adapter::{FakeAdapter, Scope, Script, Stop, Var},
-    harness::{Harness, DEADLINE},
+    harness::Harness,
 };
 use crate::test::helpers::{test_config, test_syntax_loader, AppBuilder};
 
@@ -468,8 +468,8 @@ async fn debug_eval_runs_in_the_repl_context_and_the_console_shows_it() -> anyho
     assert!(lines.contains(&(LineKind::Result, "3".into())), "{lines:?}");
 
     e.h.keys(":debug-eval<space>nope<ret>").await?;
-    e.h.until("the error line", |app| {
-        console_has(app, LineKind::Error, "cannot evaluate")
+    e.h.until("an error line", |app| {
+        console(app).iter().any(|(k, _)| *k == LineKind::Error)
     })
     .await;
     assert!(console(&e.h.app).contains(&(LineKind::Input, "nope".into())));
@@ -624,11 +624,6 @@ async fn a_child_session_is_configured_once_and_the_panel_follows_it() -> anyhow
     let app = &e.h.app;
     assert!(!app.editor.debug.visible);
     assert!(matches!(app.editor.debug.status, Status::Ended { .. }));
-    assert!(console_has(
-        app,
-        LineKind::Stderr,
-        "Process exited with code 0"
-    ));
     assert!(e.h.errors.is_empty(), "{:?}", e.h.errors);
     e.h.finish().await
 }
@@ -785,24 +780,12 @@ async fn focus_and_keys_of_the_panel() -> anyhow::Result<()> {
     e.h.keys("<C-g>").await?;
     assert!(e.h.app.editor.debug.visible && !e.h.app.editor.debug.focused);
 
-    // Esc gives them back too, and the panel stays
+    // q gives them back too
+    e.h.keys("<C-g>").await?;
+    e.h.keys("q").await?;
+    assert!(e.h.app.editor.debug.visible && !e.h.app.editor.debug.focused);
     e.h.keys("<C-g>").await?;
     assert!(e.h.app.editor.debug.is_focused());
-    e.h.keys("<esc>").await?;
-    assert!(
-        e.h.app.editor.debug.visible && !e.h.app.editor.debug.focused,
-        "Esc in the focused panel: visible {} focused {}",
-        e.h.app.editor.debug.visible,
-        e.h.app.editor.debug.focused
-    );
-    if !e.h.app.editor.debug.visible {
-        e.h.keys("<C-g>").await?;
-    }
-    assert!(e.h.app.editor.debug.is_focused() || e.h.app.editor.debug.visible);
-    // focus it again
-    if !e.h.app.editor.debug.is_focused() {
-        e.h.keys("<C-g>").await?;
-    }
 
     // j moves the panel's cursor, not the editor's
     let line = cursor_line(&e.h.app);
@@ -931,6 +914,47 @@ async fn debug_remote_starts_a_session_from_a_template() -> anyhow::Result<()> {
     e.h.keys(&command).await?;
     assert_eq!(e.fake.connections(), 1);
     assert!(e.h.app.editor.get_status().is_some());
-    let _ = DEADLINE;
+    e.h.finish().await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn the_last_output_of_a_child_session_reaches_the_console() -> anyhow::Result<()> {
+    let mut e = env(child_script).await?;
+    e.h.keys("2j<space>Gb<esc>gg").await?;
+    e.launch()?;
+    e.stopped("x = 1").await;
+    e.h.keys("<space>Gc").await?;
+    e.h.keys("<esc>").await?;
+    e.h.until("the end of the session", no_sessions).await;
+    assert!(
+        console_has(&e.h.app, LineKind::Stderr, "Process exited with code 0"),
+        "{:?}",
+        console(&e.h.app)
+    );
+    e.h.finish().await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_failed_evaluation_shows_the_adapters_message() -> anyhow::Result<()> {
+    let mut e = env(|p| Script::new(p).stop(Stop::new(3, "entry").scope(simple("1")))).await?;
+    e.launch()?;
+    e.stopped("x = 1").await;
+    e.h.keys(":debug-eval<space>nope<ret>").await?;
+    e.h.until("the error line", |app| {
+        console_has(app, LineKind::Error, "cannot evaluate")
+    })
+    .await;
+    e.h.finish().await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn esc_in_the_focused_panel_gives_the_keys_back_and_the_panel_stays() -> anyhow::Result<()> {
+    let mut e = env(|p| Script::new(p).stop(Stop::new(3, "entry").scope(simple("1")))).await?;
+    e.launch()?;
+    e.stopped("x = 1").await;
+    e.h.keys("<C-g>").await?;
+    assert!(e.h.app.editor.debug.is_focused());
+    e.h.keys("<esc>").await?;
+    assert!(e.h.app.editor.debug.visible && !e.h.app.editor.debug.focused);
     e.h.finish().await
 }

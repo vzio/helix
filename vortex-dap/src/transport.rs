@@ -196,7 +196,11 @@ impl Transport {
                 self.id, res.message, res.body, res.request_seq, res.command
             );
 
-            Err(Error::Other(anyhow::format_err!("{:?}", res.body)))
+            let message = res
+                .message
+                .clone()
+                .unwrap_or_else(|| format!("{} failed", res.command));
+            Err(Error::Other(anyhow::format_err!("{message}")))
         }
     }
 
