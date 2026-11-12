@@ -278,6 +278,7 @@ pub fn default() -> HashMap<Mode, KeyTrie> {
                 "L" => dap_live,
                 "R" => dap_capture_settings,
                 "X" => dap_clear_time_labels,
+                "M" => dap_memory,
             },
             "w" => { "Window"
                 "C-w" | "w" => rotate_view,

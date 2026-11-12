@@ -528,6 +528,10 @@ pub fn dap_clear_time_labels(cx: &mut Context) {
     cx.editor.set_status("Time labels cleared");
 }
 
+pub fn dap_memory(cx: &mut Context) {
+    debug::memory::open_selected(cx.editor);
+}
+
 pub fn dap_variables(cx: &mut Context) {
     debug::focus_section(cx.editor, Section::Variables);
 }

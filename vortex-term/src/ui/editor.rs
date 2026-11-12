@@ -1579,9 +1579,19 @@ impl Component for EditorView {
 
                 let mode = cx.editor.mode();
 
+                // a hex view (this fork) overwriting or selecting takes Esc to stop that
+                let hex_uses_esc = {
+                    let (view, doc) = current_ref!(cx.editor);
+                    doc.hex().is_some_and(|hex| {
+                        let cursor = hex.cursor(view.id);
+                        cursor.overwrite || cursor.anchor.is_some()
+                    })
+                };
+
                 // Esc in normal mode, with nothing pending, hides the terminal panel (popups,
                 // which are above, take it first)
                 if key == key!(Esc)
+                    && !hex_uses_esc
                     && mode == Mode::Normal
                     && (cx.editor.terminal.is_visible() || cx.editor.debug.visible)
                     // the focused debug panel takes Esc itself: back to the editor
@@ -1651,7 +1661,9 @@ impl Component for EditorView {
                 }
 
                 // a document in the hex view (this fork) takes its keys first
+                // (not while a sticky menu is open: `space G` stays usable over a memory view)
                 let hex_handled = self.keymaps.pending().is_empty()
+                    && self.keymaps.sticky().is_none()
                     && self.pseudo_pending.is_empty()
                     && self.on_next_key.is_none()
                     && commands::hex::handle_key(&mut cx, key, &mut self.hex_keys);
@@ -1815,6 +1827,9 @@ impl Component for EditorView {
             Self::render_bufferline(cx.editor, area.with_height(1), surface);
         }
 
+        // memory views (this fork) show the bytes recorded at the rewind marker, if any
+        crate::debug::memory::sync_rewind(cx.editor);
+
         // with the panel focused, no split is
         let panel_focused = cx.editor.terminal.is_focused() || cx.editor.debug.is_focused();
         for (view, is_focused) in cx.editor.tree.views() {
@@ -1835,6 +1850,8 @@ impl Component for EditorView {
         if let Some(debug_area) = debug_area {
             crate::debug::render(cx.editor, debug_area, surface);
         }
+        // memory views (this fork) read the bytes they just drew without having them
+        crate::debug::memory::load_wanted(cx.editor);
 
         // the dashboard (this fork) over the views, under the infobox and the command line
         if let Some(dashboard) = self.live_dashboard(cx.editor) {

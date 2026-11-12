@@ -11,7 +11,7 @@ use tokio::sync::oneshot;
 use vortex_dap::{registry::DebugAdapterId, Requester, StackFrame};
 use vortex_view::{
     debug::{
-        history::{Caps, Snapshot},
+        history::{Caps, MemoryWindow, Snapshot},
         mark_changes,
         spectator::ThreadKey,
         VarNode, Watch,
@@ -56,6 +56,8 @@ pub fn capture(
         .iter()
         .map(|frame| follow.allows(rules.classify(frame)))
         .collect();
+    // the memory views of the session, around what they show
+    let windows = super::memory::to_record(editor, session, caps.memory);
     let step = editor.debug.spectator.history.next_step();
     let thread_name = editor.debug.thread_name(key);
     let reason = reason.to_owned();
@@ -97,6 +99,7 @@ pub fn capture(
                                 ty: response.ty,
                                 reference: response.variables_reference,
                                 evaluate_name: Some(expression.clone()),
+                                memory_reference: response.memory_reference,
                                 ..Default::default()
                             };
                             if node.reference > 0 {
@@ -126,6 +129,16 @@ pub fn capture(
             };
             watch_values.push(Watch { expression, node });
         }
+        let mut memory = Vec::with_capacity(windows.len());
+        for window in &windows {
+            let (bytes, requests) = super::memory::read_window(&requester, window).await;
+            counters.requests.fetch_add(requests, Ordering::Relaxed);
+            memory.push(MemoryWindow {
+                doc: window.doc,
+                start: window.start,
+                bytes,
+            });
+        }
         let mut snapshot = Snapshot {
             step,
             key,
@@ -134,6 +147,7 @@ pub fn capture(
             frames,
             scopes,
             watches: watch_values,
+            memory,
             requests: counters.requests.load(Ordering::Relaxed),
             bytes: 0,
             truncated: counters.truncated.load(Ordering::Relaxed),
@@ -278,6 +292,7 @@ fn children(
                     ty: variable.ty,
                     reference: variable.variables_reference,
                     evaluate_name: variable.evaluate_name,
+                    memory_reference: variable.memory_reference,
                     ..Default::default()
                 };
                 if node.reference > 0 && below != Some(0) {

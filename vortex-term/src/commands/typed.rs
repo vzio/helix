@@ -396,6 +396,13 @@ fn write_impl(
     path: Option<&str>,
     options: WriteOptions,
 ) -> anyhow::Result<()> {
+    // memory (this fork) isn't a file: `:w` sends its overwritten bytes to the program
+    if doc!(cx.editor).memory().is_some() {
+        if path.is_some() {
+            bail!("memory isn't a file: it can't be written to one (:w writes it to the program)");
+        }
+        return crate::debug::memory::write(cx.editor);
+    }
     // a buffer that is not modified is brought up to date instead of overwritten
     if !options.force && path.is_none() {
         let doc_id = doc!(cx.editor).id();
@@ -2168,6 +2175,18 @@ fn debug_eval(cx: &mut compositor::Context, args: Args, event: PromptEvent) -> a
     Ok(())
 }
 
+fn debug_memory(
+    cx: &mut compositor::Context,
+    args: Args,
+    event: PromptEvent,
+) -> anyhow::Result<()> {
+    if event != PromptEvent::Validate {
+        return Ok(());
+    }
+    let input = args.join(" ");
+    crate::debug::memory::command(cx.editor, Some(&input))
+}
+
 fn debug_start(cx: &mut compositor::Context, args: Args, event: PromptEvent) -> anyhow::Result<()> {
     if event != PromptEvent::Validate {
         return Ok(());
@@ -3899,6 +3918,18 @@ pub const TYPABLE_COMMAND_LIST: &[TypableCommand] = &[
         completer: CommandCompleter::none(),
         signature: Signature {
             positionals: (1, Some(1)),
+            raw_after: Some(0),
+            ..Signature::DEFAULT
+        },
+    },
+    TypableCommand {
+        name: "debug-memory",
+        aliases: &[],
+        doc: "Show memory of the debugged program in the hex view: at an address (0x7ffee3b4a010), or where an expression's value points; without one, the value under the debug panel's cursor.",
+        fun: debug_memory,
+        completer: CommandCompleter::none(),
+        signature: Signature {
+            positionals: (0, None),
             raw_after: Some(0),
             ..Signature::DEFAULT
         },

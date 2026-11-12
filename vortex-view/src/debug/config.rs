@@ -22,6 +22,9 @@ pub struct DebuggerConfig {
     /// Stops kept for rewind; 0 records nothing. Defaults to 2000.
     #[serde(with = "limit")]
     pub history: Option<usize>,
+    /// Bytes of each open memory view recorded at every stop. Defaults to 4096.
+    #[serde(with = "limit")]
+    pub capture_memory: Option<usize>,
     /// Show how long each step took at the end of the line it left. Defaults to true.
     pub time_labels: bool,
     /// Steps faster than this, in milliseconds after the stepping overhead, get no label.
@@ -38,6 +41,7 @@ impl Default for DebuggerConfig {
             capture_depth: caps.depth,
             capture_collection: caps.collection,
             history: caps.history,
+            capture_memory: caps.memory,
             time_labels: true,
             time_threshold: 1.0,
         }
@@ -53,6 +57,7 @@ impl DebuggerConfig {
             depth: self.capture_depth,
             collection: self.capture_collection,
             history: self.history,
+            memory: self.capture_memory,
         }
     }
 

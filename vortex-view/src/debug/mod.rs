@@ -114,6 +114,8 @@ pub struct VarNode {
     pub expensive: bool,
     /// An evaluation that failed: `value` holds the message.
     pub error: bool,
+    /// The adapter's `memoryReference`: the value points to memory that can be shown.
+    pub memory_reference: Option<String>,
 }
 
 impl VarNode {
@@ -196,6 +198,9 @@ pub enum Target {
     None,
 }
 
+/// The badge of a value whose memory `M` shows.
+pub const MEMORY_BADGE: &str = "▦";
+
 /// How a piece of a row is drawn; `vortex-term` maps these to theme scopes.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Role {
@@ -218,6 +223,8 @@ pub enum Role {
     Frozen,
     /// The rewind marker.
     Rewind,
+    /// The badge of a value whose memory can be shown.
+    Memory,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -694,8 +701,9 @@ impl DebugState {
         }
     }
 
-    /// The rows of a variables tree (the scopes, or the watches).
-    pub fn var_rows(&self, watch: bool) -> Vec<Row> {
+    /// The rows of a variables tree (the scopes, or the watches). `memory`: the adapter reads
+    /// memory, so the values that point to some get a badge.
+    pub fn var_rows(&self, watch: bool, memory: bool) -> Vec<Row> {
         let mut rows = Vec::new();
         if watch {
             let watches = self.shown_watches();
@@ -712,7 +720,7 @@ impl DebugState {
                     names: vec![watch.expression.clone()],
                 };
                 match &watch.node {
-                    Some(node) => self.push_var_rows(&mut rows, path, node, 0),
+                    Some(node) => self.push_var_rows(&mut rows, path, node, 0, memory),
                     None => rows.push(Row {
                         depth: 0,
                         marker: Marker::None,
@@ -740,13 +748,20 @@ impl DebugState {
                     tree: Tree::Scopes,
                     names: vec![scope.name.clone()],
                 };
-                self.push_var_rows(&mut rows, path, scope, 0);
+                self.push_var_rows(&mut rows, path, scope, 0, memory);
             }
         }
         rows
     }
 
-    fn push_var_rows(&self, rows: &mut Vec<Row>, path: VarPath, node: &VarNode, depth: u16) {
+    fn push_var_rows(
+        &self,
+        rows: &mut Vec<Row>,
+        path: VarPath,
+        node: &VarNode,
+        depth: u16,
+        memory: bool,
+    ) {
         let expanded = node.has_children() && self.is_expanded(&path);
         let marker = match (node.has_children(), expanded) {
             (false, _) => Marker::None,
@@ -773,6 +788,9 @@ impl DebugState {
             parts.push((one_line(&node.value), value_role));
             if let Some(ty) = node.ty.as_deref().filter(|ty| !ty.is_empty()) {
                 parts.push((format!("  {ty}"), Role::Type));
+            }
+            if memory && node.memory_reference.is_some() {
+                parts.push((format!("  {MEMORY_BADGE}"), Role::Memory));
             }
         }
         rows.push(Row {
@@ -813,7 +831,7 @@ impl DebugState {
                         tree: path.tree.clone(),
                         names,
                     };
-                    self.push_var_rows(rows, child_path, child, depth + 1);
+                    self.push_var_rows(rows, child_path, child, depth + 1, memory);
                 }
             }
         }
@@ -1228,18 +1246,18 @@ mod tests {
         let mut globals = parent("Globals", vec![var("g", "1")]);
         globals.expensive = true;
         state.scopes = vec![globals, parent("Locals", vec![var("x", "1")])];
-        let rows = state.var_rows(false);
+        let rows = state.var_rows(false, false);
         let texts: Vec<_> = rows.iter().map(Row::text).collect();
         assert_eq!(texts, ["Globals", "Locals", "x = 1"]);
         assert_eq!(rows[0].marker, Marker::Collapsed);
         assert_eq!(rows[1].marker, Marker::Expanded);
 
         state.set_expanded(&scopes_path(&["Locals"]), false);
-        assert_eq!(state.var_rows(false).len(), 2);
+        assert_eq!(state.var_rows(false, false).len(), 2);
         assert!(!state.expanded_paths().contains(&scopes_path(&["Locals"])));
 
         state.set_expanded(&scopes_path(&["Globals"]), true);
-        let texts: Vec<_> = state.var_rows(false).iter().map(Row::text).collect();
+        let texts: Vec<_> = state.var_rows(false, false).iter().map(Row::text).collect();
         assert_eq!(texts, ["Globals", "g = 1", "Locals"]);
     }
 
@@ -1250,7 +1268,7 @@ mod tests {
         p.children = None;
         state.scopes = vec![parent("Locals", vec![p])];
         state.set_expanded(&scopes_path(&["Locals", "p"]), true);
-        let texts: Vec<_> = state.var_rows(false).iter().map(Row::text).collect();
+        let texts: Vec<_> = state.var_rows(false, false).iter().map(Row::text).collect();
         assert_eq!(texts, ["Locals", "p = {…}", "loading…"]);
         assert_eq!(
             state.container_reference(&scopes_path(&["Locals", "p"])),
@@ -1416,7 +1434,7 @@ mod tests {
             scopes: vec![parent("Locals", vec![var("count", "1"), var("x", "2")])],
             ..Default::default()
         };
-        let rows = filter_rows(state.var_rows(false), Some("COUNT"));
+        let rows = filter_rows(state.var_rows(false, false), Some("COUNT"));
         let texts: Vec<_> = rows.iter().map(Row::text).collect();
         assert_eq!(texts, ["count = 1"]);
     }

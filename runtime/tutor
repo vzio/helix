@@ -391,6 +391,18 @@
  Esc goes back to the editor, where space is the menu again; Esc
  again in normal mode hides the panel.
 
+ Where the adapter reads memory, a value that lives in memory
+ has a ▦ after it, and M shows its bytes in the hex view, in a
+ split, at its address. They are read again at every stop, and
+ the bytes the program changed since the stop before stand out.
+ i overwrites them while the program is paused (where the
+ adapter writes memory), :w sends them, and u writes the old
+ ones back. A byte that can't be read shows ??.
+
+  M              in the panel, the memory of the value
+  space G M      the same, from the editor
+  :debug-memory  the memory of an expression, or at 0x7ffe…
+
 
 
 =================================================================

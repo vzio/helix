@@ -3092,6 +3092,7 @@ name = "vortex-dap"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "base64",
  "futures-executor",
  "futures-util",
  "log",

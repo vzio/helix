@@ -36,6 +36,25 @@
 //! * `evaluate`: `1+2` -> `3`; otherwise the expression is a name (`a.b` for children) looked up
 //!   in the scopes of the frame (frame 0 without `frameId`); else error "cannot evaluate". The
 //!   request (with its `context`) is in the request log like every other request.
+//! * Memory: `Script::read_memory()` / `Script::write_memory()` advertise
+//!   `supportsReadMemoryRequest` / `supportsWriteMemoryRequest` (and enable the requests; without
+//!   them they are "unsupported"). The simulated memory is a sparse map of readable bytes: the
+//!   regions of `Script::memory(address, bytes)`, everything else is unreadable. A
+//!   `memoryReference` is a hex address (`0x1000`); `offset` is added to it (it may be negative).
+//!   `readMemory` answers `address` (the first readable byte of the range asked for), `data`
+//!   (base64: the readable bytes from there, up to the end of their region or of the range) and
+//!   `unreadableBytes` (the unreadable bytes of the range after the data). A range without a
+//!   readable byte is answered with `address` = the range's start, no `data`, and
+//!   `unreadableBytes` = `count`; with `Script::read_errors()` it fails instead ("cannot read
+//!   memory"). `writeMemory` writes the bytes, all or nothing: a byte outside the readable
+//!   memory fails it ("cannot write memory"). It answers `bytesWritten` (the number of bytes
+//!   sent, or `Script::bytes_written(n)` whatever it was). `Var::memory(reference)` gives a
+//!   variable a `memoryReference` (in `variables` and in `evaluate` of its name).
+//!   `Stop::poke(address, bytes)` changes memory when the program reaches that stop, just before
+//!   `stopped`, so `continue`/`next` change what the next read shows. The memory is shared by
+//!   all the connections; tests look at it with `FakeAdapter::memory_at` and change it with
+//!   `FakeAdapter::set_memory`, and at the requests with `FakeAdapter::memory_reads` /
+//!   `FakeAdapter::memory_writes` (absolute addresses).
 //! * `setExceptionBreakpoints` is answered WITHOUT a body (like lldb-dap).
 //! * Unknown requests: `success: false`, message `"unsupported"`.
 //! * Delays: `Stop::delay(ms)`. When a `continue`/`next`/`stepIn`/`stepOut` reaches such a stop,
@@ -81,7 +100,7 @@
 
 #![allow(dead_code)]
 
-use std::collections::{HashMap, VecDeque};
+use std::collections::{BTreeMap, HashMap, VecDeque};
 use std::net::SocketAddr;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
@@ -107,6 +126,7 @@ pub struct Var {
     pub ty: Option<String>,
     pub children: Vec<Var>,
     pub indexed: bool,
+    pub memory_reference: Option<String>,
 }
 
 impl Var {
@@ -117,7 +137,13 @@ impl Var {
             ty: None,
             children: Vec::new(),
             indexed: false,
+            memory_reference: None,
         }
+    }
+    /// The value points to memory: its `memoryReference` (a hex address like `0x1000`).
+    pub fn memory(mut self, reference: impl Into<String>) -> Var {
+        self.memory_reference = Some(reference.into());
+        self
     }
     /// Announces the number of children as `indexedVariables`.
     pub fn indexed(mut self) -> Var {
@@ -203,6 +229,8 @@ pub struct Stop {
     pub delay_ms: u64,
     pub events: Vec<ThreadEvent>,
     pub keep_reason: bool,
+    /// Memory written when the program reaches the stop.
+    pub pokes: Vec<(u64, Vec<u8>)>,
 }
 
 /// A `thread` event sent just before a stop's `stopped`.
@@ -223,7 +251,13 @@ impl Stop {
             delay_ms: 0,
             events: Vec::new(),
             keep_reason: false,
+            pokes: Vec::new(),
         }
+    }
+    /// The program changes memory (`bytes` at `address`) on its way to this stop.
+    pub fn poke(mut self, address: u64, bytes: impl AsRef<[u8]>) -> Stop {
+        self.pokes.push((address, bytes.as_ref().to_vec()));
+        self
     }
     /// Reached by a step, this stop reports its own reason instead of `"step"` (like stepping
     /// onto a line with a breakpoint, which a real adapter reports as `"breakpoint"`).
@@ -285,6 +319,11 @@ pub struct Script {
     all_stopped: bool,
     thread_mode: bool,
     programs: Vec<(i64, Vec<Stop>)>,
+    read_memory: bool,
+    write_memory: bool,
+    read_errors: bool,
+    bytes_written: Option<usize>,
+    memory: Vec<(u64, Vec<u8>)>,
 }
 
 impl Script {
@@ -309,7 +348,42 @@ impl Script {
             all_stopped: true,
             thread_mode: false,
             programs: Vec::new(),
+            read_memory: false,
+            write_memory: false,
+            read_errors: false,
+            bytes_written: None,
+            memory: Vec::new(),
         }
+    }
+    /// `supportsReadMemoryRequest`: `readMemory` works.
+    pub fn read_memory(mut self) -> Script {
+        self.read_memory = true;
+        self
+    }
+    /// `supportsWriteMemoryRequest`: `writeMemory` works.
+    pub fn write_memory(mut self) -> Script {
+        self.write_memory = true;
+        self
+    }
+    /// `bytes` are readable (and writable) from `address`.
+    pub fn memory(mut self, address: u64, bytes: impl AsRef<[u8]>) -> Script {
+        self.memory.push((address, bytes.as_ref().to_vec()));
+        self
+    }
+    /// `len` readable bytes from `address`, the byte at `address + i` being `f(i)`.
+    pub fn memory_with(self, address: u64, len: usize, f: impl Fn(usize) -> u8) -> Script {
+        let bytes: Vec<u8> = (0..len).map(f).collect();
+        self.memory(address, bytes)
+    }
+    /// `readMemory` of a range with nothing readable fails instead of saying `unreadableBytes`.
+    pub fn read_errors(mut self) -> Script {
+        self.read_errors = true;
+        self
+    }
+    /// `writeMemory` always answers `bytesWritten: n`.
+    pub fn bytes_written(mut self, n: usize) -> Script {
+        self.bytes_written = Some(n);
+        self
     }
     /// Gives a stop its default frame and moves its scopes to the top frame.
     fn normalize(&self, mut stop: Stop) -> Stop {
@@ -456,6 +530,11 @@ impl Script {
             self.conditional_breakpoints.into(),
         );
         caps.insert("supportsLogPoints".into(), self.log_points.into());
+        caps.insert("supportsReadMemoryRequest".into(), self.read_memory.into());
+        caps.insert(
+            "supportsWriteMemoryRequest".into(),
+            self.write_memory.into(),
+        );
         let filters: Vec<Value> = self
             .exception_filters
             .iter()
@@ -496,6 +575,8 @@ struct Shared {
     parent_out: Mutex<Option<Arc<Out>>>,
     /// Every `stopped` event sent: (thread, line of the top frame, reason).
     sent: Mutex<Vec<(i64, u64, String)>>,
+    /// The readable bytes of the simulated memory.
+    memory: Mutex<BTreeMap<u64, u8>>,
 }
 
 pub struct FakeAdapter {
@@ -515,6 +596,12 @@ impl FakeAdapter {
     pub async fn start(script: Script) -> Result<FakeAdapter> {
         let listener = TcpListener::bind("127.0.0.1:0").await?;
         let addr = listener.local_addr()?;
+        let mut memory = BTreeMap::new();
+        for (address, bytes) in &script.memory {
+            for (i, byte) in bytes.iter().enumerate() {
+                memory.insert(address + i as u64, *byte);
+            }
+        }
         let shared = Arc::new(Shared {
             script,
             log: Mutex::new(Vec::new()),
@@ -522,6 +609,7 @@ impl FakeAdapter {
             next_index: AtomicUsize::new(0),
             parent_out: Mutex::new(None),
             sent: Mutex::new(Vec::new()),
+            memory: Mutex::new(memory),
         });
         let sh = shared.clone();
         let task = tokio::spawn(async move {
@@ -573,6 +661,49 @@ impl FakeAdapter {
         self.shared.sent.lock().unwrap().clone()
     }
 
+    /// The `len` bytes of the simulated memory from `address` (`None`: unreadable).
+    pub fn memory_at(&self, address: u64, len: usize) -> Vec<Option<u8>> {
+        let memory = self.shared.memory.lock().unwrap();
+        (0..len as u64)
+            .map(|i| memory.get(&(address + i)).copied())
+            .collect()
+    }
+
+    /// Changes the simulated memory, as the program would: the bytes become readable.
+    pub fn set_memory(&self, address: u64, bytes: &[u8]) {
+        let mut memory = self.shared.memory.lock().unwrap();
+        for (i, byte) in bytes.iter().enumerate() {
+            memory.insert(address + i as u64, *byte);
+        }
+    }
+
+    /// Makes `len` bytes from `address` unreadable.
+    pub fn unmap_memory(&self, address: u64, len: usize) {
+        let mut memory = self.shared.memory.lock().unwrap();
+        for i in 0..len as u64 {
+            memory.remove(&(address + i));
+        }
+    }
+
+    /// The `readMemory` requests received, in order: (absolute address, count).
+    pub fn memory_reads(&self) -> Vec<(u64, usize)> {
+        self.requests_named("readMemory")
+            .into_iter()
+            .filter_map(|(_, args)| memory_range(&args))
+            .collect()
+    }
+
+    /// The `writeMemory` requests received, in order: (absolute address, bytes).
+    pub fn memory_writes(&self) -> Vec<(u64, Vec<u8>)> {
+        self.requests_named("writeMemory")
+            .into_iter()
+            .filter_map(|(_, args)| {
+                let (address, _) = memory_range(&args)?;
+                Some((address, base64_decode(args["data"].as_str()?)?))
+            })
+            .collect()
+    }
+
     /// How many stops of `thread` were reported so far (how far its queue advanced).
     pub fn advanced(&self, thread: i64) -> usize {
         self.stops_sent().iter().filter(|s| s.0 == thread).count()
@@ -617,6 +748,64 @@ impl FakeAdapter {
             tokio::time::sleep(Duration::from_millis(10)).await;
         }
     }
+}
+
+// ---------------------------------------------------------------------------------------------
+// Memory helpers
+// ---------------------------------------------------------------------------------------------
+
+/// A `memoryReference` (a hex address, or a decimal one) as a number.
+fn parse_reference(text: &str) -> Option<u64> {
+    let text = text.trim();
+    match text.strip_prefix("0x") {
+        Some(hex) => u64::from_str_radix(hex, 16).ok(),
+        None => text.parse().ok(),
+    }
+}
+
+/// The absolute address and the `count` (the length of `data`, for `writeMemory`) of a
+/// `readMemory` or `writeMemory` request.
+fn memory_range(args: &Value) -> Option<(u64, usize)> {
+    let base = parse_reference(args["memoryReference"].as_str()?)?;
+    let offset = args["offset"].as_i64().unwrap_or(0);
+    let count = args["count"].as_u64().unwrap_or(0) as usize;
+    Some((base.wrapping_add(offset as u64), count))
+}
+
+const B64: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+
+pub fn base64_encode(data: &[u8]) -> String {
+    let mut out = String::new();
+    for chunk in data.chunks(3) {
+        let n = chunk
+            .iter()
+            .enumerate()
+            .fold(0u32, |n, (i, b)| n | (*b as u32) << (16 - 8 * i));
+        for i in 0..4 {
+            if i <= chunk.len() {
+                out.push(B64[(n >> (18 - 6 * i) & 63) as usize] as char);
+            } else {
+                out.push('=');
+            }
+        }
+    }
+    out
+}
+
+pub fn base64_decode(text: &str) -> Option<Vec<u8>> {
+    let mut out = Vec::new();
+    let (mut n, mut bits) = (0u32, 0);
+    for c in text.trim().trim_end_matches('=').bytes() {
+        let value = B64.iter().position(|b| *b == c)? as u32;
+        n = n << 6 | value;
+        bits += 6;
+        if bits >= 8 {
+            bits -= 8;
+            out.push((n >> bits) as u8);
+            n &= (1 << bits) - 1;
+        }
+    }
+    Some(out)
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -860,23 +1049,23 @@ impl Current {
         self.vars_at(&(fi, si, container.to_vec()))?.get(*last)
     }
 
-    /// (value, type, variablesReference)
+    /// (value, type, variablesReference, memoryReference)
     fn evaluate(
         &self,
         expr: &str,
         frame_id: Option<i64>,
-    ) -> Result<(String, Option<String>, i64), String> {
+    ) -> Result<(String, Option<String>, i64, Option<String>), String> {
         let fi = self.frame_index(frame_id)?;
         let compact: String = expr.chars().filter(|c| !c.is_whitespace()).collect();
         if compact == "1+2" {
-            return Ok(("3".into(), None, 0));
+            return Ok(("3".into(), None, 0, None));
         }
         let (si, path) = self
             .find(fi, expr.trim())
             .ok_or_else(|| "cannot evaluate".to_string())?;
         let v = self.var(fi, si, &path).ok_or("cannot evaluate")?;
         let r = self.ref_of.get(&(fi, si, path)).copied().unwrap_or(0);
-        Ok((v.value.clone(), v.ty.clone(), r))
+        Ok((v.value.clone(), v.ty.clone(), r, v.memory_reference.clone()))
     }
 
     /// Sets the value at `full`; returns (override key, value, type, reference).
@@ -1200,16 +1389,21 @@ impl Session {
                     Some(c) => c.evaluate(req.args["expression"].as_str().unwrap_or(""), frame),
                 };
                 match r {
-                    Ok((value, ty, r)) => {
+                    Ok((value, ty, r, memory)) => {
                         let mut b = json!({"result": value, "variablesReference": r});
                         if let Some(t) = ty {
                             b["type"] = t.into();
+                        }
+                        if let Some(m) = memory {
+                            b["memoryReference"] = m.into();
                         }
                         self.respond(&req, Some(b));
                     }
                     Err(m) => self.fail(&req, &m),
                 }
             }
+            "readMemory" if script.read_memory => self.read_memory(&req),
+            "writeMemory" if script.write_memory => self.write_memory(&req),
             "setVariable" if script.set_variable => self.set_variable(&req),
             "setExpression" if script.set_expression => self.set_expression(&req),
             "continue" | "next" | "stepIn" | "stepOut" => {
@@ -1453,6 +1647,9 @@ impl Session {
                 if let Some(ty) = &v.ty {
                     j["type"] = ty.clone().into();
                 }
+                if let Some(m) = &v.memory_reference {
+                    j["memoryReference"] = m.clone().into();
+                }
                 if v.indexed && !v.children.is_empty() {
                     j["indexedVariables"] = v.children.len().into();
                 }
@@ -1460,6 +1657,57 @@ impl Session {
             })
             .collect();
         self.respond(req, Some(json!({ "variables": list })));
+    }
+
+    fn read_memory(&self, req: &Req) {
+        let Some((address, count)) = memory_range(&req.args) else {
+            return self.fail(req, "bad memoryReference");
+        };
+        let memory = self.shared.memory.lock().unwrap();
+        let first = (0..count as u64).find(|i| memory.contains_key(&(address + i)));
+        let Some(first) = first else {
+            drop(memory);
+            if self.shared.script.read_errors {
+                return self.fail(req, "cannot read memory");
+            }
+            return self.respond(
+                req,
+                Some(json!({"address": format!("0x{address:x}"), "unreadableBytes": count})),
+            );
+        };
+        let start = address + first;
+        let data: Vec<u8> = (first..count as u64)
+            .map_while(|i| memory.get(&(address + i)).copied())
+            .collect();
+        let unreadable = count - first as usize - data.len();
+        drop(memory);
+        self.respond(
+            req,
+            Some(
+                json!({"address": format!("0x{start:x}"), "data": base64_encode(&data),
+                "unreadableBytes": unreadable}),
+            ),
+        );
+    }
+
+    fn write_memory(&self, req: &Req) {
+        let Some((address, _)) = memory_range(&req.args) else {
+            return self.fail(req, "bad memoryReference");
+        };
+        let Some(data) = req.args["data"].as_str().and_then(base64_decode) else {
+            return self.fail(req, "bad data");
+        };
+        let mut memory = self.shared.memory.lock().unwrap();
+        if (0..data.len() as u64).any(|i| !memory.contains_key(&(address + i))) {
+            drop(memory);
+            return self.fail(req, "cannot write memory");
+        }
+        for (i, byte) in data.iter().enumerate() {
+            memory.insert(address + i as u64, *byte);
+        }
+        drop(memory);
+        let written = self.shared.script.bytes_written.unwrap_or(data.len());
+        self.respond(req, Some(json!({ "bytesWritten": written })));
     }
 
     fn answer_set(&mut self, req: &Req, done: Option<(String, String, Option<String>, i64)>) {
@@ -1659,6 +1907,14 @@ impl Session {
                     self.prog.alive.retain(|(i, _)| i != id);
                     self.out
                         .event("thread", json!({"reason": "exited", "threadId": id}));
+                }
+            }
+        }
+        {
+            let mut memory = shared.memory.lock().unwrap();
+            for (address, bytes) in &stop.pokes {
+                for (i, byte) in bytes.iter().enumerate() {
+                    memory.insert(address + i as u64, *byte);
                 }
             }
         }
@@ -2175,5 +2431,99 @@ async fn fake_adapter_child_session_flow() -> Result<()> {
         (cr[0].0, cr[0].1.as_str(), cr[0].2),
         (0, "startDebugging", true)
     );
+    Ok(())
+}
+
+#[tokio::test]
+async fn fake_adapter_memory_reads_writes_and_pokes() -> Result<()> {
+    let script = Script::new("/tmp/prog.js")
+        .read_memory()
+        .write_memory()
+        .memory(0x1000, [1, 2, 3, 4])
+        .memory(0x1008, [9, 9])
+        .stop(Stop::new(2, "entry").poke(0x1001, [7]))
+        .stop(
+            Stop::new(3, "entry")
+                .scope(Scope::new("Locals").var(Var::new("p", "0x1000").memory("0x1000"))),
+        );
+    let fake = FakeAdapter::start(script).await?;
+    let mut c = RawClient::connect(fake.addr).await?;
+    let r = c.call("initialize", json!({})).await?;
+    assert_eq!(r["body"]["supportsReadMemoryRequest"], true);
+    assert_eq!(r["body"]["supportsWriteMemoryRequest"], true);
+    c.expect_event("initialized").await?;
+    c.call("configurationDone", json!({})).await?;
+    let seq = c.request("launch", json!({})).await?;
+    c.response(seq).await?;
+    c.until(|m| m["event"] == "stopped").await?;
+
+    // the poke is in, a read stops where the region ends, then counts the unreadable bytes
+    let r = c
+        .call(
+            "readMemory",
+            json!({"memoryReference": "0x1000", "count": 8}),
+        )
+        .await?;
+    assert_eq!(r["body"]["address"], "0x1000");
+    assert_eq!(
+        base64_decode(r["body"]["data"].as_str().unwrap()),
+        Some(vec![1, 7, 3, 4])
+    );
+    assert_eq!(r["body"]["unreadableBytes"], 4);
+    // an offset is added, the leading unreadable bytes are skipped
+    let r = c
+        .call(
+            "readMemory",
+            json!({"memoryReference": "0x1000", "offset": 2, "count": 8}),
+        )
+        .await?;
+    assert_eq!(r["body"]["address"], "0x1002");
+    assert_eq!(
+        base64_decode(r["body"]["data"].as_str().unwrap()),
+        Some(vec![3, 4])
+    );
+    let r = c
+        .call(
+            "readMemory",
+            json!({"memoryReference": "0x2000", "count": 4}),
+        )
+        .await?;
+    assert_eq!(r["body"]["unreadableBytes"], 4);
+    assert!(r["body"]["data"].is_null());
+    // writes are all or nothing
+    let data = base64_encode(&[0xaa, 0xbb]);
+    let r = c
+        .call(
+            "writeMemory",
+            json!({"memoryReference": "0x1002", "data": data}),
+        )
+        .await?;
+    assert_eq!(r["body"]["bytesWritten"], 2);
+    assert_eq!(
+        fake.memory_at(0x1000, 4),
+        vec![Some(1), Some(7), Some(0xaa), Some(0xbb)]
+    );
+    let r = c
+        .call(
+            "writeMemory",
+            json!({"memoryReference": "0x1003", "data": data}),
+        )
+        .await?;
+    assert_eq!(r["success"], false);
+    assert_eq!(fake.memory_at(0x1003, 2), vec![Some(0xbb), None]);
+    assert_eq!(
+        fake.memory_reads(),
+        vec![(0x1000, 8), (0x1002, 8), (0x2000, 4)]
+    );
+    assert_eq!(
+        fake.memory_writes(),
+        vec![(0x1002, vec![0xaa, 0xbb]), (0x1003, vec![0xaa, 0xbb])]
+    );
+    for n in 0..5usize {
+        let bytes: Vec<u8> = (0..n as u8).collect();
+        assert_eq!(base64_decode(&base64_encode(&bytes)), Some(bytes));
+    }
+    assert_eq!(base64_encode(b"Man"), "TWFu");
+    assert_eq!(base64_encode(b"Ma"), "TWE=");
     Ok(())
 }

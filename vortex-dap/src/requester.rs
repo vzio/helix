@@ -19,6 +19,24 @@ use std::{
 use tokio::{sync::mpsc::UnboundedSender, time::timeout};
 use vortex_dap_types::*;
 
+/// The answer to `readMemory`: `data` starts at `address`, and `unreadable` bytes after it
+/// couldn't be read.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MemoryRead {
+    pub address: u64,
+    pub data: Vec<u8>,
+    pub unreadable: usize,
+}
+
+/// A memory address as DAP gives it: hex after `0x`, else decimal.
+pub fn parse_address(text: &str) -> Option<u64> {
+    let text = text.trim();
+    match text.strip_prefix("0x").or_else(|| text.strip_prefix("0X")) {
+        Some(hex) => u64::from_str_radix(hex, 16).ok(),
+        None => text.parse().ok(),
+    }
+}
+
 /// How long a request waits for its response.
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(20);
 
@@ -333,6 +351,70 @@ impl Requester {
             format: None,
         });
         async move { Ok(request.await?.variables) }
+    }
+
+    /// `readMemory`: `count` bytes from `offset` bytes past `reference` (negative: before it).
+    /// An answer without a body (nothing could be read) is `None`.
+    pub fn read_memory(
+        &self,
+        reference: String,
+        offset: i64,
+        count: usize,
+    ) -> impl Future<Output = Result<Option<MemoryRead>>> + Send + 'static {
+        let call = self.call::<requests::ReadMemory>(requests::ReadMemoryArguments {
+            memory_reference: reference,
+            offset: (offset != 0).then_some(offset),
+            count,
+        });
+        async move {
+            let body = call.await?;
+            if body.is_null() {
+                return Ok(None);
+            }
+            let response: requests::ReadMemoryResponse = parse_body(body)?;
+            let address = parse_address(&response.address)
+                .ok_or_else(|| Error::Other(anyhow!("bad address {:?}", response.address)))?;
+            let data = match response.data.as_deref() {
+                Some(data) => {
+                    use base64::Engine;
+                    base64::engine::general_purpose::STANDARD
+                        .decode(data.trim())
+                        .map_err(|err| Error::Other(anyhow!("bad memory data: {err}")))?
+                }
+                None => Vec::new(),
+            };
+            Ok(Some(MemoryRead {
+                address,
+                data,
+                unreadable: response.unreadable_bytes.unwrap_or(0),
+            }))
+        }
+    }
+
+    /// `writeMemory`: writes `data` at `offset` bytes past `reference`, all or nothing. Returns
+    /// the number of bytes the adapter says it wrote (all of them when it doesn't say).
+    pub fn write_memory(
+        &self,
+        reference: String,
+        offset: i64,
+        data: &[u8],
+    ) -> impl Future<Output = Result<usize>> + Send + 'static {
+        use base64::Engine;
+        let len = data.len();
+        let call = self.call::<requests::WriteMemory>(requests::WriteMemoryArguments {
+            memory_reference: reference,
+            offset: (offset != 0).then_some(offset),
+            allow_partial: Some(false),
+            data: base64::engine::general_purpose::STANDARD.encode(data),
+        });
+        async move {
+            let body = call.await?;
+            if body.is_null() {
+                return Ok(len);
+            }
+            let response: requests::WriteMemoryResponse = parse_body(body)?;
+            Ok(response.bytes_written.unwrap_or(len))
+        }
     }
 
     pub fn pause(&self, thread_id: ThreadId) -> impl Future<Output = Result<()>> + Send + 'static {

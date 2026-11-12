@@ -11,7 +11,7 @@ use std::ops::Range;
 use tui::buffer::Buffer as Surface;
 use vortex_view::{
     graphics::{Modifier, Rect, UnderlineStyle},
-    hex::{ascii_char, ByteKind, Column, HexBuffer, HexCursor, Layout, Rows},
+    hex::{ascii_char, ByteKind, Cell, Column, HexBuffer, HexCursor, Layout, Rows},
     theme::Style,
     Document, Theme, View,
 };
@@ -45,6 +45,10 @@ struct Styles {
     selection: Style,
     found: Style,
     changed: Style,
+    /// Memory the debugged program changed since the stop before.
+    program_changed: Style,
+    unreadable: Style,
+    unrecorded: Style,
 }
 
 impl Styles {
@@ -68,6 +72,20 @@ impl Styles {
             selection: theme.get("ui.selection"),
             found: first_style(theme, &["ui.hex.match", "ui.highlight", "ui.selection"]),
             changed: theme.get("diff.delta"),
+            program_changed: first_style(
+                theme,
+                &["ui.hex.changed", "ui.debug.value.changed", "warning"],
+            )
+            .add_modifier(Modifier::BOLD),
+            unreadable: first_style(theme, &["ui.hex.unreadable", "ui.text.inactive", "comment"]),
+            unrecorded: first_style(
+                theme,
+                &[
+                    "ui.hex.unrecorded",
+                    "ui.virtual.whitespace",
+                    "ui.text.inactive",
+                ],
+            ),
         }
     }
 
@@ -109,11 +127,13 @@ pub fn render_rows(
     let top_row = rows.row(cursor.top);
     let start = top_row * per_row;
     let shown = (area.height as u64) * per_row;
-    let bytes = hex.bytes(start..start + shown);
+    let cells = hex.cells(start..start.saturating_add(shown));
     let found: Vec<Range<u64>> = match &hex.search {
-        Some(pattern) => hex.matches_in(pattern, start..start + bytes.len() as u64),
+        Some(pattern) => hex.matches_in(pattern, start..start + cells.len() as u64),
         None => Vec::new(),
     };
+    // in rewind, a memory view shows what was recorded, never the bytes overwritten since
+    let recorded = hex.memory().is_some_and(|memory| memory.recorded.is_some());
     let selection = cursor.anchor.map(|_| cursor.selection());
     let is_found = |offset: u64| found.iter().any(|range| range.contains(&offset));
     let is_selected = |offset: u64| selection.as_ref().is_some_and(|sel| sel.contains(&offset));
@@ -141,11 +161,17 @@ pub fn render_rows(
 
         for i in 0..rows.bytes_per_row {
             let offset = row_start + i as u64;
-            let Some(&byte) = bytes.get((offset - start) as usize) else {
+            let Some(&cell) = cells.get((offset - start) as usize) else {
                 break;
             };
-            let mut style = styles.kind(byte);
-            if hex.is_edited(offset) {
+            let byte = cell.byte().unwrap_or(0);
+            let mut style = match cell {
+                Cell::Byte(byte) => styles.kind(byte),
+                Cell::Changed(byte) => styles.kind(byte).patch(styles.program_changed),
+                Cell::Unreadable | Cell::Loading => styles.unreadable,
+                Cell::NotRecorded => styles.unrecorded,
+            };
+            if hex.is_edited(offset) && !recorded {
                 style = style.patch(styles.changed);
             }
             if is_found(offset) {
@@ -172,9 +198,19 @@ pub fn render_rows(
                 }
             }
 
-            let digits = match rows.layout {
-                Layout::Hex => format!("{byte:02x}"),
-                Layout::Bin => format!("{byte:08b}"),
+            let width = rows.layout.digits() as usize;
+            let digits = match (cell, rows.layout) {
+                (Cell::Byte(_) | Cell::Changed(_), Layout::Hex) => format!("{byte:02x}"),
+                (Cell::Byte(_) | Cell::Changed(_), Layout::Bin) => format!("{byte:08b}"),
+                (Cell::Unreadable, _) => "?".repeat(width),
+                (Cell::NotRecorded, _) => "·".repeat(width),
+                (Cell::Loading, _) => " ".repeat(width),
+            };
+            let ascii = match cell {
+                Cell::Byte(_) | Cell::Changed(_) => ascii_char(byte),
+                Cell::Unreadable => '?',
+                Cell::NotRecorded => '·',
+                Cell::Loading => ' ',
             };
             let x = rows.byte_x(i);
             let ascii_x = rows.ascii_x() + i;
@@ -190,8 +226,9 @@ pub fn render_rows(
                     if cursor.overwrite {
                         // the digit typing overwrites
                         put(surface, x, y, &digits, mirror);
-                        let at = (cursor.digit as usize).min(digits.len() - 1);
-                        put(surface, x + at, y, &digits[at..at + 1], styles.cursor);
+                        let at = (cursor.digit as usize).min(width - 1);
+                        let digit: String = digits.chars().skip(at).take(1).collect();
+                        put(surface, x + at, y, &digit, styles.cursor);
                     } else {
                         put(surface, x, y, &digits, styles.cursor);
                     }
@@ -203,13 +240,7 @@ pub fn render_rows(
             } else {
                 put(surface, x, y, &digits, style);
             }
-            put(
-                surface,
-                ascii_x,
-                y,
-                &ascii_char(byte).to_string(),
-                ascii_style,
-            );
+            put(surface, ascii_x, y, &ascii.to_string(), ascii_style);
         }
     }
 }
@@ -219,6 +250,41 @@ pub fn render_rows(
 ///
 /// `0x1A4 (420)  1a 26 00011010 '&'  of 4.0 GiB`
 pub fn position(hex: &HexBuffer, cursor: &HexCursor) -> String {
+    // memory: the address, the byte, and where it is from what the view was opened on
+    if let Some(memory) = hex.memory() {
+        let mut text = format!("0x{:X}", cursor.offset);
+        match hex
+            .cells(cursor.offset..cursor.offset.saturating_add(1))
+            .first()
+        {
+            Some(Cell::Byte(byte) | Cell::Changed(byte)) => {
+                let byte = *byte;
+                text.push_str(&format!("  {byte:02x} {byte} {byte:08b}"));
+                if let Some(char) = describe_char(byte) {
+                    text.push(' ');
+                    text.push_str(&char);
+                }
+            }
+            Some(Cell::Unreadable) => text.push_str("  unreadable"),
+            Some(Cell::NotRecorded) => text.push_str("  not recorded"),
+            _ => text.push_str("  reading…"),
+        }
+        if cursor.anchor.is_some() {
+            let selection = cursor.selection();
+            text.push_str(&format!(
+                "  [{} sel]",
+                size(selection.end - selection.start)
+            ));
+        }
+        let offset = memory.offset_of(cursor.offset);
+        let sign = if offset < 0 { '-' } else { '+' };
+        text.push_str(&format!(
+            "  {}{sign}0x{:x}",
+            memory.label,
+            offset.unsigned_abs()
+        ));
+        return text;
+    }
     let mut text = format!("0x{:X} ({})", cursor.offset, cursor.offset);
     if let Some(byte) = hex.byte(cursor.offset) {
         text.push_str(&format!("  {byte:02x} {byte} {byte:08b}"));
@@ -297,6 +363,52 @@ mod test {
         let mut surface = Surface::empty(area);
         render_rows(&Theme::default(), hex, cursor, area, &mut surface, true);
         surface
+    }
+
+    fn session() -> vortex_dap::registry::DebugAdapterId {
+        Default::default()
+    }
+
+    #[test]
+    fn memory_rows_show_addresses_unreadable_and_unrecorded_bytes() {
+        use vortex_view::hex::{memory::Recorded, MemorySource};
+        let memory = MemorySource::new(
+            session(),
+            "0x7ffee3b4a010".into(),
+            0x7ffee3b4a010,
+            "buf".into(),
+            false,
+        );
+        let mut hex = HexBuffer::debuggee(memory);
+        let base = 0x7ffee3b4a010u64;
+        hex.memory_mut().unwrap().recorded = Some(Recorded {
+            step: 1,
+            start: base,
+            bytes: vec![Some(b'h'), Some(b'i'), None, Some(0)],
+            changed: vec![false; 4],
+        });
+        let cursor = HexCursor {
+            offset: base,
+            top: base,
+            ..Default::default()
+        };
+        let rows = screen(&draw(&hex, &cursor, 100, 1));
+        assert_eq!(
+            rows,
+            ["0x00007ffee3b4a010  68 69 ?? 00 ·· ·· ·· ··  ·· ·· ·· ·· ·· ·· ·· ··  hi?.············"]
+        );
+        assert_eq!(
+            position(&hex, &cursor),
+            "0x7FFEE3B4A010  68 104 01101000 'h'  buf+0x0"
+        );
+        let cursor = HexCursor {
+            offset: base - 2,
+            ..cursor
+        };
+        assert_eq!(
+            position(&hex, &cursor),
+            "0x7FFEE3B4A00E  not recorded  buf-0x2"
+        );
     }
 
     fn png() -> HexBuffer {

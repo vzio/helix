@@ -202,6 +202,7 @@ hint = { fg = "n_8", bg = "n_1" }
 "ui.debug.rewind" = { fg = "background", bg = "red_faded", modifiers = ["bold"] }
 "ui.debug.frozen" = "purple_soft"
 "ui.debug.hint" = "n_6"
+"ui.debug.memory" = "purple_soft"
 "ui.virtual.step-time" = { fg = "n_6", modifiers = ["italic"] }
 
 # Hex view
@@ -213,6 +214,9 @@ hint = { fg = "n_8", bg = "n_1" }
 "ui.hex.prefix" = "n_4"
 "ui.hex.offset" = "n_6"
 "ui.hex.match" = { fg = "n_11", bg = "purple", modifiers = ["bold"] }
+"ui.hex.changed" = { fg = "red_light", modifiers = ["bold", "underlined"] }
+"ui.hex.unreadable" = "n_5"
+"ui.hex.unrecorded" = "n_3"
 
 # Dashboard
 "ui.dashboard.logo" = { fg = "purple", modifiers = ["bold"] }

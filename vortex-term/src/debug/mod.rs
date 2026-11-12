@@ -6,6 +6,7 @@
 pub mod breakpoints;
 pub mod cpu;
 pub mod load;
+pub mod memory;
 pub mod panel;
 pub mod playback;
 pub mod record;
