@@ -220,13 +220,8 @@ hint = { fg = "n_8", bg = "n_1" }
 "ui.dashboard.action" = "n_10"
 "ui.dashboard.hint" = "n_5"
 "ui.dashboard.spinner" = "purple_light"
-# dashboard v2 (ignored until it lands): panels and the vortex gradient, center outwards
+# the panels; the vortex fades from the logo's color at the eye into the text's at the rim
 "ui.dashboard.panel" = { bg = "background" }
-"ui.dashboard.vortex.1" = "purple_light"
-"ui.dashboard.vortex.2" = "purple_mid"
-"ui.dashboard.vortex.3" = "purple"
-"ui.dashboard.vortex.4" = "crimson"
-"ui.dashboard.vortex.5" = "plum_bright"
 
 # :practice
 "ui.practice" = { fg = "text", bg = "n_1" }
@@ -260,7 +255,6 @@ purple_dark = "#3b1d6e"   #      logo shadow
 cursor = "#5c32ad"        #      primary cursor (normal mode)
 cursor_dim = "#3f2178"    #      secondary cursors
 plum = "#3a1d4c"          #      insert mode
-plum_bright = "#53296b"   #      vortex gradient
 selection = "#211234"     #      secondary selections
 selection_primary = "#2c1745" # primary selection
 deep = "#131313"
