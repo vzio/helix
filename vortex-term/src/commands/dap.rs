@@ -146,6 +146,12 @@ pub fn dap_start_impl(
     // a template's own working directory wins
     args.entry("cwd")
         .or_insert(to_value(vortex_stdx::env::current_working_dir())?);
+    // like a launch configuration of VS Code: adapters may read them (js-debug attaches only when
+    // `request` says so)
+    args.entry("request")
+        .or_insert(Value::String(template.request.clone()));
+    args.entry("name")
+        .or_insert(Value::String(template.name.clone()));
 
     let args = to_value(args).unwrap();
     let session_name = format!("{}: {}", config.name, template.name);
@@ -466,41 +472,51 @@ pub fn dap_terminate(cx: &mut Context) {
     let root = cx.editor.debug_adapters.root(active.id());
     let debugger = cx.editor.debug_adapters.get_client(root).unwrap();
     let requester = debugger.requester();
-    let terminate = debugger
-        .caps
-        .as_ref()
-        .is_some_and(|c| c.supports_terminate_request.unwrap_or_default());
-    cx.editor.set_status("Ending the debug session...");
+    // an attached program is left running (detached); a launched one ends
+    let attached = debugger.connection_type() == Some(dap::ConnectionType::Attach);
+    let terminate = !attached
+        && debugger
+            .caps
+            .as_ref()
+            .is_some_and(|c| c.supports_terminate_request.unwrap_or_default());
+    cx.editor.set_status(if attached {
+        "Detaching from the program..."
+    } else {
+        "Ending the debug session..."
+    });
     tokio::spawn(async move {
-        let result = if terminate {
-            requester
+        let terminated = terminate
+            && requester
                 .terminate(Some(TerminateArguments {
                     restart: Some(false),
                 }))
                 .await
-        } else {
-            Err(dap::Error::Unhandled)
-        };
-        // without `terminate` (or when it fails), disconnecting ends the program
-        let ended_here = if result.is_err() {
-            let _ = requester
-                .disconnect(Some(DisconnectArguments {
-                    restart: Some(false),
-                    terminate_debuggee: Some(true),
-                    suspend_debuggee: None,
-                }))
-                .await;
-            true
-        } else {
-            false
-        };
-        // the adapter's `terminated` event ends the session; if it never comes, end it here
-        if !ended_here {
+                .is_ok();
+        if terminated {
+            // the adapter's `terminated` event ends the session; if it never comes, end it here
             tokio::time::sleep(std::time::Duration::from_secs(3)).await;
+            crate::job::dispatch(move |editor, _| {
+                if editor.debug_adapters.get_client(root).is_some() {
+                    debug::end(editor, root);
+                }
+            })
+            .await;
+            return;
         }
+        // without `terminate` (or when it failed, or to detach): disconnect, which ends a
+        // launched program
+        let _ = tokio::time::timeout(
+            std::time::Duration::from_secs(3),
+            requester.disconnect(Some(DisconnectArguments {
+                restart: Some(false),
+                terminate_debuggee: Some(!attached),
+                suspend_debuggee: None,
+            })),
+        )
+        .await;
         crate::job::dispatch(move |editor, _| {
             if editor.debug_adapters.get_client(root).is_some() {
-                debug::end(editor, root);
+                debug::end_with(editor, root, false);
             }
         })
         .await;

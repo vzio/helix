@@ -75,8 +75,8 @@ pub fn start(
                         .debug
                         .console
                         .line(LineKind::Error, format!("{request} failed: {err}"));
-                    editor.set_error(format!("Debug {request} failed: {err}"));
                     end(editor, id);
+                    editor.set_error(format!("Debug {request} failed: {err}"));
                 }
             })
             .await;
@@ -353,12 +353,18 @@ fn terminated(editor: &mut Editor, id: DebugAdapterId, restart: Option<Value>) {
 /// Ends the session `id` belongs to: disconnects and removes it with all its children, hides the
 /// panel, and says how the program ended.
 pub fn end(editor: &mut Editor, id: DebugAdapterId) {
+    end_with(editor, id, true);
+}
+
+/// [`end`], without disconnecting when that was done already (`space G t` on an attached
+/// program).
+pub fn end_with(editor: &mut Editor, id: DebugAdapterId, disconnect: bool) {
     let root = editor.debug_adapters.root(id);
-    remove_tree(editor, root);
+    remove_tree_with(editor, root, disconnect);
     // anything left (a session started beside the root) goes too
     let rest: Vec<_> = editor.debug_adapters.iter().map(|(id, _)| id).collect();
     for id in rest {
-        remove_tree(editor, id);
+        remove_tree_with(editor, id, disconnect);
     }
     editor.debug_adapters.unset_active_client();
     for list in editor.breakpoints.values_mut() {
@@ -368,27 +374,46 @@ pub fn end(editor: &mut Editor, id: DebugAdapterId) {
         }
     }
     editor.debug.end_session();
-    editor.set_status(match editor.debug.exit_code {
-        Some(code) => format!("Debug session ended: exited with code {code}"),
-        None => "Debug session ended".to_owned(),
-    });
+    // an error that ended it (a failed launch) stays shown
+    if !editor.is_err() {
+        editor.set_status(match editor.debug.exit_code {
+            Some(code) => format!("Debug session ended: exited with code {code}"),
+            None => "Debug session ended".to_owned(),
+        });
+    }
 }
 
-/// Disconnects session `id` and its children, and forgets them.
-fn remove_tree(editor: &mut Editor, id: DebugAdapterId) {
+/// Disconnects session `id` and its children (unless `disconnect` is false: it was done
+/// already), forgets them, and stops the adapter processes they started once they answered.
+fn remove_tree_with(editor: &mut Editor, id: DebugAdapterId, disconnect: bool) {
     for child in editor.debug_adapters.children(id) {
-        remove_tree(editor, child);
+        remove_tree_with(editor, child, disconnect);
     }
-    if let Some(client) = editor.debug_adapters.get_client(id) {
+    if let Some(client) = editor.debug_adapters.get_client_mut(id) {
         let requester = client.requester();
+        let process = client.take_process();
         tokio::spawn(async move {
-            let args = DisconnectArguments {
-                restart: Some(false),
-                terminate_debuggee: None,
-                suspend_debuggee: None,
-            };
-            if let Err(err) = requester.disconnect(Some(args)).await {
-                log::debug!("disconnect: {err}");
+            if disconnect {
+                let args = DisconnectArguments {
+                    restart: Some(false),
+                    terminate_debuggee: None,
+                    suspend_debuggee: None,
+                };
+                let answer = tokio::time::timeout(
+                    std::time::Duration::from_secs(3),
+                    requester.disconnect(Some(args)),
+                );
+                if let Ok(Err(err)) = answer.await {
+                    log::debug!("disconnect: {err}");
+                }
+            }
+            if let Some(mut process) = process {
+                // let it exit by itself first
+                let exited =
+                    tokio::time::timeout(std::time::Duration::from_secs(1), process.wait()).await;
+                if exited.is_err() {
+                    let _ = process.kill().await;
+                }
             }
         });
     }
@@ -401,6 +426,10 @@ fn remove_tree(editor: &mut Editor, id: DebugAdapterId) {
             breakpoint.refresh_verified();
         }
     }
+}
+
+fn remove_tree(editor: &mut Editor, id: DebugAdapterId) {
+    remove_tree_with(editor, id, true);
 }
 
 fn handle_request(

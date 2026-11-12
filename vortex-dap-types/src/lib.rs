@@ -735,6 +735,8 @@ pub mod requests {
     #[derive(Debug, PartialEq, Eq, Clone, Deserialize, Serialize)]
     #[serde(rename_all = "camelCase")]
     pub struct SetVariableResponse {
+        /// Some adapters (lldb-dap 18) name it `result`, as in `evaluate`'s answer.
+        #[serde(default, alias = "result")]
         pub value: String,
         #[serde(default, rename = "type", skip_serializing_if = "Option::is_none")]
         pub ty: Option<String>,
@@ -1198,4 +1200,22 @@ fn test_deserialize_module_id_from_string() {
     let raw = r#"{"id": "0", "name": "Name"}"#;
     let module: Module = serde_json::from_str(raw).expect("Error!");
     assert_eq!(module.id, "0");
+}
+
+#[test]
+fn test_set_variable_response_named_result() {
+    // lldb-dap 18 answers `setVariable` like `evaluate`
+    let raw = r#"{"result": "100", "type": "int", "variablesReference": 0}"#;
+    let response: requests::SetVariableResponse = serde_json::from_str(raw).unwrap();
+    assert_eq!(response.value, "100");
+    let raw = r#"{"value": "7"}"#;
+    let response: requests::SetVariableResponse = serde_json::from_str(raw).unwrap();
+    assert_eq!(response.value, "7");
+}
+
+#[test]
+fn test_negative_exit_code() {
+    let raw = r#"{"exitCode": -1}"#;
+    let body: events::ExitedBody = serde_json::from_str(raw).unwrap();
+    assert_eq!(body.exit_code, -1);
 }

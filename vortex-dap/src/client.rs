@@ -30,7 +30,7 @@ use tokio::{
 #[derive(Debug)]
 pub struct Client {
     id: DebugAdapterId,
-    _process: Option<Child>,
+    process: Option<Child>,
     server_tx: UnboundedSender<Payload>,
     request_counter: Arc<AtomicU64>,
     connection_type: Option<ConnectionType>,
@@ -95,7 +95,7 @@ impl Client {
 
         let client = Self {
             id,
-            _process: process,
+            process,
             server_tx,
             request_counter: Arc::new(AtomicU64::new(0)),
             caps: None,
@@ -410,6 +410,14 @@ impl Client {
     ) -> impl Future<Output = Result<Value>> {
         self.connection_type = None;
         self.call::<requests::Terminate>(args)
+    }
+
+    /// Remembers how the session started, for a restart, when the request is sent through a
+    /// [`Requester`].
+    /// The adapter process this client started, taken out so that it can be stopped once the
+    /// session is over (a TCP adapter like js-debug's server doesn't exit by itself).
+    pub fn take_process(&mut self) -> Option<Child> {
+        self.process.take()
     }
 
     /// Remembers how the session started, for a restart, when the request is sent through a

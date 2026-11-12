@@ -1207,13 +1207,16 @@ breakpoints, and keeps its own ids and verification.
 An adapter can ask for a child session (`startDebugging`), as js-debug does for the program it
 runs: the child connects to the same socket (or starts the adapter again, for one on stdio), its
 launch goes in the background, and the panel follows the session that last stopped. A child's end
-gives the panel back to its parent; the root's end ends it all. `space G t` ends the root session
-(`terminate`, else `disconnect` with the program).
+gives the panel back to its parent; the root's end ends it all. `space G t` ends a launched
+program (`terminate`, else `disconnect` with it) and detaches from an attached one, which keeps
+running. When a session ends, the adapter process Vortex started is stopped if it doesn't exit by
+itself (js-debug's server doesn't).
 
 Templates fill `{0}`, `{1}`... with the answers to their prompts and `${workspaceFolder}` with the
 workspace's root; in a list, an item that is exactly `{N}` becomes the answer's words (quotes group
 words), so `args = ["{1}"]` takes a command line of arguments. A template's `cwd` wins over the
-editor's working directory.
+editor's working directory. As in a launch configuration of VS Code, the arguments also carry the
+template's `request` and `name` (js-debug attaches only when `request` says so).
 
 ### Adapters
 

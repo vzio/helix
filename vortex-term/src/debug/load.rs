@@ -440,7 +440,11 @@ pub fn set_value(editor: &mut Editor, path: VarPath, value: String) -> anyhow::R
         };
         job::dispatch(move |editor, _| match result {
             Ok(()) => reload_frame(editor),
-            Err(err) => editor.set_error(format!("Couldn't change the value: {err}")),
+            Err(err) => {
+                editor.set_error(format!("Couldn't change the value: {err}"));
+                // it may have changed anyway
+                reload_frame(editor);
+            }
         })
         .await;
     });

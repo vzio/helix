@@ -196,14 +196,12 @@ fn is_stopped(app: &Application, reason: &str) -> bool {
 }
 
 fn locals(x: &str, a: &str) -> Scope {
-    Scope::new("Locals")
-        .var(Var::new("x", x).ty("int"))
-        .var(
-            Var::new("p", "Point")
-                .ty("Point")
-                .child(Var::new("a", a))
-                .child(Var::new("inner", "Inner").child(Var::new("z", "9"))),
-        )
+    Scope::new("Locals").var(Var::new("x", x).ty("int")).var(
+        Var::new("p", "Point")
+            .ty("Point")
+            .child(Var::new("a", a))
+            .child(Var::new("inner", "Inner").child(Var::new("z", "9"))),
+    )
 }
 
 fn simple(x: &str) -> Scope {
@@ -363,10 +361,30 @@ async fn an_expanded_node_is_reloaded_after_a_step_and_changes_are_marked() -> a
             "z = 9"
         ]
     );
-    assert!(row_has_role(app, Section::Variables, "x = 2", Role::Changed));
-    assert!(row_has_role(app, Section::Variables, "a = 6", Role::Changed));
-    assert!(!row_has_role(app, Section::Variables, "z = 9", Role::Changed));
-    assert!(!row_has_role(app, Section::Variables, "p = ", Role::Changed));
+    assert!(row_has_role(
+        app,
+        Section::Variables,
+        "x = 2",
+        Role::Changed
+    ));
+    assert!(row_has_role(
+        app,
+        Section::Variables,
+        "a = 6",
+        Role::Changed
+    ));
+    assert!(!row_has_role(
+        app,
+        Section::Variables,
+        "z = 9",
+        Role::Changed
+    ));
+    assert!(!row_has_role(
+        app,
+        Section::Variables,
+        "p = ",
+        Role::Changed
+    ));
 
     assert!(e.h.errors.is_empty(), "{:?}", e.h.errors);
     e.h.finish().await
@@ -393,11 +411,11 @@ async fn a_watch_is_evaluated_now_and_at_the_next_stop() -> anyhow::Result<()> {
     assert_eq!(args["context"], "watch");
     assert_eq!(args["frameId"], frame);
     e.h.until("the watch's value", |app| {
-        app.editor.debug.watches.first().is_some_and(|w| {
-            w.node
-                .as_ref()
-                .is_some_and(|n| n.value == "1" && !n.error)
-        })
+        app.editor
+            .debug
+            .watches
+            .first()
+            .is_some_and(|w| w.node.as_ref().is_some_and(|n| n.value == "1" && !n.error))
     })
     .await;
     e.h.keys("<C-g>2").await?;
@@ -436,10 +454,8 @@ async fn debug_eval_runs_in_the_repl_context_and_the_console_shows_it() -> anyho
     let frame = top_frame_id(&e.h.app);
 
     e.h.keys(":debug-eval<space>1<space>+<space>2<ret>").await?;
-    e.h.until("the result", |app| {
-        console_has(app, LineKind::Result, "3")
-    })
-    .await;
+    e.h.until("the result", |app| console_has(app, LineKind::Result, "3"))
+        .await;
     let (_, args) = e.request("evaluate", 1).await;
     assert_eq!(args["expression"], "1 + 2");
     assert_eq!(args["context"], "repl");
@@ -696,8 +712,14 @@ async fn breakpoints_can_be_disabled_and_deleted_from_the_panel() -> anyhow::Res
     assert_eq!(lines_of(&args), [7], "a disabled breakpoint is not sent");
     let rows = texts(&e.h.app, Section::Breakpoints);
     assert_eq!(rows.len(), 2, "{rows:?}");
-    assert!(rows[0].starts_with("○ ") && rows[0].ends_with(":5"), "{rows:?}");
-    assert!(rows[1].starts_with("● ") && rows[1].ends_with(":7"), "{rows:?}");
+    assert!(
+        rows[0].starts_with("○ ") && rows[0].ends_with(":5"),
+        "{rows:?}"
+    );
+    assert!(
+        rows[1].starts_with("● ") && rows[1].ends_with(":7"),
+        "{rows:?}"
+    );
 
     // t again enables it
     e.h.keys("t").await?;
@@ -811,13 +833,19 @@ async fn focus_and_keys_of_the_panel() -> anyhow::Result<()> {
     assert!(e.h.app.editor.debug.visible, "Esc closed the menu only");
     // a sticky menu (after a command): the same
     e.h.keys("<space>Gv").await?;
-    assert!(e.h.app.editor.debug.is_focused(), "Space G v focuses Variables");
+    assert!(
+        e.h.app.editor.debug.is_focused(),
+        "Space G v focuses Variables"
+    );
     e.h.keys("<C-g>").await?;
     e.h.keys("<space>Gp<esc>").await?;
     assert!(!e.h.app.editor.debug.visible, "Space G p toggled it off");
     e.h.keys("<space>Gp").await?;
     e.h.keys("<esc>").await?;
-    assert!(e.h.app.editor.debug.visible, "Esc closed the sticky menu only");
+    assert!(
+        e.h.app.editor.debug.visible,
+        "Esc closed the sticky menu only"
+    );
 
     // Esc in normal mode with nothing pending hides the visible, unfocused panel
     e.h.keys("<esc>").await?;
@@ -854,7 +882,11 @@ async fn quick_steps_end_with_the_variables_of_the_last_stop() -> anyhow::Result
         texts(&e.h.app, Section::Variables),
         ["Locals", "x = 6  int"]
     );
-    assert!(is_stopped(&e.h.app, "step"), "{:?}", e.h.app.editor.debug.status);
+    assert!(
+        is_stopped(&e.h.app, "step"),
+        "{:?}",
+        e.h.app.editor.debug.status
+    );
     assert!(e.h.errors.is_empty(), "{:?}", e.h.errors);
     e.h.finish().await
 }
@@ -882,7 +914,10 @@ async fn debug_remote_starts_a_session_from_a_template() -> anyhow::Result<()> {
     })
     .await?;
 
-    let command = format!(":debug-remote<space>{}<space>run<space>/work/prog<ret>", e.fake.addr);
+    let command = format!(
+        ":debug-remote<space>{}<space>run<space>/work/prog<ret>",
+        e.fake.addr
+    );
     e.h.keys(&command).await?;
     e.stopped("x = 1").await;
     let (session, args) = e.request("launch", 1).await;

@@ -13,7 +13,7 @@ pub use panel::{
     focus_section, handle_key, handle_mouse, show, toggle, toggle_focus, Handled, FOCUS_KEY,
 };
 pub use render::render;
-pub use session::{end, handle_message, start};
+pub use session::{end, end_with, handle_message, start};
 
 use vortex_view::{graphics::Rect, Editor};
 
