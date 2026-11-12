@@ -291,6 +291,10 @@ async fn outside_of_a_repository_l_is_the_keymaps_and_there_is_no_git_stat() {
         true,
         Arc::new(test_syntax_loader(None)),
         Default::default(),
+        vortex_term::dashboard::Timeline::new(
+            Instant::now(),
+            vortex_view::editor::DashboardBackground::Off,
+        ),
     );
     assert!(!stats.git);
     assert!(!stats.shows_git());
@@ -327,14 +331,19 @@ async fn the_stats_of_a_repository_load_and_settle() {
     else {
         return;
     };
+    let born = Instant::now();
+    let timeline = vortex_term::dashboard::Timeline::new(
+        born,
+        vortex_view::editor::DashboardBackground::Static,
+    );
     let stats = vortex_term::dashboard::stats::load(
         dir,
         true,
         Arc::new(test_syntax_loader(None)),
         Default::default(),
+        timeline,
     );
     assert!(stats.git && stats.shows_git());
-    let born = Instant::now();
     let deadline = Instant::now() + Duration::from_secs(20);
     while stats.languages_done.get().is_none() {
         assert!(Instant::now() < deadline, "the languages never finished");
@@ -348,11 +357,10 @@ async fn the_stats_of_a_repository_load_and_settle() {
     };
     assert_eq!(head.unwrap().branch.as_deref(), Some("feature"));
     assert!(stats.languages.lock().unwrap().finished);
-    // settled once the intro is over and every stat is in and revealed
-    tokio::time::sleep(Duration::from_millis(300)).await;
-    let after = born + vortex_term::dashboard::stats::INTRO + Duration::from_secs(1);
+    // settled once every stat is in and the title is open
+    let after = born + Duration::from_secs(3);
     let end = Instant::now() + Duration::from_secs(5);
-    while !stats.settled(born, after) {
+    while !timeline.settled(&stats, after) {
         assert!(Instant::now() < end, "never settled");
         tokio::time::sleep(Duration::from_millis(10)).await;
     }

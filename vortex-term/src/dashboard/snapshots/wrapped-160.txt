@@ -1,0 +1,44 @@
+
+
+
+
+
+
+
+                                                      ██╗   ██╗ ██████╗ ██████╗ ████████╗███████╗██╗  ██╗
+                                                      ██║   ██║██╔═══██╗██╔══██╗╚══██╔══╝██╔════╝╚██╗██╔╝
+                                                      ██║   ██║██║   ██║██████╔╝   ██║   █████╗   ╚███╔╝
+                                                      ╚██╗ ██╔╝██║   ██║██╔══██╗   ██║   ██╔══╝   ██╔██╗
+                                                       ╚████╔╝ ╚██████╔╝██║  ██║   ██║   ███████╗██╔╝ ██╗
+                                                        ╚═══╝   ╚═════╝ ╚═╝  ╚═╝   ╚═╝   ╚══════╝╚═╝  ╚═╝
+
+                                                              fork of helix-editor/helix, by vzio
+
+
+
+                            PROJECT                              /src/vortex        LANGUAGES                           68,351 lines
+                            branch    feature/dashboard-background-and-title        ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+                            commit    a72b8d0  feat(dashboard): a startup           ■ Rust          48,210   ■ Tree-sitter   12,650
+                                      dashboard for vx and vx <folder>, wit…        ■ Markdown       3,377   ■ TOML           1,904
+                            upstream  origin/main  3 unpushed                       ■ other          2,210
+                            remote    upstream  https://git.example.org/
+                                      some-organization/a-rather-long-repos…
+                            changes   2 staged · 5 unstaged · 1 untracked
+                            rebase    in progress · 2 conflicted files
+                            worktrees /src/vortex-review  review
+
+
+
+                                                                  i    Start typing
+                                                                  f    Find a file     space f
+                                                                  e    File tree       space e
+                                                                  l    Git history     space l
+                                                                  q    Quit                 :q
+
+
+
+
+
+
+
+

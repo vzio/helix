@@ -6,11 +6,12 @@
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
-use std::time::{Duration, Instant};
+use std::time::Instant;
 
 use vortex_vcs::summary::{Changes, Head, InProgress, Remote, Repo, Upstream, Worktree};
 
 use super::languages::{self, Counts};
+use super::timeline::{Timeline, FRAME};
 
 /// A stat, once read: its value (or why it couldn't be read) and when it arrived.
 #[derive(Debug)]
@@ -69,15 +70,6 @@ pub struct Stats {
     pub closed: AtomicBool,
 }
 
-/// How long a stat takes to appear once it arrived.
-pub const REVEAL: Duration = Duration::from_millis(220);
-
-/// How long the logo takes to draw itself.
-pub const INTRO: Duration = Duration::from_millis(700);
-
-/// The time between frames while something moves.
-const FRAME: Duration = Duration::from_millis(50);
-
 /// Whether `dir` is in a git repository, by looking for `.git` in it and its parents (a few
 /// `stat`s: fast enough for the first frame).
 pub fn in_git_repo(dir: &Path) -> bool {
@@ -90,15 +82,8 @@ impl Stats {
         self.git && !self.gone.load(Ordering::Relaxed)
     }
 
-    /// Whether everything is loaded and drawn in, the logo too: nothing moves anymore, so no more
-    /// frames are needed.
-    pub fn settled(&self, born: Instant, now: Instant) -> bool {
-        if now < born + INTRO {
-            return false;
-        }
-        if !self.shows_git() {
-            return true;
-        }
+    /// When the last stat arrived, once they all did; `None` while one is loading.
+    pub fn all_in(&self) -> Option<Instant> {
         let arrivals = [
             self.head.arrived(),
             self.remote.arrived(),
@@ -110,7 +95,25 @@ impl Stats {
         ];
         arrivals
             .iter()
-            .all(|arrived| arrived.is_some_and(|at| now >= at + REVEAL))
+            .try_fold(None, |last: Option<Instant>, arrived| {
+                arrived.map(|at| Some(last.map_or(at, |last| last.max(at))))
+            })
+            .flatten()
+    }
+}
+
+/// Asks for a frame (`frame`) every [`FRAME`] while something moves: until everything settled
+/// (never in the `on` mode, whose vortex spins on) or the dashboard closed.
+pub async fn tick(stats: Arc<Stats>, timeline: Timeline, mut frame: impl FnMut()) {
+    loop {
+        tokio::time::sleep(FRAME).await;
+        if stats.closed.load(Ordering::Relaxed) {
+            break;
+        }
+        frame();
+        if timeline.settled(&stats, Instant::now()) {
+            break;
+        }
     }
 }
 
@@ -128,6 +131,7 @@ pub fn load(
     trust_full: bool,
     loader: Arc<vortex_core::syntax::Loader>,
     lockfiles: vortex_view::editor::ChangesConfig,
+    timeline: Timeline,
 ) -> Arc<Stats> {
     let stats = Arc::new(Stats {
         git: in_git_repo(&dir),
@@ -136,22 +140,7 @@ pub fn load(
     let Ok(handle) = tokio::runtime::Handle::try_current() else {
         return stats;
     };
-    let born = Instant::now();
-
-    // frames for the animations, until everything settled or the dashboard closed
-    let ticking = stats.clone();
-    handle.spawn(async move {
-        loop {
-            tokio::time::sleep(FRAME).await;
-            if ticking.closed.load(Ordering::Relaxed) {
-                break;
-            }
-            vortex_event::request_redraw();
-            if ticking.settled(born, Instant::now()) {
-                break;
-            }
-        }
-    });
+    handle.spawn(tick(stats.clone(), timeline, vortex_event::request_redraw));
 
     if !stats.git {
         return stats;
@@ -224,6 +213,7 @@ pub fn load(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::time::Duration;
     use vortex_vcs::summary::Changes;
 
     fn ms(n: u64) -> Duration {
@@ -251,73 +241,21 @@ mod tests {
     }
 
     #[test]
-    fn nothing_is_settled_before_the_logo_is_drawn() {
+    fn all_in_once_every_stat_arrived() {
         let born = Instant::now();
-        let stats = Stats::default();
-        assert!(!stats.settled(born, born));
-        assert!(!stats.settled(born, born + INTRO - ms(1)));
-        // outside of a repository there is nothing else to wait for
-        assert!(stats.settled(born, born + INTRO));
-        assert!(stats.settled(born, born + INTRO + Duration::from_secs(60)));
-    }
-
-    #[test]
-    fn a_repository_settles_when_every_stat_is_in_and_revealed() {
-        let born = Instant::now();
-        let stats = Stats {
-            git: true,
-            ..Stats::default()
-        };
-        assert!(stats.shows_git());
-        let late = born + INTRO + Duration::from_secs(60);
-        // not before the logo, and not while nothing has arrived
-        assert!(!stats.settled(born, born));
-        assert!(!stats.settled(born, late));
-
-        // all but the last, each long ago: still waiting for it
-        for which in 0..6 {
-            arrive(&stats, which, born + ms(100));
-            assert!(!stats.settled(born, late), "slot {which}");
-        }
-        arrive(&stats, 6, born + ms(800));
-        // it arrived, but isn't drawn in until REVEAL after
-        let revealed = born + ms(800) + REVEAL;
-        assert!(revealed > born + INTRO);
-        assert!(!stats.settled(born, born + INTRO));
-        assert!(!stats.settled(born, revealed - ms(1)));
-        assert!(stats.settled(born, revealed));
-        assert!(stats.settled(born, late));
-    }
-
-    #[test]
-    fn each_stat_is_needed() {
-        let born = Instant::now();
-        let late = born + INTRO + Duration::from_secs(60);
         for missing in 0..7 {
             let stats = Stats {
                 git: true,
                 ..Stats::default()
             };
             for which in (0..7).filter(|&which| which != missing) {
-                arrive(&stats, which, born);
+                arrive(&stats, which, born + ms(100 * which as u64));
             }
-            assert!(!stats.settled(born, late), "settled without slot {missing}");
-            arrive(&stats, missing, born);
-            assert!(stats.settled(born, late));
+            assert_eq!(stats.all_in(), None, "all in without slot {missing}");
+            arrive(&stats, missing, born + ms(50));
+            let last = if missing == 6 { 5 } else { 6 };
+            assert_eq!(stats.all_in(), Some(born + ms(100 * last)));
         }
-    }
-
-    #[test]
-    fn a_folder_that_turns_out_not_to_be_a_repository_settles_without_stats() {
-        let born = Instant::now();
-        let stats = Stats {
-            git: true,
-            ..Stats::default()
-        };
-        assert!(!stats.settled(born, born + INTRO));
-        stats.gone.store(true, Ordering::Relaxed);
-        assert!(!stats.shows_git());
-        assert!(stats.settled(born, born + INTRO));
     }
 
     #[test]

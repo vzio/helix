@@ -9,12 +9,17 @@
 //! hook of its own. Its own keys come first; every other key goes to the keymap as usual.
 //!
 //! The stats are read in the background ([`stats`]) and the drawing ([`render`]) animates them in
-//! as they arrive; once everything is in, no more frames are asked for.
+//! as they arrive, on the clock of [`timeline`]: the title opens from `VX` to `VORTEX` once
+//! everything is in, over a [`vortex`] that spins, slows down or stands still as configured.
+//! Once nothing moves anymore, no more frames are asked for.
 
 pub mod languages;
-pub mod logo;
 pub mod render;
 pub mod stats;
+pub mod timeline;
+pub mod title;
+pub mod vortex;
+pub mod wrap;
 
 use std::path::PathBuf;
 use std::sync::atomic::Ordering;
@@ -36,10 +41,11 @@ use crate::keymap::Keymaps;
 
 pub use render::Hints;
 pub use stats::Stats;
+pub use timeline::Timeline;
 
 pub struct Dashboard {
     stats: Arc<Stats>,
-    born: Instant,
+    timeline: Timeline,
     dir: PathBuf,
     hints: Hints,
     /// The scratch buffer it is drawn over, in which view, at which version.
@@ -80,6 +86,7 @@ impl Dashboard {
         let (view, doc) = current_ref!(editor);
         let (view, doc_id, version) = (view.id, doc.id(), doc.version());
 
+        let timeline = Timeline::new(Instant::now(), editor.config().dashboard_background);
         let dir = vortex_stdx::env::current_working_dir();
         let trust_full = editor
             .workspace_trust
@@ -90,10 +97,11 @@ impl Dashboard {
             trust_full,
             editor.syn_loader.load_full(),
             editor.config().changes.clone(),
+            timeline,
         );
         Self {
             stats,
-            born: Instant::now(),
+            timeline,
             dir,
             hints: hints(keymaps),
             view,
@@ -107,7 +115,7 @@ impl Dashboard {
         let (view, doc) = current_ref!(editor);
         Self {
             stats,
-            born,
+            timeline: Timeline::new(born, editor.config().dashboard_background),
             dir: vortex_stdx::env::current_working_dir(),
             hints,
             view: view.id,
@@ -118,6 +126,10 @@ impl Dashboard {
 
     pub fn stats(&self) -> &Arc<Stats> {
         &self.stats
+    }
+
+    pub fn timeline(&self) -> Timeline {
+        self.timeline
     }
 
     /// Whether the dashboard is still up: its buffer focused, unchanged, in normal mode.
@@ -163,7 +175,7 @@ impl Dashboard {
     pub fn render_at(&self, editor: &Editor, area: Rect, surface: &mut Surface, now: Instant) {
         let model = render::Model {
             stats: &self.stats,
-            born: self.born,
+            timeline: self.timeline,
             dir: &self.dir,
             hints: &self.hints,
         };

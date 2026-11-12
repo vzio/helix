@@ -1,14 +1,16 @@
 //! Drawing the dashboard: a game main menu, centered, with generous spacing that collapses in
-//! small windows.
+//! small windows, over a vortex.
 //!
-//! From top to bottom: the logo and the credit line, the project and its languages (side by
-//! side in wide windows, stacked otherwise; only in git repositories), and the actions. When the
-//! window is too short, the layout gives up room step by step (`Layout::all`): smaller gaps, a
-//! smaller logo, fewer rows of languages and worktrees, the actions on one row, and at last the
+//! From top to bottom: the title and the credit line, the project and its languages (side by
+//! side in wide windows, stacked otherwise; only in git repositories), and the actions. Each of
+//! the three sits on a panel of the theme's background, cut out of the vortex ([`vortex`]) with a
+//! margin around its text. When the window is too short, the layout gives up room step by step
+//! (`Layout::all`): smaller gaps, long values back on one row, fewer rows of languages, a
+//! smaller title, fewer worktrees, the actions on one row, the smallest title, and at last the
 //! stats.
 
 use std::path::Path;
-use std::time::{Duration, Instant};
+use std::time::Instant;
 
 use vortex_core::unicode::width::{UnicodeWidthChar, UnicodeWidthStr};
 use vortex_view::graphics::{Modifier, Rect, Style};
@@ -16,15 +18,20 @@ use vortex_view::Theme;
 
 use tui::buffer::Buffer as Surface;
 
+use vortex_view::graphics::Color;
+
 use super::languages::{self, display_name, thousands, Counts, OTHER};
-use super::logo::{self, Logo};
-use super::stats::{Slot, Stats, INTRO, REVEAL};
+use super::stats::{Slot, Stats};
+use super::timeline::Timeline;
+use super::title::{self, Title};
+use super::vortex;
+use super::wrap::{self, Breaks, Span};
 
 /// What the dashboard draws, apart from the time.
 pub struct Model<'a> {
     pub stats: &'a Stats,
-    /// When the dashboard opened: the start of the animations.
-    pub born: Instant,
+    /// When the dashboard opened and how its background moves.
+    pub timeline: Timeline,
     /// The folder it opened in.
     pub dir: &'a Path,
     pub hints: &'a Hints,
@@ -59,6 +66,9 @@ pub struct Styles {
     /// The colors of the languages in the bar, in order.
     palette: Vec<Style>,
     other: Style,
+    /// What the panels under the text are filled with.
+    panel: Style,
+    vortex: vortex::Colors,
 }
 
 /// The first of `scopes` the theme has (exactly), else the default style.
@@ -89,11 +99,36 @@ impl Styles {
             Some(fg) => Style::default().fg(fg),
             None => text,
         };
-        let palette = PALETTE
+        let palette_colors: Vec<Color> = PALETTE
             .iter()
             .filter_map(|scope| theme.try_get(scope).and_then(|style| style.fg))
-            .map(|fg| Style::default().fg(fg))
             .collect();
+        let palette = palette_colors
+            .iter()
+            .map(|&fg| Style::default().fg(fg))
+            .collect();
+        let background = theme.get("ui.background");
+        let panel = theme
+            .try_get_exact("ui.dashboard.panel")
+            .unwrap_or(background);
+        // the vortex: `ui.dashboard.vortex.1`, `.2`, ... from the eye out, else
+        // `ui.dashboard.vortex` alone, else the colors of the language bar
+        let numbered: Vec<Color> = (1..)
+            .map_while(|n| theme.try_get_exact(&format!("ui.dashboard.vortex.{n}")))
+            .filter_map(|style| style.fg)
+            .collect();
+        let gradient = if !numbered.is_empty() {
+            numbered
+        } else if let Some(fg) = theme
+            .try_get_exact("ui.dashboard.vortex")
+            .and_then(|style| style.fg)
+        {
+            vec![fg]
+        } else if !palette_colors.is_empty() {
+            palette_colors
+        } else {
+            text.fg.into_iter().collect()
+        };
         Self {
             logo,
             shadow: pick(
@@ -121,6 +156,11 @@ impl Styles {
             track: dim,
             palette,
             other: foreground(dim),
+            panel,
+            vortex: vortex::Colors {
+                gradient,
+                background: background.bg,
+            },
         }
     }
 
@@ -132,9 +172,6 @@ impl Styles {
         }
     }
 }
-
-/// A piece of text in one style.
-type Span = (String, Style);
 
 /// Drawing clipped to an area.
 struct Canvas<'a> {
@@ -187,35 +224,6 @@ fn spans_width(spans: &[Span]) -> u16 {
     spans.iter().map(|(text, _)| text.width() as u16).sum()
 }
 
-/// The first `columns` columns of `spans`: how a value types itself in.
-fn cut(spans: &[Span], columns: usize) -> Vec<Span> {
-    let mut left = columns;
-    let mut out = Vec::new();
-    for (text, style) in spans {
-        if left == 0 {
-            break;
-        }
-        let mut piece = String::new();
-        for c in text.chars() {
-            let w = c.width().unwrap_or(0);
-            if w > left {
-                left = 0;
-                break;
-            }
-            left -= w;
-            piece.push(c);
-        }
-        out.push((piece, *style));
-    }
-    out
-}
-
-/// How far an animation that started at `start` and lasts `length` is at `now`, from 0 to 1.
-fn progress(start: Instant, length: Duration, now: Instant) -> f64 {
-    let elapsed = now.saturating_duration_since(start).as_secs_f64();
-    (elapsed / length.as_secs_f64()).clamp(0.0, 1.0)
-}
-
 const SPINNER: [&str; 4] = ["◜", "◝", "◞", "◟"];
 
 fn spinner(born: Instant, now: Instant) -> &'static str {
@@ -229,6 +237,8 @@ struct Row {
     label: String,
     label_style: Option<Style>,
     value: Value,
+    /// Where the value may break onto a second row.
+    breaks: Breaks,
 }
 
 enum Value {
@@ -242,6 +252,24 @@ impl Row {
             label: label.into(),
             label_style: None,
             value,
+            breaks: Breaks::Words,
+        }
+    }
+
+    fn url(self) -> Self {
+        Self {
+            breaks: Breaks::Url,
+            ..self
+        }
+    }
+
+    /// The rows of the value in `width` columns: two at most when `wrap`, else one.
+    fn lines(&self, width: u16, wrap: bool) -> Vec<Vec<Span>> {
+        match &self.value {
+            Value::Loading => vec![Vec::new()],
+            Value::Ready(spans, _) => {
+                wrap::wrap(spans, width as usize, if wrap { 2 } else { 1 }, self.breaks)
+            }
         }
     }
 }
@@ -319,17 +347,20 @@ fn project_rows(stats: &Stats, s: &Styles, worktrees_max: usize) -> Vec<Row> {
             None => vec![("no upstream".into(), s.label)],
         }),
     ));
-    rows.push(Row::new(
-        "remote",
-        value(&stats.remote, s, |remote| match remote {
-            Some(remote) => vec![
-                (remote.name.clone(), s.value),
-                ("  ".into(), s.value),
-                (remote.url.clone(), s.detail),
-            ],
-            None => vec![("no remote".into(), s.label)],
-        }),
-    ));
+    rows.push(
+        Row::new(
+            "remote",
+            value(&stats.remote, s, |remote| match remote {
+                Some(remote) => vec![
+                    (remote.name.clone(), s.value),
+                    ("  ".into(), s.value),
+                    (remote.url.clone(), s.detail),
+                ],
+                None => vec![("no remote".into(), s.label)],
+            }),
+        )
+        .url(),
+    );
     rows.push(Row::new(
         "changes",
         value(&stats.changes, s, |changes| {
@@ -376,6 +407,7 @@ fn project_rows(stats: &Stats, s: &Styles, worktrees_max: usize) -> Vec<Row> {
             label: in_progress.operation.name().to_string(),
             label_style: Some(s.warning),
             value: Value::Ready(spans, at),
+            breaks: Breaks::Words,
         });
     }
     if let Some((Ok(worktrees), at)) = stats.worktrees.get() {
@@ -412,24 +444,23 @@ fn project_rows(stats: &Stats, s: &Styles, worktrees_max: usize) -> Vec<Row> {
     rows
 }
 
-/// How many rows the project section takes, its heading included.
-fn project_height(stats: &Stats, worktrees_max: usize) -> u16 {
-    let mut rows = 1 + 5;
-    if let Some((Ok(Some(_)), _)) = stats.in_progress.get() {
-        rows += 1;
-    }
-    if let Some((Ok(worktrees), _)) = stats.worktrees.get() {
-        rows += worktrees.len().min(worktrees_max);
-    }
-    rows as u16
+/// How many rows the project section takes in `width` columns, its heading included.
+fn project_height(rows: &[Row], width: u16, wrap: bool) -> u16 {
+    let value_width = width.saturating_sub(LABEL);
+    1 + rows
+        .iter()
+        .map(|row| row.lines(value_width, wrap).len() as u16)
+        .sum::<u16>()
 }
 
 /// A layout: how much room each part takes. [`Layout::all`] lists them from the roomiest.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct Layout {
-    logo: Logo,
+    title: Title,
     /// The empty rows between the parts.
     gap: u16,
+    /// Long values on two rows rather than one.
+    wrap: bool,
     /// The rows of language names under the bar, at most.
     legend: u16,
     worktrees: usize,
@@ -441,25 +472,28 @@ struct Layout {
 impl Layout {
     fn all() -> Vec<Layout> {
         let roomy = Layout {
-            logo: logo::LARGE,
+            title: title::LARGE,
             gap: 2,
+            wrap: true,
             legend: 3,
             worktrees: WORKTREES,
             menu: true,
             stats: true,
         };
-        let steps: [fn(Layout) -> Layout; 10] = [
+        let steps: [fn(Layout) -> Layout; 11] = [
             |l| Layout { gap: 1, ..l },
+            // long values give up their second row before anything is dropped
+            |l| Layout { wrap: false, ..l },
             |l| Layout { legend: 2, ..l },
             |l| Layout { legend: 1, ..l },
             |l| Layout {
-                logo: logo::MEDIUM,
+                title: title::MEDIUM,
                 ..l
             },
             |l| Layout { worktrees: 1, ..l },
             |l| Layout { menu: false, ..l },
             |l| Layout {
-                logo: logo::SMALL,
+                title: title::SMALL,
                 ..l
             },
             |l| Layout { legend: 0, ..l },
@@ -536,12 +570,15 @@ fn actions(model: &Model) -> Vec<Action> {
     actions
 }
 
+/// The margin between a panel's text and the vortex.
+const MARGIN_X: u16 = 2;
+const MARGIN_Y: u16 = 1;
+
 /// Draws the dashboard of `model` in `area` as it is at `now`.
 pub fn render(model: &Model, theme: &Theme, area: Rect, surface: &mut Surface, now: Instant) {
     let styles = Styles::new(theme);
     let s = &styles;
     surface.clear_with(area, theme.get("ui.background"));
-    let mut canvas = Canvas { area, surface };
     let git = model.stats.shows_git();
     let wide = area.width >= WIDE;
     let panel = if wide {
@@ -550,14 +587,16 @@ pub fn render(model: &Model, theme: &Theme, area: Rect, surface: &mut Surface, n
         STACKED.min(area.width.saturating_sub(4)).max(1)
     };
     let actions = actions(model);
+    let languages_height = |layout: &Layout| 2 + legend_rows(panel, layout.legend);
 
     let height = |layout: &Layout| -> u16 {
-        let logo = layout.logo.height() + if layout.logo.height() > 1 { 2 } else { 1 };
+        let title = layout.title.height() + if layout.title.height() > 1 { 2 } else { 1 };
         let menu = if layout.menu { actions.len() as u16 } else { 1 };
-        let mut total = logo + layout.gap + 1 + menu;
+        let mut total = title + layout.gap + 1 + menu;
         if git && layout.stats {
-            let project = project_height(model.stats, layout.worktrees);
-            let languages = 2 + legend_rows(panel, layout.legend);
+            let rows = project_rows(model.stats, s, layout.worktrees);
+            let project = project_height(&rows, panel, layout.wrap);
+            let languages = languages_height(layout);
             let stats = if wide {
                 project.max(languages)
             } else {
@@ -571,35 +610,94 @@ pub fn render(model: &Model, theme: &Theme, area: Rect, surface: &mut Surface, n
     let row_width = actions_row_width(&actions);
     let fits = |layout: &&Layout| {
         height(layout) <= area.height
-            && layout.logo.width() <= area.width
+            && layout.title.width() <= area.width
             && (layout.menu || row_width <= area.width)
     };
     let layout = layouts
         .iter()
         .find(fits)
-        .or_else(|| layouts.iter().rfind(|l| l.logo.width() <= area.width))
+        .or_else(|| layouts.iter().rfind(|l| l.title.width() <= area.width))
         .copied()
         .unwrap_or(*layouts.last().unwrap());
 
+    // where each part goes
     let total = height(&layout);
     let mut y = area.y + area.height.saturating_sub(total) / 2;
-
-    // the logo, drawing itself in
-    draw_logo(&mut canvas, layout.logo, y, model.born, now, s);
-    y += layout.logo.height();
-    if layout.logo.height() > 1 {
+    let title_y = y;
+    y += layout.title.height();
+    if layout.title.height() > 1 {
         y += 1;
     }
-    let credit = logo::CREDIT;
-    let x = center(area, credit.width() as u16);
-    canvas.text(x, y, credit, s.credit, area.width);
+    let credit_y = y;
     y += 1 + layout.gap + 1;
-
+    let mut stats_part = None;
     if git && layout.stats {
+        let rows = project_rows(model.stats, s, layout.worktrees);
+        let project = project_height(&rows, panel, layout.wrap);
+        let (width, height) = if wide {
+            (
+                PANEL * 2 + PANEL_GAP,
+                project.max(languages_height(&layout)),
+            )
+        } else {
+            (
+                panel,
+                project + layout.gap.max(1) + languages_height(&layout),
+            )
+        };
+        stats_part = Some(Rect::new(center(area, width), y, width, height));
+        y += height + layout.gap + 1;
+    }
+    let actions_part = actions_rect(area, &actions, y, layout.menu);
+
+    // the title as it is now: its cells, and how wide they spread
+    let opened = model.timeline.title(model.stats, now);
+    let cells = layout.title.cells(opened);
+    let title_x = center(area, layout.title.width());
+    let credit = title::CREDIT;
+    let credit_width = credit.width() as u16;
+
+    // the vortex, and the panels cut out of it
+    let spin = model.timeline.spin(model.stats, now);
+    if let Some(spin) = spin.filter(|_| vortex::fits(area)) {
+        let left = cells.iter().map(|cell| cell.x).min().unwrap_or(0);
+        let right = cells.iter().map(|cell| cell.x + 1).max().unwrap_or(0);
+        let credit_x = center(area, credit_width);
+        let title_left = (title_x + left).min(credit_x);
+        let title_right = (title_x + right).max(credit_x + credit_width);
+        let title_part = Rect::new(
+            title_left,
+            title_y,
+            title_right - title_left,
+            credit_y + 1 - title_y,
+        );
+        let panels: Vec<Rect> = [Some(title_part), stats_part, Some(actions_part)]
+            .into_iter()
+            .flatten()
+            .map(|part| margin(part, area))
+            .collect();
+        vortex::draw(surface, area, spin, &panels, &s.vortex);
+        for &panel in &panels {
+            surface.clear_with(panel, s.panel);
+        }
+    }
+
+    let mut canvas = Canvas { area, surface };
+    draw_title(&mut canvas, &cells, title_x, title_y, s);
+    canvas.text(
+        center(area, credit_width),
+        credit_y,
+        credit,
+        s.credit,
+        area.width,
+    );
+
+    if let Some(part) = stats_part {
+        let y = part.y;
         if wide {
-            let left = center(area, PANEL * 2 + PANEL_GAP);
-            let project_rows = draw_project(&mut canvas, model, left, y, PANEL, layout, now, s);
-            let languages_rows = draw_languages(
+            let left = part.x;
+            draw_project(&mut canvas, model, left, y, PANEL, layout, now, s);
+            draw_languages(
                 &mut canvas,
                 model,
                 left + PANEL + PANEL_GAP,
@@ -609,75 +707,47 @@ pub fn render(model: &Model, theme: &Theme, area: Rect, surface: &mut Surface, n
                 now,
                 s,
             );
-            y += project_rows.max(languages_rows);
         } else {
-            let left = center(area, panel);
-            y += draw_project(&mut canvas, model, left, y, panel, layout, now, s);
-            y += layout.gap.max(1);
-            y += draw_languages(&mut canvas, model, left, y, panel, layout, now, s);
+            let left = part.x;
+            let project = draw_project(&mut canvas, model, left, y, panel, layout, now, s);
+            let y = y + project + layout.gap.max(1);
+            draw_languages(&mut canvas, model, left, y, panel, layout, now, s);
         }
-        y += layout.gap + 1;
     }
 
-    draw_actions(&mut canvas, &actions, y, layout.menu, s);
+    draw_actions(&mut canvas, &actions, actions_part, layout.menu, s);
+}
+
+/// `part` with the margin of its panel, within `area`.
+fn margin(part: Rect, area: Rect) -> Rect {
+    let left = part.x.saturating_sub(MARGIN_X).max(area.x);
+    let top = part.y.saturating_sub(MARGIN_Y).max(area.y);
+    let right = (part.x + part.width + MARGIN_X).min(area.right());
+    let bottom = (part.y + part.height + MARGIN_Y).min(area.bottom());
+    Rect::new(
+        left,
+        top,
+        right.saturating_sub(left),
+        bottom.saturating_sub(top),
+    )
 }
 
 fn center(area: Rect, width: u16) -> u16 {
     area.x + area.width.saturating_sub(width) / 2
 }
 
-fn draw_logo(canvas: &mut Canvas, logo: Logo, y: u16, born: Instant, now: Instant, s: &Styles) {
-    let area = canvas.area;
-    let x = center(area, logo.width());
-    let intro = progress(born, INTRO, now);
-    // the spiral from its center outwards, over the first two thirds of the intro
-    let order = logo.reveal_order();
-    let spiral_shown = if order.is_empty() {
-        usize::MAX
-    } else {
-        ((order.len() as f64) * (intro * 1.5).min(1.0)).ceil() as usize
-    };
-    let spiral_y = y + logo.height().saturating_sub(logo.spiral.len() as u16) / 2;
-    for (row, line) in logo.spiral.iter().enumerate() {
-        for (col, c) in line.chars().enumerate() {
-            if c == ' ' {
-                continue;
-            }
-            let index = order
-                .iter()
-                .position(|&cell| cell == (row as u16, col as u16))
-                .unwrap_or(0);
-            if index < spiral_shown {
-                canvas.text(
-                    x + col as u16,
-                    spiral_y + row as u16,
-                    &c.to_string(),
-                    s.logo,
-                    1,
-                );
-            }
-        }
-    }
-    // the word sweeps in from the left, a little behind the spiral
-    let word_x = x + logo.spiral_width() + logo.gap;
-    let word_width = logo.word[0].chars().count();
-    let word_shown =
-        ((word_width as f64) * ((intro - 0.15) / 0.85).clamp(0.0, 1.0)).ceil() as usize;
-    let word_y = y + logo.height().saturating_sub(logo.word.len() as u16) / 2;
-    for (row, line) in logo.word.iter().enumerate() {
-        for (col, c) in line.chars().enumerate().take(word_shown) {
-            if c == ' ' {
-                continue;
-            }
-            let style = if Logo::is_letter(c) { s.logo } else { s.shadow };
-            canvas.text(
-                word_x + col as u16,
-                word_y + row as u16,
-                &c.to_string(),
-                style,
-                1,
-            );
-        }
+/// The title at `x`, `y`: the letters in the title's style, their shadow in its own.
+fn draw_title(canvas: &mut Canvas, cells: &[title::Cell], x: u16, y: u16, s: &Styles) {
+    let mut buf = [0; 4];
+    for cell in cells {
+        let style = if cell.letter { s.logo } else { s.shadow };
+        canvas.text(
+            x + cell.x,
+            y + cell.y,
+            cell.c.encode_utf8(&mut buf),
+            style,
+            1,
+        );
     }
 }
 
@@ -698,18 +768,6 @@ fn draw_heading(
     canvas.spans(x + width - detail_width, y, &detail, detail_width);
 }
 
-/// A value at `now`: the shimmer while it loads, then typing itself in.
-fn value_spans(value: &Value, width: u16, born: Instant, now: Instant, s: &Styles) -> Vec<Span> {
-    match value {
-        Value::Loading => shimmer(width.min(14), born, now, s),
-        Value::Ready(spans, at) => {
-            let full = spans_width(spans) as f64;
-            let shown = (full * progress(*at, REVEAL, now)).ceil() as usize;
-            cut(spans, shown)
-        }
-    }
-}
-
 /// A placeholder with a light running along it.
 fn shimmer(width: u16, born: Instant, now: Instant, s: &Styles) -> Vec<Span> {
     let width = width as i64;
@@ -724,6 +782,11 @@ fn shimmer(width: u16, born: Instant, now: Instant, s: &Styles) -> Vec<Span> {
         .collect()
 }
 
+/// Where a row of the project section is in the cascade of values typing in: the top one first.
+fn place(row: usize) -> f64 {
+    row as f64 / 6.0
+}
+
 #[allow(clippy::too_many_arguments)]
 fn draw_project(
     canvas: &mut Canvas,
@@ -735,6 +798,7 @@ fn draw_project(
     now: Instant,
     s: &Styles,
 ) -> u16 {
+    let born = model.timeline.born;
     let rows = project_rows(model.stats, s, layout.worktrees);
     let loading = rows.iter().any(|row| matches!(row.value, Value::Loading));
     let dir = match model.stats.work_dir.get() {
@@ -746,11 +810,12 @@ fn draw_project(
         s.detail,
     )];
     if loading {
-        detail.insert(0, (format!("{} ", spinner(model.born, now)), s.spinner));
+        detail.insert(0, (format!("{} ", spinner(born, now)), s.spinner));
     }
     draw_heading(canvas, x, y, width, "PROJECT", detail, s);
+    let value_width = width.saturating_sub(LABEL);
+    let mut row_y = y + 1;
     for (i, row) in rows.iter().enumerate() {
-        let row_y = y + 1 + i as u16;
         canvas.text(
             x,
             row_y,
@@ -758,11 +823,24 @@ fn draw_project(
             row.label_style.unwrap_or(s.label),
             LABEL,
         );
-        let value_width = width.saturating_sub(LABEL);
-        let spans = value_spans(&row.value, value_width, model.born, now, s);
-        canvas.spans(x + LABEL, row_y, &spans, value_width);
+        let lines = row.lines(value_width, layout.wrap);
+        // the shimmer until the value is in and its turn in the cascade comes, then typing in
+        let typed = match &row.value {
+            Value::Ready(_, at) => model.timeline.typed(*at, place(i), now),
+            Value::Loading => 0.0,
+        };
+        if typed == 0.0 {
+            let shimmer = shimmer(value_width.min(14), born, now, s);
+            canvas.spans(x + LABEL, row_y, &shimmer, value_width);
+        } else {
+            let shown = (wrap::columns(&lines) as f64 * typed).ceil() as usize;
+            for (line, spans) in wrap::typed(&lines, shown).iter().enumerate() {
+                canvas.spans(x + LABEL, row_y + line as u16, spans, value_width);
+            }
+        }
+        row_y += lines.len() as u16;
     }
-    1 + rows.len() as u16
+    row_y - y
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -776,14 +854,20 @@ fn draw_languages(
     now: Instant,
     s: &Styles,
 ) -> u16 {
+    let born = model.timeline.born;
     let counts: Counts = model.stats.languages.lock().unwrap().clone();
     let done = model.stats.languages_done.get();
     let total = counts.total();
+    // the total types in last in the cascade
+    let typed = match &done {
+        Some((_, at)) => model.timeline.typed(*at, 1.0, now),
+        None => 0.0,
+    };
 
     // the heading: the total once counted, the files so far while counting
     let detail = match &done {
-        Some((Err(err), _)) => vec![(err.clone(), s.label)],
-        Some((Ok(()), at)) => {
+        Some((Err(err), _)) if typed > 0.0 => vec![(err.clone(), s.label)],
+        Some((Ok(()), _)) if typed > 0.0 => {
             let mut spans = vec![(format!("{} lines", thousands(total)), s.detail)];
             if counts.unreadable > 0 {
                 spans.push((
@@ -792,15 +876,15 @@ fn draw_languages(
                 ));
             }
             let full = spans_width(&spans) as usize;
-            let shown = (full as f64 * progress(*at, REVEAL, now)).ceil() as usize;
-            let mut spans = cut(&spans, shown);
+            let shown = (full as f64 * typed).ceil() as usize;
+            let mut spans = wrap::typed(&[spans], shown).remove(0);
             // right-aligned as it types in
             let pad = full.saturating_sub(spans_width(&spans) as usize);
             spans.insert(0, (" ".repeat(pad), s.detail));
             spans
         }
-        None => {
-            let mut spans = vec![(format!("{} ", spinner(model.born, now)), s.spinner)];
+        _ => {
+            let mut spans = vec![(format!("{} ", spinner(born, now)), s.spinner)];
             match counts.files {
                 Some(files) => spans.push((
                     format!(
@@ -817,9 +901,11 @@ fn draw_languages(
     };
     draw_heading(canvas, x, y, width, "LANGUAGES", detail, s);
 
-    // the bar: the share of each language, over the part of the files read so far
+    // the bar: the share of each language, over the part of the files read so far, filling in
+    // over the loading time at least
     let shares = languages::shares(&counts.lines, LANGUAGES);
-    let filled = (width as f64 * counts.progress()).round() as u16;
+    let filled = model.timeline.filled(counts.progress(), now);
+    let filled = (width as f64 * filled).round() as u16;
     let widths = languages::widths(&shares, filled);
     let mut col = x;
     for (i, (share, cells)) in shares.iter().zip(&widths).enumerate() {
@@ -829,10 +915,10 @@ fn draw_languages(
     }
     if col < x + width {
         let rest = x + width - col;
-        let track = if done.is_some() {
+        let track = if done.is_some() && filled == width {
             vec![("─".repeat(rest as usize), s.track)]
         } else {
-            shimmer(rest, model.born, now, s)
+            shimmer(rest, born, now, s)
         };
         canvas.spans(col, y + 1, &track, rest);
     }
@@ -877,24 +963,39 @@ fn actions_row_width(actions: &[Action]) -> u16 {
         + 3 * actions.len().saturating_sub(1) as u16
 }
 
-fn draw_actions(canvas: &mut Canvas, actions: &[Action], y: u16, menu: bool, s: &Styles) {
-    let area = canvas.area;
+/// The width of the actions as a menu, and of its labels.
+fn menu_width(actions: &[Action]) -> (u16, u16) {
+    const LABEL: u16 = 16;
+    let hint_width = actions
+        .iter()
+        .filter_map(|action| action.hint.as_ref())
+        .map(|hint| hint.width() as u16)
+        .max()
+        .unwrap_or(0);
+    (3 + 3 + LABEL + hint_width, LABEL)
+}
+
+/// Where the actions go, from row `y`.
+fn actions_rect(area: Rect, actions: &[Action], y: u16, menu: bool) -> Rect {
+    if menu {
+        let (width, _) = menu_width(actions);
+        Rect::new(center(area, width), y, width, actions.len() as u16)
+    } else {
+        let width = actions_row_width(actions).min(area.width);
+        Rect::new(center(area, width), y, width, 1)
+    }
+}
+
+fn draw_actions(canvas: &mut Canvas, actions: &[Action], part: Rect, menu: bool, s: &Styles) {
     let badge = |key: &str| format!(" {key} ");
+    let (x, y) = (part.x, part.y);
     if menu {
         // a column: the key, the action, and the keymap's key for it on the right
-        const LABEL: u16 = 16;
-        let hint_width = actions
-            .iter()
-            .filter_map(|action| action.hint.as_ref())
-            .map(|hint| hint.width() as u16)
-            .max()
-            .unwrap_or(0);
-        let width = 3 + 3 + LABEL + hint_width;
-        let x = center(area, width);
+        let (width, label) = menu_width(actions);
         for (i, action) in actions.iter().enumerate() {
             let row = y + i as u16;
             canvas.text(x, row, &badge(action.key), s.key, 3);
-            canvas.text(x + 6, row, action.label, s.action, LABEL);
+            canvas.text(x + 6, row, action.label, s.action, label);
             if let Some(hint) = &action.hint {
                 let w = hint.width() as u16;
                 canvas.text(x + width - w, row, hint, s.hint, w);
@@ -910,8 +1011,7 @@ fn draw_actions(canvas: &mut Canvas, actions: &[Action], y: u16, menu: bool, s: 
             spans.push((badge(action.key), s.key));
             spans.push((format!(" {}", action.short), s.action));
         }
-        let width = spans_width(&spans).min(area.width);
-        canvas.spans(center(area, width), y, &spans, width);
+        canvas.spans(x, y, &spans, part.width);
     }
 }
 
@@ -924,6 +1024,7 @@ pub(crate) mod tests {
     use vortex_vcs::summary::{
         Changes, Commit, Head, InProgress, Operation, Remote, Upstream, Worktree,
     };
+    use vortex_view::editor::DashboardBackground;
 
     /// The text of a buffer, one line per row, without trailing spaces.
     pub fn text(buffer: &Surface) -> String {
@@ -1023,18 +1124,44 @@ pub(crate) mod tests {
     }
 
     pub fn draw(stats: &Stats, width: u16, height: u16, born: Instant, now: Instant) -> String {
+        draw_with(
+            stats,
+            width,
+            height,
+            Timeline::new(born, DashboardBackground::Off),
+            now,
+        )
+    }
+
+    pub fn draw_with(
+        stats: &Stats,
+        width: u16,
+        height: u16,
+        timeline: Timeline,
+        now: Instant,
+    ) -> String {
+        text(&surface(stats, width, height, timeline, now))
+    }
+
+    pub fn surface(
+        stats: &Stats,
+        width: u16,
+        height: u16,
+        timeline: Timeline,
+        now: Instant,
+    ) -> Surface {
         let theme = vortex_view::theme::Loader::new(&[]).default();
         let area = Rect::new(0, 0, width, height);
         let mut buffer = Surface::empty(area);
         let hints = hints();
         let model = Model {
             stats,
-            born,
+            timeline,
             dir: Path::new("/src/vortex"),
             hints: &hints,
         };
         render(&model, &theme, area, &mut buffer, now);
-        text(&buffer)
+        buffer
     }
 
     /// Compares the drawing with `snapshots/<name>.txt`, or writes it there with
@@ -1058,20 +1185,60 @@ pub(crate) mod tests {
 
     /// Long after everything arrived: nothing moves.
     fn settled(born: Instant) -> Instant {
-        born + Duration::from_secs(5)
+        born + Duration::from_secs(8)
     }
 
-    /// The intro done, the stats still loading (the shimmer frozen at one frame).
+    /// The stats still loading (the shimmer frozen at one frame), the title still `VX`.
     fn loading_time(born: Instant) -> Instant {
-        born + INTRO + Duration::from_millis(130)
+        born + Duration::from_millis(830)
+    }
+
+    fn timeline(born: Instant, background: DashboardBackground) -> Timeline {
+        Timeline::new(born, background)
     }
 
     #[test]
-    fn git_repository_loaded() {
+    fn a_still_vortex() {
         let born = Instant::now();
         let stats = loaded(born);
-        snapshot("git-160", &draw(&stats, 160, 44, born, settled(born)));
-        snapshot("git-100", &draw(&stats, 100, 44, born, settled(born)));
+        let still = timeline(born, DashboardBackground::Static);
+        snapshot(
+            "static-160",
+            &draw_with(&stats, 160, 50, still, settled(born)),
+        );
+        snapshot(
+            "static-100",
+            &draw_with(&stats, 100, 44, still, settled(born)),
+        );
+    }
+
+    #[test]
+    fn no_vortex() {
+        let born = Instant::now();
+        let stats = loaded(born);
+        snapshot("off-160", &draw(&stats, 160, 44, born, settled(born)));
+        snapshot("off-100", &draw(&stats, 100, 44, born, settled(born)));
+    }
+
+    #[test]
+    fn vx_opens_to_vortex() {
+        let born = Instant::now();
+        let stats = Stats::default();
+        let ready = born + super::super::timeline::MIN_LOADING;
+        let title = super::super::timeline::TITLE;
+        let off = timeline(born, DashboardBackground::Off);
+        snapshot(
+            "title-vx",
+            &draw_with(&stats, 100, 20, off, born + title / 2),
+        );
+        snapshot(
+            "title-opening",
+            &draw_with(&stats, 100, 20, off, ready + title.mul_f64(0.55)),
+        );
+        snapshot(
+            "title-vortex",
+            &draw_with(&stats, 100, 20, off, ready + title),
+        );
     }
 
     #[test]
@@ -1113,7 +1280,11 @@ pub(crate) mod tests {
     fn folder_outside_git() {
         let born = Instant::now();
         let stats = Stats::default();
-        snapshot("folder-160", &draw(&stats, 160, 44, born, settled(born)));
+        let still = timeline(born, DashboardBackground::Static);
+        snapshot(
+            "folder-160",
+            &draw_with(&stats, 160, 44, still, settled(born)),
+        );
         snapshot("folder-100", &draw(&stats, 100, 44, born, settled(born)));
     }
 
@@ -1121,8 +1292,44 @@ pub(crate) mod tests {
     fn narrow_and_short_windows() {
         let born = Instant::now();
         let stats = loaded(born);
-        snapshot("narrow-60x24", &draw(&stats, 60, 24, born, settled(born)));
-        snapshot("narrow-40x12", &draw(&stats, 40, 12, born, settled(born)));
+        let still = timeline(born, DashboardBackground::Static);
+        snapshot(
+            "narrow-60x24",
+            &draw_with(&stats, 60, 24, still, settled(born)),
+        );
+        // too small for a vortex
+        snapshot(
+            "narrow-40x12",
+            &draw_with(&stats, 40, 12, still, settled(born)),
+        );
+    }
+
+    #[test]
+    fn long_values_wrap() {
+        let born = Instant::now();
+        let stats = loaded(born);
+        stats.head.set_at(
+            Ok(Head {
+                branch: Some("feature/dashboard-background-and-title".into()),
+                commit: Some(Commit {
+                    short_id: "a72b8d0".into(),
+                    summary: "feat(dashboard): a startup dashboard for vx and vx <folder>, \
+                              with the stats of the project and its languages (#28)"
+                        .into(),
+                }),
+            }),
+            born,
+        );
+        stats.remote.set_at(
+            Ok(Some(Remote {
+                name: "upstream".into(),
+                url: "https://git.example.org/some-organization/a-rather-long-repository-name.git"
+                    .into(),
+            })),
+            born,
+        );
+        snapshot("wrapped-160", &draw(&stats, 160, 44, born, settled(born)));
+        snapshot("wrapped-100", &draw(&stats, 100, 44, born, settled(born)));
     }
 
     #[test]
@@ -1179,15 +1386,118 @@ pub(crate) mod tests {
         );
     }
 
+    /// Writes HTML pictures of the dashboard to `$PREVIEW_DIR`, for looking at it while
+    /// working on it: `PREVIEW_DIR=/tmp/p cargo test -p vortex-term preview -- --ignored`.
+    /// `PREVIEW_THEME` picks a theme by name, `PREVIEW_TIMES` the times in milliseconds,
+    /// `PREVIEW_SIZE` the size (`160x50`) and `PREVIEW_MODE` the background.
     #[test]
-    fn the_logo_draws_itself_in() {
+    #[ignore]
+    fn preview() {
+        let Some(dir) = std::env::var_os("PREVIEW_DIR") else {
+            return;
+        };
+        let dir = PathBuf::from(dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let loader = vortex_view::theme::Loader::new(&[
+            Path::new(env!("CARGO_MANIFEST_DIR")).join("../runtime")
+        ]);
+        let theme = match std::env::var("PREVIEW_THEME") {
+            Ok(name) => loader.load(&name).unwrap(),
+            Err(_) => loader.default(),
+        };
+        let (width, height) = std::env::var("PREVIEW_SIZE")
+            .ok()
+            .and_then(|size| {
+                let (w, h) = size.split_once('x')?;
+                Some((w.parse().ok()?, h.parse().ok()?))
+            })
+            .unwrap_or((160, 50));
+        let mode = match std::env::var("PREVIEW_MODE").as_deref() {
+            Ok("load") => DashboardBackground::Load,
+            Ok("static") => DashboardBackground::Static,
+            Ok("off") => DashboardBackground::Off,
+            _ => DashboardBackground::On,
+        };
+        let times: Vec<u64> = std::env::var("PREVIEW_TIMES")
+            .unwrap_or_else(|_| "5000".into())
+            .split(',')
+            .map(|t| t.parse().unwrap())
+            .collect();
         let born = Instant::now();
-        let stats = Stats::default();
-        let first = draw(&stats, 100, 30, born, born);
-        let middle = draw(&stats, 100, 30, born, born + INTRO / 2);
-        let done = draw(&stats, 100, 30, born, born + INTRO);
-        let cells = |s: &str| s.chars().filter(|c| "█╗║╔═╝╚╭╮╰╯│─╶".contains(*c)).count();
-        assert!(cells(&first) < cells(&middle) && cells(&middle) < cells(&done));
-        assert_eq!(done, draw(&stats, 100, 30, born, born + INTRO * 4));
+        let stats = loaded(born + Duration::from_millis(300));
+        let hints = hints();
+        for t in times {
+            let area = Rect::new(0, 0, width, height);
+            let mut buffer = Surface::empty(area);
+            let model = Model {
+                stats: &stats,
+                timeline: Timeline::new(born, mode),
+                dir: Path::new("/src/vortex"),
+                hints: &hints,
+            };
+            render(
+                &model,
+                &theme,
+                area,
+                &mut buffer,
+                born + Duration::from_millis(t),
+            );
+            std::fs::write(dir.join(format!("frame-{t:05}.html")), html(&buffer)).unwrap();
+        }
+    }
+
+    fn css(color: Color, fallback: &str) -> String {
+        match color {
+            Color::Rgb(r, g, b) => format!("#{r:02x}{g:02x}{b:02x}"),
+            Color::Reset => fallback.to_string(),
+            Color::Black => "#000".into(),
+            Color::Red => "#c33".into(),
+            Color::Green => "#3c3".into(),
+            Color::Yellow => "#cc3".into(),
+            Color::Blue => "#36c".into(),
+            Color::Magenta => "#c3c".into(),
+            Color::Cyan => "#3cc".into(),
+            Color::Gray => "#888".into(),
+            Color::LightRed => "#f66".into(),
+            Color::LightGreen => "#6f6".into(),
+            Color::LightYellow => "#ff6".into(),
+            Color::LightBlue => "#69f".into(),
+            Color::LightMagenta => "#f6f".into(),
+            Color::LightCyan => "#6ff".into(),
+            Color::LightGray => "#bbb".into(),
+            Color::White => "#fff".into(),
+            Color::Indexed(i) => format!("hsl({}, 50%, 60%)", i as u32 * 37 % 360),
+        }
+    }
+
+    fn html(buffer: &Surface) -> String {
+        let area = buffer.area;
+        let mut out = String::from(
+            "<html><body style='margin:0;background:#1d1d1d'><pre style='font: 14px/17px \"DejaVu Sans Mono\", monospace; margin:8px'>",
+        );
+        for y in area.top()..area.bottom() {
+            for x in area.left()..area.right() {
+                let cell = &buffer[(x, y)];
+                let fg = css(cell.fg, "#ddd");
+                let bg = css(cell.bg, "#1d1d1d");
+                let symbol = match cell.symbol.as_str() {
+                    "<" => "&lt;",
+                    ">" => "&gt;",
+                    "&" => "&amp;",
+                    s => s,
+                };
+                let bold = if cell.modifier.contains(Modifier::BOLD) {
+                    "font-weight:bold;"
+                } else {
+                    ""
+                };
+                out.push_str(&format!(
+                    "<span style='color:{fg};background:{bg};{bold}'>{symbol}</span>"
+                ));
+            }
+            out.push('\n');
+        }
+        out.push_str("</pre></body></html>");
+        out
     }
 }

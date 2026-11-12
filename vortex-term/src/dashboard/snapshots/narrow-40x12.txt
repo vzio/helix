@@ -1,6 +1,6 @@
 
-            ╶╮  V O R T E X
-       fork of helix-editor/helix
+              v o r t e x
+  fork of helix-editor/helix, by vzio
 
 
       i    Start typing
