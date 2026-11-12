@@ -328,7 +328,7 @@ async fn values_with_a_memory_reference_get_a_badge_and_m_opens_their_memory() -
         Some("Var(VarPath { tree: Scopes, names: [\"Locals\", \"x\"] })".into())
     );
     e.h.keys("M").await?;
-    assert_eq!(status(&e.h.app), "x has no memory to show");
+    e.says("x has no memory to show").await;
     assert!(memory_doc(&e.h.app).is_none());
 
     // p: opens a vertical split, the cursor on 0x1010 in the middle of the view
@@ -358,12 +358,15 @@ async fn values_with_a_memory_reference_get_a_badge_and_m_opens_their_memory() -
     );
     e.has_byte(0x1010, Cell::Byte(initial(0x1010))).await;
 
-    // the same from the watch
-    e.h.keys("<C-g>").await?;
-    e.h.keys("<C-g>").await?;
+    // the same from the watch: the view of that memory is the one shown again
     e.panel("w").await?;
     assert_eq!(e.h.app.editor.debug.section, Section::Watch);
-    e.h.keys("jM").await.ok();
+    e.h.keys("M").await?;
+    e.h.until("the view", |app| !app.editor.debug.is_focused())
+        .await;
+    assert_eq!(status(&e.h.app), "memory of p at 0x1010");
+    assert_eq!(memory_views(&e.h.app), 1);
+    assert_eq!(e.h.app.editor.tree.views().count(), 2);
     e.h.finish().await
 }
 
@@ -426,7 +429,6 @@ async fn debug_memory_of_an_expression_evaluates_it_in_the_current_frame() -> an
     // one that fails is an error
     e.h.errors.clear();
     e.h.keys(":debug-memory<space>nope<ret>").await?;
-    e.h.until("the error", |_| true).await;
     e.h.until("an error", |app| {
         app.editor
             .get_status()
@@ -570,7 +572,10 @@ async fn unreadable_bytes_are_cells_and_question_marks_never_errors() -> anyhow:
             Cell::Unreadable
         ]
     );
-    e.has_byte(0x0c00, Cell::Unreadable).await;
+    // the first byte shown is in a page nothing is mapped in
+    let first_shown = shown(&e.h.app).0;
+    assert!(first_shown < 0x1000);
+    e.has_byte(first_shown, Cell::Unreadable).await;
     e.h.until("?? on screen", |app| screen_has(app, "??")).await;
     assert!(e.h.errors.is_empty(), "{:?}", e.h.errors);
 
@@ -578,10 +583,8 @@ async fn unreadable_bytes_are_cells_and_question_marks_never_errors() -> anyhow:
     e.h.keys("j").await?; // 0x1100
     e.h.keys("i").await?;
     e.h.keys("a").await?;
-    assert_eq!(
-        status(&e.h.app),
-        "this memory is unreadable (??): nothing to overwrite there"
-    );
+    e.says("this memory is unreadable (??): nothing to overwrite there")
+        .await;
     assert!(e.fake.requests_named("writeMemory").is_empty());
     e.h.finish().await
 }
@@ -689,7 +692,10 @@ async fn while_running_the_view_keeps_the_last_stops_bytes_and_says_so() -> anyh
             Some("running · the last stop's bytes")
         );
     }
-    assert!(screen_has(&e.h.app, "running · the last stop's bytes"));
+    e.h.until("the note on screen", |app| {
+        screen_has(app, "running · the last stop's bytes")
+    })
+    .await;
     assert_eq!(
         cells(&e.h.app, 0x1010, 1),
         [Cell::Byte(16)],
@@ -720,6 +726,20 @@ async fn open_read(e: &mut Env, address: u64) -> anyhow::Result<()> {
     Ok(())
 }
 
+/// Waits for the error `:w` (or what it ran) says: errors of commands are `'name': message`.
+async fn command_error(e: &mut Env, command: &str, message: &str) {
+    let expected = format!("'{command}': {message}");
+    let start = std::time::Instant::now();
+    while e.h.errors.last() != Some(&expected) {
+        assert!(
+            start.elapsed() < super::harness::DEADLINE,
+            "wanted the error {expected:?}, got {:?}",
+            e.h.errors
+        );
+        e.h.pump_for(std::time::Duration::from_millis(50)).await;
+    }
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn overwriting_then_w_sends_the_changed_bytes_and_u_writes_the_old_ones_back(
 ) -> anyhow::Result<()> {
@@ -728,12 +748,12 @@ async fn overwriting_then_w_sends_the_changed_bytes_and_u_writes_the_old_ones_ba
 
     // nothing overwritten: nothing to write
     e.h.keys(":w<ret>").await?;
-    assert_eq!(status(&e.h.app), "no overwritten bytes to write");
+    e.says("no overwritten bytes to write").await;
     assert!(e.fake.requests_named("writeMemory").is_empty());
 
     // two bytes, not written yet
     e.h.keys("iabcd<esc>").await?;
-    assert_eq!(cells(&e.h.app, 0x1010, 2), bytes(&[0xab, 0xcd]));
+    e.cells_are(0x1010, &bytes(&[0xab, 0xcd])).await;
     assert_eq!(e.fake.memory_at(0x1010, 2), [Some(16), Some(17)]);
     assert!(e.fake.requests_named("writeMemory").is_empty());
 
@@ -745,7 +765,7 @@ async fn overwriting_then_w_sends_the_changed_bytes_and_u_writes_the_old_ones_ba
     assert_eq!(cells(&e.h.app, 0x1010, 2), bytes(&[0xab, 0xcd]));
     // written: nothing left to write
     e.h.keys(":w<ret>").await?;
-    assert_eq!(status(&e.h.app), "no overwritten bytes to write");
+    e.says("no overwritten bytes to write").await;
     assert_eq!(e.fake.memory_writes().len(), 1);
 
     // u writes the old bytes back at once
@@ -754,15 +774,14 @@ async fn overwriting_then_w_sends_the_changed_bytes_and_u_writes_the_old_ones_ba
         .await;
     assert_eq!(e.fake.memory_writes()[1], (0x1010, vec![16, 17]));
     assert_eq!(e.fake.memory_at(0x1010, 2), [Some(16), Some(17)]);
-    assert_eq!(cells(&e.h.app, 0x1010, 2), bytes(&[16, 17]));
+    e.cells_are(0x1010, &bytes(&[16, 17])).await;
     // and U the new ones
     e.h.keys("U").await?;
     e.h.until("the redo write", |_| e.fake.memory_writes().len() == 3)
         .await;
     assert_eq!(e.fake.memory_writes()[2], (0x1010, vec![0xab, 0xcd]));
     assert_eq!(e.fake.memory_at(0x1010, 2), [Some(0xab), Some(0xcd)]);
-    // the undo of an overwrite not written yet writes nothing
-    e.h.keys("0").await.ok();
+    e.cells_are(0x1010, &bytes(&[0xab, 0xcd])).await;
     e.h.finish().await
 }
 
@@ -771,9 +790,9 @@ async fn an_overwrite_not_written_yet_is_undone_without_a_request() -> anyhow::R
     let mut e = env(program).await?;
     open_read(&mut e, 0x1010).await?;
     e.h.keys("iab<esc>").await?;
-    assert_eq!(cells(&e.h.app, 0x1010, 1), bytes(&[0xab]));
+    e.cells_are(0x1010, &bytes(&[0xab])).await;
     e.h.keys("u").await?;
-    assert_eq!(cells(&e.h.app, 0x1010, 1), bytes(&[16]));
+    e.cells_are(0x1010, &bytes(&[16])).await;
     e.h.pump_for(std::time::Duration::from_millis(200)).await;
     assert!(e.fake.requests_named("writeMemory").is_empty());
     e.h.finish().await
@@ -784,15 +803,17 @@ async fn w_says_how_many_bytes_the_debugger_wrote_and_a_path_is_refused() -> any
     let mut e = env(|p| program(p).bytes_written(7)).await?;
     open_read(&mut e, 0x1010).await?;
     e.h.keys("iab<esc>").await?;
+    e.cells_are(0x1010, &bytes(&[0xab])).await;
     e.h.keys(":w<ret>").await?;
     e.says("wrote 1 byte to memory: the debugger wrote 7").await;
 
-    e.h.errors.clear();
     e.h.keys(":w<space>some/path<ret>").await?;
-    assert_eq!(
-        e.h.errors.last().map(String::as_str),
-        Some("memory isn't a file: it can't be written to one (:w writes it to the program)")
-    );
+    command_error(
+        &mut e,
+        "write",
+        "memory isn't a file: it can't be written to one (:w writes it to the program)",
+    )
+    .await;
     assert!(!e.dir.join("some").exists());
     assert_eq!(e.fake.memory_writes().len(), 1);
     e.h.finish().await
@@ -800,28 +821,28 @@ async fn w_says_how_many_bytes_the_debugger_wrote_and_a_path_is_refused() -> any
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn a_failed_write_is_an_error_and_keeps_the_overwrite() -> anyhow::Result<()> {
-    // 0x10ff is the last readable byte (so writable): two bytes there fail as a whole
-    let mut e = env(|p| {
-        Script::new(p)
-            .read_memory()
-            .write_memory()
-            .memory_with(0x1000, 0x100, |i| i as u8)
-            .stop(Stop::new(2, "entry").scope(locals()))
-    })
-    .await?;
-    e.start().await?;
-    e.open(0x10ff).await?;
-    e.has_byte(0x10ff, Cell::Byte(0xff)).await;
+    let mut e = env(program).await?;
+    open_read(&mut e, 0x1010).await?;
     e.h.keys("iabcd<esc>").await?;
-    e.h.errors.clear();
+    e.cells_are(0x1010, &bytes(&[0xab, 0xcd])).await;
+    // the memory went away meanwhile (the view still has what it read)
+    e.fake.unmap_memory(0x1010, 2);
     e.h.keys(":w<ret>").await?;
     e.h.until("the error", |app| {
         app.editor
             .get_status()
-            .is_some_and(|(m, _)| m.starts_with("writing memory failed"))
+            .is_some_and(|(message, _)| message.starts_with("writing memory failed at 0x1010: "))
     })
     .await;
-    assert_eq!(e.fake.memory_at(0x10ff, 1), [Some(0xff)], "nothing written");
+    assert_eq!(e.fake.memory_writes().len(), 1);
+    assert_eq!(e.fake.memory_at(0x1010, 2), [None, None]);
+    // still overwritten, not written
+    let doc = memory_doc(&e.h.app).unwrap();
+    assert_eq!(
+        doc.hex().unwrap().edit_runs(None),
+        [(0x1010, vec![0xab, 0xcd])]
+    );
+    assert_eq!(cells(&e.h.app, 0x1010, 2), bytes(&[0xab, 0xcd]));
     e.h.finish().await
 }
 
@@ -837,18 +858,15 @@ async fn an_adapter_that_cannot_write_memory_refuses_overwriting() -> anyhow::Re
     open_read(&mut e, 0x1010).await?;
     assert!(!memory(&e.h.app).can_write);
     e.h.keys("i").await?;
-    assert_eq!(status(&e.h.app), "this debugger (fake) can't write memory");
+    e.says("this debugger (fake) can't write memory").await;
     let (view, doc) = current_ref!(e.h.app.editor);
     assert!(!doc.hex().unwrap().cursor(view.id).overwrite);
     // the typed keys are the view's, which reads
     e.h.keys("ab").await?;
+    e.h.pump_for(std::time::Duration::from_millis(100)).await;
     assert_eq!(cells(&e.h.app, 0x1010, 1), bytes(&[16]));
-    e.h.errors.clear();
     e.h.keys(":w<ret>").await?;
-    assert_eq!(
-        e.h.errors.last().map(String::as_str),
-        Some("this debugger (fake) can't write memory")
-    );
+    command_error(&mut e, "write", "this debugger (fake) can't write memory").await;
     assert!(e.fake.requests_named("writeMemory").is_empty());
     e.h.finish().await
 }
@@ -856,13 +874,13 @@ async fn an_adapter_that_cannot_write_memory_refuses_overwriting() -> anyhow::Re
 /// `i` in the memory view, and the status it leaves: the cursor must not be overwriting.
 async fn refused(e: &mut Env, why: &str) -> anyhow::Result<()> {
     e.h.keys("<esc>").await?;
+    e.h.errors.clear();
     e.h.keys("i").await?;
-    assert_eq!(status(&e.h.app), why);
+    e.says(why).await;
     let (view, doc) = current_ref!(e.h.app.editor);
     assert!(!doc.hex().unwrap().cursor(view.id).overwrite, "{why}");
-    e.h.errors.clear();
     e.h.keys(":w<ret>").await?;
-    assert_eq!(e.h.errors.last().map(String::as_str), Some(why));
+    command_error(e, "write", why).await;
     Ok(())
 }
 
@@ -893,10 +911,11 @@ async fn writes_are_refused_while_running_and_in_rewind() -> anyhow::Result<()> 
     e.panel("L").await?;
     e.h.keys("<C-g>").await?;
     e.h.keys("i").await?;
-    {
-        let (view, doc) = current_ref!(e.h.app.editor);
-        assert!(doc.hex().unwrap().cursor(view.id).overwrite);
-    }
+    e.h.until("overwriting", |app| {
+        let (view, doc) = current_ref!(app.editor);
+        doc.hex().unwrap().cursor(view.id).overwrite
+    })
+    .await;
     e.h.keys("<esc>").await?;
 
     // running
@@ -1090,7 +1109,8 @@ async fn rewind_shows_the_recorded_bytes_and_never_live_memory() -> anyhow::Resu
     assert_eq!(cells(&e.h.app, 0x10000, 1), [Cell::NotRecorded]);
     assert_eq!(cells(&e.h.app, start, 1), bytes(&[original(start)]));
     assert_eq!(cells(&e.h.app, end - 1, 1), bytes(&[original(end - 1)]));
-    e.h.until("·· on screen", |app| screen_has(app, "··")).await;
+    // what is shown is all in the window
+    assert!(!screen_has(&e.h.app, "··"));
     e.h.keys("<C-g>").await?;
     {
         let doc = memory_doc(&e.h.app).unwrap();
@@ -1098,7 +1118,8 @@ async fn rewind_shows_the_recorded_bytes_and_never_live_memory() -> anyhow::Resu
         assert!(note.starts_with("REWIND 2/4 · "), "{note}");
         assert!(note.ends_with(" recorded"), "{note}");
     }
-    assert!(screen_has(&e.h.app, "REWIND 2/4"));
+    e.h.until("the note on screen", |app| screen_has(app, "REWIND 2/4"))
+        .await;
 
     // stop 1 was before the view: nothing recorded for it
     e.panel("[").await?;
@@ -1116,6 +1137,8 @@ async fn rewind_shows_the_recorded_bytes_and_never_live_memory() -> anyhow::Resu
         let note = debug::memory::note(&e.h.app.editor, doc).unwrap();
         assert_eq!(note, "REWIND 1/4 · not recorded");
     }
+    // drawn as dots
+    e.h.until("·· on screen", |app| screen_has(app, "··")).await;
 
     // stop 3: the byte that changed is marked, the 0x77 isn't there yet
     e.panel("]]").await?;
