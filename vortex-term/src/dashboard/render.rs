@@ -35,6 +35,10 @@ pub struct Model<'a> {
     /// The folder it opened in.
     pub dir: &'a Path,
     pub hints: &'a Hints,
+    /// Whether the title and its credit line are shown (`dashboard-title`).
+    pub title: bool,
+    /// Only the vortex, none of the blocks (`:vortex`).
+    pub vortex_only: bool,
 }
 
 /// The keys of the keymap that do what the actions do, so the dashboard teaches them.
@@ -578,6 +582,12 @@ pub fn render(model: &Model, theme: &Theme, area: Rect, surface: &mut Surface, n
     let styles = Styles::new(theme);
     let s = &styles;
     surface.clear_with(area, theme.get("ui.background"));
+    if model.vortex_only {
+        if let Some(spin) = model.timeline.spin(model.stats, now) {
+            vortex::draw(surface, area, spin, &[], &s.vortex);
+        }
+        return;
+    }
     let git = model.stats.shows_git();
     let wide = area.width >= WIDE;
     let panel = if wide {
@@ -586,12 +596,21 @@ pub fn render(model: &Model, theme: &Theme, area: Rect, surface: &mut Surface, n
         STACKED.min(area.width.saturating_sub(4)).max(1)
     };
     let actions = actions(model);
+    // the rows of the title and its credit line, with the gap under them; none without the
+    // title (`dashboard-title = false`)
+    let head = |layout: &Layout| -> u16 {
+        if !model.title {
+            return 0;
+        }
+        let rows = layout.title.height();
+        rows + if rows > 1 { 2 } else { 1 } + layout.gap + 1
+    };
+    let title_width = |layout: &Layout| if model.title { layout.title.width() } else { 0 };
     let languages_height = |layout: &Layout| 2 + legend_rows(panel, layout.legend);
 
     let height = |layout: &Layout| -> u16 {
-        let title = layout.title.height() + if layout.title.height() > 1 { 2 } else { 1 };
         let menu = if layout.menu { actions.len() as u16 } else { 1 };
-        let mut total = title + layout.gap + 1 + menu;
+        let mut total = head(layout) + menu;
         if git && layout.stats {
             let rows = project_rows(model.stats, s, layout.worktrees);
             let project = project_height(&rows, panel, layout.wrap);
@@ -609,13 +628,13 @@ pub fn render(model: &Model, theme: &Theme, area: Rect, surface: &mut Surface, n
     let row_width = actions_row_width(&actions);
     let fits = |layout: &&Layout| {
         height(layout) <= area.height
-            && layout.title.width() <= area.width
+            && title_width(layout) <= area.width
             && (layout.menu || row_width <= area.width)
     };
     let layout = layouts
         .iter()
         .find(fits)
-        .or_else(|| layouts.iter().rfind(|l| l.title.width() <= area.width))
+        .or_else(|| layouts.iter().rfind(|l| title_width(l) <= area.width))
         .copied()
         .unwrap_or(*layouts.last().unwrap());
 
@@ -623,12 +642,8 @@ pub fn render(model: &Model, theme: &Theme, area: Rect, surface: &mut Surface, n
     let total = height(&layout);
     let mut y = area.y + area.height.saturating_sub(total) / 2;
     let title_y = y;
-    y += layout.title.height();
-    if layout.title.height() > 1 {
-        y += 1;
-    }
-    let credit_y = y;
-    y += 1 + layout.gap + 1;
+    let credit_y = y + layout.title.height() + u16::from(layout.title.height() > 1);
+    y += head(&layout);
     let mut stats_part = None;
     if git && layout.stats {
         let rows = project_rows(model.stats, s, layout.worktrees);
@@ -651,8 +666,12 @@ pub fn render(model: &Model, theme: &Theme, area: Rect, surface: &mut Surface, n
 
     // the title as it is now: its cells, and how wide they spread
     let opened = model.timeline.title(model.stats, now);
-    let cells = layout.title.cells(opened);
-    let title_x = center(area, layout.title.width());
+    let cells = if model.title {
+        layout.title.cells(opened)
+    } else {
+        Vec::new()
+    };
+    let title_x = center(area, title_width(&layout));
     let credit = title::CREDIT;
     let credit_width = credit.width() as u16;
 
@@ -670,7 +689,8 @@ pub fn render(model: &Model, theme: &Theme, area: Rect, surface: &mut Surface, n
             title_right - title_left,
             credit_y + 1 - title_y,
         );
-        let panels: Vec<Rect> = [Some(title_part), stats_part, Some(actions_part)]
+        let title_part = model.title.then_some(title_part);
+        let panels: Vec<Rect> = [title_part, stats_part, Some(actions_part)]
             .into_iter()
             .flatten()
             .map(|part| margin(part, area))
@@ -682,14 +702,16 @@ pub fn render(model: &Model, theme: &Theme, area: Rect, surface: &mut Surface, n
     }
 
     let mut canvas = Canvas { area, surface };
-    draw_title(&mut canvas, &cells, title_x, title_y, s);
-    canvas.text(
-        center(area, credit_width),
-        credit_y,
-        credit,
-        s.credit,
-        area.width,
-    );
+    if model.title {
+        draw_title(&mut canvas, &cells, title_x, title_y, s);
+        canvas.text(
+            center(area, credit_width),
+            credit_y,
+            credit,
+            s.credit,
+            area.width,
+        );
+    }
 
     if let Some(part) = stats_part {
         let y = part.y;
@@ -1149,6 +1171,18 @@ pub(crate) mod tests {
         timeline: Timeline,
         now: Instant,
     ) -> Surface {
+        surface_titled(stats, width, height, timeline, now, true)
+    }
+
+    /// [`surface`], with the title shown or not.
+    pub fn surface_titled(
+        stats: &Stats,
+        width: u16,
+        height: u16,
+        timeline: Timeline,
+        now: Instant,
+        title: bool,
+    ) -> Surface {
         let theme = vortex_view::theme::Loader::new(&[]).default();
         let area = Rect::new(0, 0, width, height);
         let mut buffer = Surface::empty(area);
@@ -1158,6 +1192,8 @@ pub(crate) mod tests {
             timeline,
             dir: Path::new("/src/vortex"),
             hints: &hints,
+            title,
+            vortex_only: false,
         };
         render(&model, &theme, area, &mut buffer, now);
         buffer
@@ -1330,6 +1366,47 @@ pub(crate) mod tests {
                 assert_eq!(text(&with), text(&off), "{mode:?} at {t}ms");
             }
         }
+    }
+
+    #[test]
+    fn without_the_title_its_block_is_gone() {
+        let born = Instant::now();
+        let stats = loaded(born + Duration::from_millis(300));
+        let now = settled(born);
+        let draw = |width, height, title| {
+            let off = timeline(born, DashboardBackground::Off);
+            text(&surface_titled(&stats, width, height, off, now, title))
+        };
+        let titled = draw(100, 44, true);
+        let untitled = draw(100, 44, false);
+        assert!(titled.contains("██╗") && titled.contains(title::CREDIT));
+        assert!(
+            !untitled.contains('█') && !untitled.contains('╗'),
+            "{untitled}"
+        );
+        assert!(!untitled.contains(title::CREDIT), "{untitled}");
+        let row = |drawn: &str, text: &str| drawn.lines().position(|line| line.contains(text));
+        // the rows of the title are gone, so what was under it moves up
+        assert!(row(&untitled, "PROJECT") < row(&titled, "PROJECT"));
+        // and a short window keeps what the title would have pushed out
+        let shows = |height, title, text| draw(100, height, title).contains(text);
+        for height in 10..44 {
+            if shows(height, true, "LANGUAGES") {
+                assert!(shows(height, false, "LANGUAGES"), "{height} rows");
+            }
+        }
+        assert!((10..44).any(|h| !shows(h, true, "LANGUAGES") && shows(h, false, "LANGUAGES")));
+        snapshot(
+            "no-title-100",
+            &text(&surface_titled(
+                &stats,
+                100,
+                44,
+                timeline(born, DashboardBackground::Static),
+                now,
+                false,
+            )),
+        );
     }
 
     #[test]
@@ -1599,6 +1676,8 @@ pub(crate) mod tests {
                 timeline: Timeline::new(born, mode),
                 dir: Path::new("/src/vortex"),
                 hints: &hints,
+                title: true,
+                vortex_only: false,
             };
             render(
                 &model,

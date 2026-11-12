@@ -8,8 +8,9 @@
 //!   they do.
 //! - **Ready**, once every stat is in and [`MIN_LOADING`] has passed: the title opens from `VX`
 //!   to `VORTEX` over [`TITLE`].
-//! - **The vortex** behind it spins by [`DashboardBackground`]: always (`on`), fast while
-//!   loading and then slowing down to a stop over [`SPIN_DOWN`] (`load`), or never (`static`).
+//! - **The vortex** behind it spins by [`DashboardBackground`]: always (`on`), at the same
+//!   speed while loading and then slowing down to a stop over [`SPIN_DOWN`] (`load`), or never
+//!   (`static`).
 //!   Its phase is the integral of its speed, so slowing down never jumps.
 
 use std::time::{Duration, Instant};
@@ -36,9 +37,8 @@ pub const SPIN_DOWN: Duration = Duration::from_millis(3200);
 pub const FRAME: Duration = Duration::from_millis(16);
 
 /// The speed of the vortex in the `on` mode, and while loading in the `load` mode: seconds of
-/// spin per second.
-const CRUISE: f64 = 1.0;
-const FAST: f64 = 2.6;
+/// spin per second. Slower than the time, so the flow is calm to look at.
+const CRUISE: f64 = 2.0 / 3.0;
 
 /// The phase of the one frame the `static` mode draws, picked for its looks.
 const STILL: f64 = 41.7;
@@ -110,7 +110,7 @@ impl Timeline {
             DashboardBackground::Static => Some(STILL),
             DashboardBackground::On => Some(CRUISE * seconds(self.born, now)),
             DashboardBackground::Load => {
-                // fast until the title is open, then the speed falls as (1 - x)², x going
+                // at cruise speed until the title is open, then the speed falls as (1 - x)², x going
                 // from 0 to 1 over SPIN_DOWN: its integral is (1 - (1 - x)³) / 3
                 let open = self.ready(stats).map(|ready| ready + TITLE);
                 match open {
@@ -118,11 +118,11 @@ impl Timeline {
                         let length = SPIN_DOWN.as_secs_f64();
                         let x = progress(open, SPIN_DOWN, now);
                         Some(
-                            FAST * seconds(self.born, open)
-                                + FAST * length * (1.0 - (1.0 - x).powi(3)) / 3.0,
+                            CRUISE * seconds(self.born, open)
+                                + CRUISE * length * (1.0 - (1.0 - x).powi(3)) / 3.0,
                         )
                     }
-                    _ => Some(FAST * seconds(self.born, now)),
+                    _ => Some(CRUISE * seconds(self.born, now)),
                 }
             }
         }
@@ -350,6 +350,13 @@ mod tests {
 
         let open = born + MIN_LOADING + TITLE;
         assert!(spin(DashboardBackground::Load, born + ms(500)).unwrap() > 0.0);
+        // while loading, `load` spins exactly like `on`
+        for &t in times.iter().filter(|&&t| t <= open) {
+            assert_eq!(
+                spin(DashboardBackground::Load, t),
+                spin(DashboardBackground::On, t)
+            );
+        }
         let stopped = spin(DashboardBackground::Load, open + SPIN_DOWN).unwrap();
         for extra in [1, 1000, 3_600_000] {
             assert_eq!(

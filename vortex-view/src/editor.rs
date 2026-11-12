@@ -353,7 +353,7 @@ pub enum DashboardBackground {
     /// A vortex that spins while the dashboard is up.
     #[default]
     On,
-    /// A vortex that spins fast while the dashboard loads, then slows down to a stop.
+    /// A vortex that spins like `On` while the dashboard loads, then slows down to a stop.
     Load,
     /// A vortex that doesn't move.
     Static,
@@ -508,6 +508,9 @@ pub struct Config {
     /// is up), `load` (spins while it loads, then slows down to a stop), `static` (one still
     /// frame) or `off`. Defaults to `on`.
     pub dashboard_background: DashboardBackground,
+    /// Whether the dashboard shows its title, the block letters that open from `VX` to `VORTEX`,
+    /// and the credit line under them (fork feature). Defaults to true.
+    pub dashboard_title: bool,
     /// Inline git blame (fork feature).
     pub inline_blame: InlineBlameConfig,
     /// The lists of changes: the uncommitted changes and the commits (fork feature).
@@ -1333,6 +1336,7 @@ impl Default for Config {
             explorer: ExplorerConfig::default(),
             dashboard: true,
             dashboard_background: DashboardBackground::default(),
+            dashboard_title: true,
             inline_blame: InlineBlameConfig::default(),
             changes: ChangesConfig::default(),
             statusline: StatusLineConfig::default(),

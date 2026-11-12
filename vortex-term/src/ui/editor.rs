@@ -87,6 +87,14 @@ impl EditorView {
         self.dashboard = Some(crate::dashboard::Dashboard::open(editor, &self.keymaps));
     }
 
+    /// `:vortex` (this fork): only the dashboard's vortex.
+    pub fn open_vortex(&mut self, editor: &mut Editor) {
+        self.dashboard = Some(crate::dashboard::Dashboard::open_vortex(
+            editor,
+            &self.keymaps,
+        ));
+    }
+
     /// The dashboard, if it is still up; it is dropped as soon as it isn't.
     fn live_dashboard(&mut self, editor: &Editor) -> Option<&crate::dashboard::Dashboard> {
         if self
