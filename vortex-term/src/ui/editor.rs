@@ -1827,6 +1827,9 @@ impl Component for EditorView {
             Self::render_bufferline(cx.editor, area.with_height(1), surface);
         }
 
+        // memory views (this fork) show the bytes recorded at the rewind marker, if any
+        crate::debug::memory::sync_rewind(cx.editor);
+
         // with the panel focused, no split is
         let panel_focused = cx.editor.terminal.is_focused() || cx.editor.debug.is_focused();
         for (view, is_focused) in cx.editor.tree.views() {

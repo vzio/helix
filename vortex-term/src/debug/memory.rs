@@ -332,7 +332,6 @@ fn center(editor: &mut Editor, address: u64) {
 /// while their program is stopped. Called after each frame. In rewind, they show the bytes
 /// recorded at the stop shown instead.
 pub fn load_wanted(editor: &mut Editor) {
-    sync_rewind(editor);
     let playing = editor.debug.spectator.mode != Mode::Paused;
     let docs = memory_docs(editor);
     for id in docs {
@@ -479,7 +478,7 @@ pub fn note(editor: &Editor, doc: &Document) -> Option<String> {
 
 /// In rewind, shows each memory view's bytes recorded at the stop shown (nothing for a view
 /// that wasn't recorded then); back live, memory again.
-fn sync_rewind(editor: &mut Editor) {
+pub fn sync_rewind(editor: &mut Editor) {
     let history = &editor.debug.spectator.history;
     let shown = history.at.and_then(|at| {
         let snapshot = history.stops.get(at)?;
