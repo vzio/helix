@@ -3,7 +3,7 @@
 //!
 //! From top to bottom: the logo and the credit line, the project and its languages (side by
 //! side in wide windows, stacked otherwise; only in git repositories), and the actions. When the
-//! window is too short, the layout gives up room step by step ([`Layout::all`]): smaller gaps, a
+//! window is too short, the layout gives up room step by step (`Layout::all`): smaller gaps, a
 //! smaller logo, fewer rows of languages and worktrees, the actions on one row, and at last the
 //! stats.
 
