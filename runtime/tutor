@@ -54,6 +54,7 @@
   i              start typing in the empty buffer under it
   Esc            the empty buffer, in normal mode
   f  e  l  q     file picker, file tree, git history, quit
+  t              the worktrees, when the repository has others
 
  Try it: :dashboard, then Esc. To start without it, set
  dashboard = false under [editor] in your config; to calm the
@@ -295,6 +296,10 @@
                  the commit
   space B        who changed each line, when, and in which
                  commit (fork)
+  :wt            the repository's worktrees (fork, :worktrees):
+                 the current one first, then the most recently
+                 changed, each with its uncommitted changes and
+                 unpushed commits; Enter goes to one, like :cd
   space i        yank the diagnostic under the cursor; with
                  none, and blame on, the line's commit hash
 

@@ -604,7 +604,7 @@ impl Worktree {
     /// Reads its [`Details`], opening it as a repository of its own. Fails when it is missing.
     pub fn details(&self, trust_full: bool) -> Result<Details> {
         anyhow::ensure!(!self.missing, "missing");
-        let repo = Repo::open(&self.path, trust_full)?.context("not a worktree")?;
+        let repo = self.open(trust_full)?;
         let status = repo.status()?;
         Ok(Details {
             changes: status.changes,
@@ -630,7 +630,18 @@ impl Worktree {
         if self.missing {
             return None;
         }
-        let repo = Repo::open(&self.path, trust_full).ok()??;
-        repo.status().ok()?.modified
+        self.open(trust_full).ok()?.status().ok()?.modified
+    }
+
+    /// Opens it as a repository of its own. Fails when its folder isn't the root of a worktree
+    /// (its `.git` file is broken), rather than reading the repository of a folder above it.
+    fn open(&self, trust_full: bool) -> Result<Repo> {
+        let repo = Repo::open(&self.path, trust_full)?.context("not a worktree")?;
+        anyhow::ensure!(
+            same_path(repo.work_dir(), &self.path),
+            "{} is not the root of a worktree",
+            self.path.display()
+        );
+        Ok(repo)
     }
 }
