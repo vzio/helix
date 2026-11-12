@@ -251,6 +251,10 @@ impl EditorView {
             inline_diagnostic_config,
             config.end_of_line_diagnostics,
         ));
+        // the debugger's time per line, before the blame
+        if let Some(times) = text_decorations::StepTimes::new(editor, doc, theme) {
+            decorations.add_decoration(times);
+        }
         // after the diagnostics so that it is placed after the end of line diagnostic
         if let Some(blame) = InlineBlame::new(editor, doc, view, is_focused, theme) {
             decorations.add_decoration(blame);

@@ -403,33 +403,19 @@ pub fn dap_toggle_breakpoint(cx: &mut Context) {
     breakpoints::toggle(cx.editor, path, line);
 }
 
-/// Sends a resume request (`continue`, a step) for the current thread of the session the panel
-/// follows; the panel shows the program running once the adapter answers.
-fn resume_with<F, Fut>(cx: &mut Context, request: F)
-where
-    F: FnOnce(dap::Requester, dap::ThreadId) -> Fut,
-    Fut: Future<Output = dap::Result<()>> + Send + 'static,
-{
+pub fn dap_continue(cx: &mut Context) {
+    debug::rewind::to_live(cx.editor);
+    if cx.editor.debug.spectator.is_playing() {
+        debug::playback::pause(cx.editor);
+    }
     let debugger = debugger!(cx.editor);
-    let Some(thread_id) = debugger.thread_id else {
+    let Some(thread) = debugger.thread_id else {
         cx.editor
             .set_error("The current thread is not stopped: switch the thread (Space G s t)");
         return;
     };
-    let id = debugger.id();
-    let call = request(debugger.requester(), thread_id);
-    dap_callback(cx.jobs, call, move |editor, _compositor, ()| {
-        if let Some(client) = editor.debug_adapters.get_client_mut(id) {
-            client.resume_application();
-            if editor.debug_adapters.get_active_client().map(|c| c.id()) == Some(id) {
-                editor.debug.resumed();
-            }
-        }
-    });
-}
-
-pub fn dap_continue(cx: &mut Context) {
-    resume_with(cx, |requester, thread| requester.continue_thread(thread));
+    let key = debug::spectator_key(debugger.id(), thread);
+    debug::threads::continue_thread(cx.editor, key);
 }
 
 pub fn dap_pause(cx: &mut Context) {
@@ -449,15 +435,97 @@ pub fn dap_pause(cx: &mut Context) {
 }
 
 pub fn dap_step_in(cx: &mut Context) {
-    resume_with(cx, |requester, thread| requester.step_in(thread));
+    debug::threads::step(cx.editor, dap::StepKind::In);
 }
 
 pub fn dap_step_out(cx: &mut Context) {
-    resume_with(cx, |requester, thread| requester.step_out(thread));
+    debug::threads::step(cx.editor, dap::StepKind::Out);
 }
 
 pub fn dap_next(cx: &mut Context) {
-    resume_with(cx, |requester, thread| requester.next(thread));
+    debug::threads::step(cx.editor, dap::StepKind::Over);
+}
+
+// spectator mode, from the editor's `Space G` menu
+
+pub fn dap_play(cx: &mut Context) {
+    debug::playback::toggle(cx.editor);
+}
+
+pub fn dap_play_step(cx: &mut Context) {
+    debug::playback::step_once(cx.editor);
+}
+
+pub fn dap_faster(cx: &mut Context) {
+    cx.editor.debug.spectator.faster();
+    let speed = cx.editor.debug.spectator.speed_label();
+    cx.editor.set_status(format!("Playback speed: {speed}"));
+}
+
+pub fn dap_slower(cx: &mut Context) {
+    cx.editor.debug.spectator.slower();
+    let speed = cx.editor.debug.spectator.speed_label();
+    cx.editor.set_status(format!("Playback speed: {speed}"));
+}
+
+pub fn dap_fast_forward(cx: &mut Context) {
+    if cx.editor.debug.spectator.mode == vortex_view::debug::spectator::Mode::FastForward {
+        debug::playback::pause(cx.editor);
+    } else {
+        debug::playback::play(cx.editor, vortex_view::debug::spectator::Mode::FastForward);
+    }
+}
+
+pub fn dap_run_to_cursor(cx: &mut Context) {
+    debug::playback::run_to_cursor(cx.editor);
+}
+
+pub fn dap_next_thread(cx: &mut Context) {
+    debug::threads::cycle(cx.editor, 1);
+}
+
+pub fn dap_previous_thread(cx: &mut Context) {
+    debug::threads::cycle(cx.editor, -1);
+}
+
+pub fn dap_follow_mode(cx: &mut Context) {
+    let spectator = &mut cx.editor.debug.spectator;
+    spectator.follow = spectator.follow.next();
+    let label = spectator.follow.label();
+    cx.editor.set_status(format!("Playback follows: {label}"));
+}
+
+pub fn dap_freeze_thread(cx: &mut Context) {
+    match debug::playback::spectated(cx.editor) {
+        Some(key) => debug::threads::toggle_freeze(cx.editor, key),
+        None => cx.editor.set_error("No thread to freeze"),
+    }
+}
+
+pub fn dap_solo_thread(cx: &mut Context) {
+    debug::threads::toggle_solo(cx.editor);
+}
+
+pub fn dap_rewind_back(cx: &mut Context) {
+    debug::rewind::back(cx.editor, cx.count());
+}
+
+pub fn dap_rewind_forward(cx: &mut Context) {
+    debug::rewind::forward(cx.editor, cx.count());
+}
+
+pub fn dap_live(cx: &mut Context) {
+    debug::rewind::to_live(cx.editor);
+}
+
+pub fn dap_capture_settings(cx: &mut Context) {
+    debug::focus_section(cx.editor, cx.editor.debug.section);
+    cx.editor.debug.spectator.settings = Some(0);
+}
+
+pub fn dap_clear_time_labels(cx: &mut Context) {
+    cx.editor.debug.spectator.timing.clear_labels();
+    cx.editor.set_status("Time labels cleared");
 }
 
 pub fn dap_variables(cx: &mut Context) {
@@ -636,12 +704,15 @@ pub fn dap_edit_log(cx: &mut Context) {
 
 pub fn dap_switch_thread(cx: &mut Context) {
     thread_picker(cx, |editor, thread| {
-        load::select_frame(editor, thread.id, 0);
+        if let Some(session) = editor.debug_adapters.get_active_client().map(|c| c.id()) {
+            debug::threads::spectate(editor, debug::spectator_key(session, thread.id));
+        }
     })
 }
 
 pub fn dap_switch_stack_frame(cx: &mut Context) {
     let debugger = debugger!(cx.editor);
+    let session = debugger.id();
 
     let thread_id = match debugger.thread_id {
         Some(thread_id) => thread_id,
@@ -677,7 +748,7 @@ pub fn dap_switch_stack_frame(cx: &mut Context) {
         frames,
         thread_state,
         move |cx, (index, _frame), _action| {
-            load::select_frame(cx.editor, thread_id, *index);
+            load::select_frame(cx.editor, debug::spectator_key(session, thread_id), *index);
         },
     )
     .with_preview(move |_editor, (_index, frame)| {

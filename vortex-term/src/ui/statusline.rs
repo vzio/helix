@@ -422,8 +422,27 @@ where
 {
     use vortex_view::{debug::Status, graphics::Color, theme::Modifier};
 
-    let status = &context.editor.debug.status;
+    let state = &context.editor.debug;
+    let theme = &context.editor.theme;
+    // rewind: the marker, unmissable
+    if let Some(snapshot) = state.spectator.history.current() {
+        let style = theme.try_get_exact("ui.debug.rewind").unwrap_or_else(|| {
+            Style::default()
+                .fg(Color::Black)
+                .bg(Color::Yellow)
+                .add_modifier(Modifier::BOLD)
+        });
+        let text = format!(
+            " REWIND {}/{} ",
+            snapshot.step, state.spectator.history.last_step
+        );
+        write(context, Span::styled(text, style));
+        return;
+    }
+    let status = &state.status;
+    let playing = state.spectator.label(std::time::Instant::now());
     let (scope, fallback) = match status {
+        _ if playing.is_some() => ("ui.statusline.debug.playing", Color::Cyan),
         Status::Idle => return,
         Status::Starting | Status::Running => ("ui.statusline.debug.running", Color::Yellow),
         Status::Stopped { .. } => ("ui.statusline.debug.stopped", Color::Red),
@@ -432,14 +451,21 @@ where
         }
         Status::Ended { .. } => ("ui.statusline.debug.failed", Color::Red),
     };
-    let theme = &context.editor.theme;
     let style = theme
         .try_get_exact(scope)
         .or_else(|| theme.try_get_exact("ui.statusline.debug"))
         .unwrap_or_else(|| Style::default().fg(fallback).add_modifier(Modifier::BOLD));
+    // the spectated thread, when the program has several
+    let thread = state
+        .spectator
+        .spectated
+        .filter(|_| state.all_threads().len() > 1)
+        .map(|key| format!(" · T{} {}", key.thread, state.thread_name(key)))
+        .unwrap_or_default();
+    let label = playing.unwrap_or_else(|| status.label());
     write(
         context,
-        Span::styled(format!(" DBG {} ", status.label()), style),
+        Span::styled(format!(" DBG {label}{thread} "), style),
     );
 }
 

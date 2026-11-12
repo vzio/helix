@@ -1,20 +1,26 @@
 //! The panel's keys, mouse and focus. Keys are modal, like the fork's pickers: they act on the
-//! row under the cursor of the current section. `Space` (and anything after it) goes to the
-//! editor's keymap, so `Space G n` steps from the panel.
+//! row under the cursor of the current section. `Space` plays and pauses (spectator mode): there
+//! is no space menu while the panel has the keys; Esc, `q` or `C-g` give them back to the
+//! editor first.
 
 use std::path::{Path, PathBuf};
 
 use vortex_core::{Position, Selection};
 use vortex_view::{
     align_view,
-    debug::{self, Row, Section, Target, Tree, VarPath, Watch},
+    debug::{
+        self,
+        history::{format_bytes, Setting},
+        spectator::{Mode, ThreadKey},
+        Role, Row, Section, StackSession, Target, Tree, VarPath, Watch,
+    },
     editor::Action,
     input::{KeyEvent, MouseButton, MouseEvent, MouseEventKind},
     keyboard::{KeyCode, KeyModifiers},
     Align, Editor,
 };
 
-use super::{breakpoints, load};
+use super::{breakpoints, load, playback, rewind, threads};
 use crate::{
     compositor::{self, Compositor},
     ui::{self, Prompt, PromptEvent},
@@ -25,6 +31,9 @@ pub const FOCUS_KEY: KeyEvent = KeyEvent {
     code: KeyCode::Char('g'),
     modifiers: KeyModifiers::CONTROL,
 };
+
+/// The keys that cycle the spectated thread, for notices.
+pub const THREAD_KEYS: &str = "< / >";
 
 /// Shows the panel; the terminal panel, which shares its place, hides.
 pub fn show(editor: &mut Editor) {
@@ -64,23 +73,29 @@ pub fn rows(editor: &Editor, section: Section) -> Vec<Row> {
     let rows = match section {
         Section::Variables => state.var_rows(false),
         Section::Watch => state.var_rows(true),
-        Section::Stack => match editor.debug_adapters.get_active_client() {
-            Some(client) => debug::stack_rows(
-                &state.threads,
-                &client.stack_frames,
-                &client.thread_states,
-                client.thread_id,
-                client.active_frame,
-                &state.expanded_threads,
-            ),
-            None => debug::stack_rows(
-                &[],
-                &Default::default(),
-                &Default::default(),
-                None,
-                None,
-                &state.expanded_threads,
-            ),
+        Section::Stack => match state.spectator.history.current() {
+            Some(snapshot) => debug::rewind_stack_rows(snapshot, state.spectator.history.frame),
+            None => {
+                let active = editor.debug_adapters.get_active_client().map(|c| c.id());
+                let sessions: Vec<StackSession> = state
+                    .threads
+                    .iter()
+                    .filter_map(|entry| {
+                        let client = editor.debug_adapters.get_client(entry.session)?;
+                        Some(StackSession {
+                            session: entry.session,
+                            name: &client.name,
+                            threads: &entry.threads,
+                            frames: &client.stack_frames,
+                            states: &client.thread_states,
+                            current: (active == Some(entry.session))
+                                .then_some(client.thread_id.map(|t| (t, client.active_frame)))
+                                .flatten(),
+                        })
+                    })
+                    .collect();
+                debug::stack_rows(&sessions, &state.expanded_threads, &state.spectator)
+            }
         },
         Section::Breakpoints => debug::breakpoint_rows(
             &editor.breakpoints,
@@ -89,6 +104,24 @@ pub fn rows(editor: &Editor, section: Section) -> Vec<Row> {
         Section::Console => state.console_rows(),
     };
     debug::filter_rows(rows, state.filters.get(&section).map(String::as_str))
+}
+
+/// The thread of the row under the cursor in the call stack.
+pub fn current_thread(editor: &Editor) -> Option<ThreadKey> {
+    match current_target_in(editor, Section::Stack)? {
+        Target::Thread(key) | Target::Frame { key, .. } => Some(key),
+        _ => None,
+    }
+}
+
+fn current_target_in(editor: &Editor, section: Section) -> Option<Target> {
+    let rows = rows(editor, section);
+    let row = editor
+        .debug
+        .cursor(section)
+        .row
+        .min(rows.len().saturating_sub(1));
+    rows.into_iter().nth(row).map(|row| row.target)
 }
 
 fn current_target(editor: &Editor) -> Option<Target> {
@@ -142,10 +175,61 @@ pub fn handle_key(editor: &mut Editor, key: KeyEvent) -> Handled {
         move_to(editor, 0);
         return Handled::Yes;
     }
+    if editor.debug.spectator.settings.is_some() {
+        settings_key(editor, key);
+        return Handled::Yes;
+    }
 
     match key.code {
-        // the editor's: its Space menu, the command line, the terminal panel
-        Char(' ') | Char(':') if plain => return Handled::No,
+        // spectator mode
+        Char(' ') if plain => playback::toggle(editor),
+        Char('+') | Char('=') if plain => {
+            editor.debug.spectator.faster();
+            let speed = editor.debug.spectator.speed_label();
+            editor.set_status(format!("Playback speed: {speed}"));
+        }
+        Char('-') if plain => {
+            editor.debug.spectator.slower();
+            let speed = editor.debug.spectator.speed_label();
+            editor.set_status(format!("Playback speed: {speed}"));
+        }
+        Char('n') if plain => playback::step_once(editor),
+        Char('>') if plain => threads::cycle(editor, 1),
+        Char('<') if plain => threads::cycle(editor, -1),
+        Char('e') if plain => cycle_follow(editor),
+        Char('u') if plain => cycle_granularity(editor),
+        Char('z') if plain => {
+            if let Some(key) = threads::selected_or_spectated(editor) {
+                threads::toggle_freeze(editor, key);
+            }
+        }
+        Char('o') if plain => threads::toggle_solo(editor),
+        Char('p') if plain => {
+            if let Some(key) = threads::selected_or_spectated(editor) {
+                threads::pause_or_continue(editor, key);
+            }
+        }
+        Char('r') if plain => playback::run_to_cursor(editor),
+        Char('f') if plain => {
+            if editor.debug.spectator.mode == Mode::FastForward {
+                playback::pause(editor);
+            } else {
+                playback::play(editor, Mode::FastForward);
+            }
+        }
+        Char('L') if plain => rewind::to_live(editor),
+        Char('[') if plain => rewind::back(editor, 1),
+        Char(']') if plain => rewind::forward(editor, 1),
+        Char('{') if plain => rewind::back(editor, 10),
+        Char('}') if plain => rewind::forward(editor, 10),
+        Char('R') if plain => editor.debug.spectator.settings = Some(0),
+        Char('x') if plain => {
+            editor.debug.spectator.timing.clear_labels();
+            editor.set_status("Time labels cleared");
+        }
+        Char('*') if plain => toggle_mark(editor),
+        // the editor's: the command line, the terminal panel
+        Char(':') if plain => return Handled::No,
         Char('t') if ctrl => return Handled::No,
         Char('g') if ctrl => editor.debug.unfocus(),
         Esc => {
@@ -182,6 +266,8 @@ pub fn handle_key(editor: &mut Editor, key: KeyEvent) -> Handled {
         Char('l') | Right if plain => set_open(editor, true),
         Char('h') | Left if plain => set_open(editor, false),
         Char('s') if plain => return Handled::Prompt(Box::new(search_prompt(editor, section))),
+        Char('i') if plain && editor.debug.is_rewinding() => editor.set_error(rewind::READ_ONLY),
+        Char('c') if plain && editor.debug.is_rewinding() => editor.set_error(rewind::READ_ONLY),
         Char('i') if plain => {
             if editor.debug.area.width < super::render::WIDE {
                 editor.debug.select(Section::Console);
@@ -210,8 +296,9 @@ fn activate(editor: &mut Editor) -> Handled {
             let open = editor.debug.is_expanded(&path);
             open_node(editor, path, !open);
         }
-        Some(Target::Thread(thread)) => load::select_frame(editor, thread, 0),
-        Some(Target::Frame { thread, index }) => load::select_frame(editor, thread, index),
+        Some(Target::Thread(key)) if !editor.debug.is_rewinding() => threads::spectate(editor, key),
+        Some(Target::Thread(key)) => load::select_frame(editor, key, 0),
+        Some(Target::Frame { key, index }) => load::select_frame(editor, key, index),
         Some(Target::Breakpoint { path, line }) => goto_line(editor, &path, line),
         _ => {}
     }
@@ -258,25 +345,25 @@ fn set_open(editor: &mut Editor, open: bool) {
                 }
             }
         }
-        Some(Target::Thread(thread)) => {
+        Some(Target::Thread(key)) if !editor.debug.is_rewinding() => {
             let current = editor
                 .debug_adapters
                 .get_active_client()
-                .and_then(|client| client.thread_id);
-            if Some(thread) != current {
+                .and_then(|client| Some((client.id(), client.thread_id?)));
+            if Some((key.session, key.thread)) != current {
                 if open {
-                    editor.debug.expanded_threads.insert(thread);
-                    load::load_thread(editor, thread);
+                    editor.debug.expanded_threads.insert(key);
+                    load::load_thread(editor, key);
                 } else {
-                    editor.debug.expanded_threads.remove(&thread);
+                    editor.debug.expanded_threads.remove(&key);
                 }
             }
         }
-        Some(Target::Frame { thread, .. }) if !open => {
+        Some(Target::Frame { key, .. }) if !open => {
             let section = editor.debug.section;
             if let Some(row) = rows(editor, section)
                 .iter()
-                .position(|r| r.target == Target::Thread(thread))
+                .position(|r| r.target == Target::Thread(key))
             {
                 move_to(editor, row);
             }
@@ -555,11 +642,14 @@ fn yank(editor: &mut Editor) {
             .get(index)
             .map(|line| line.text.clone()),
         Some(Target::Breakpoint { path, line }) => Some(format!("{}:{}", path.display(), line + 1)),
-        Some(Target::Frame { thread, index }) => editor
-            .debug_adapters
-            .get_active_client()
-            .and_then(|client| client.stack_frames.get(&thread)?.get(index))
-            .map(|frame| frame.name.clone()),
+        Some(Target::Frame { key, index }) => match editor.debug.spectator.history.current() {
+            Some(snapshot) => snapshot.frames.get(index).map(|frame| frame.name.clone()),
+            None => editor
+                .debug_adapters
+                .get_client(key.session)
+                .and_then(|client| client.stack_frames.get(&key.thread)?.get(index))
+                .map(|frame| frame.name.clone()),
+        },
         _ => None,
     };
     if let Some(text) = text {
@@ -635,4 +725,145 @@ pub fn cursor_line(editor: &Editor) -> Option<(PathBuf, usize)> {
         .primary()
         .cursor_line(doc.text().slice(..));
     Some((doc.path()?.to_owned(), line))
+}
+
+/// `e`: what playback steps into, std -> lib -> own.
+fn cycle_follow(editor: &mut Editor) {
+    let spectator = &mut editor.debug.spectator;
+    spectator.follow = spectator.follow.next();
+    let text = match spectator.follow {
+        debug::spectator::Follow::Std => {
+            "Playback steps into everything, the runtime included (std)"
+        }
+        debug::spectator::Follow::Lib => "Playback steps into libraries, not the runtime (lib)",
+        debug::spectator::Follow::Own => "Playback stays in your own code (own)",
+    };
+    editor.set_status(text);
+}
+
+/// `u`: the step granularity, when the adapter offers one.
+fn cycle_granularity(editor: &mut Editor) {
+    let session = playback::spectated(editor)
+        .map(|key| key.session)
+        .or_else(|| editor.debug_adapters.get_active_client().map(|c| c.id()));
+    if !session.is_some_and(|session| playback::supports_granularity(editor, session)) {
+        editor.set_error("This debug adapter steps by line only (no stepping granularity)");
+        return;
+    }
+    let spectator = &mut editor.debug.spectator;
+    spectator.granularity = spectator.granularity.next();
+    let label = spectator.granularity.label();
+    editor.set_status(format!("Steps go by {label}"));
+}
+
+/// `*`: marks the variable under the cursor for fast forward (or unmarks it).
+fn toggle_mark(editor: &mut Editor) {
+    let Some(Target::Var(path)) = current_target(editor) else {
+        return;
+    };
+    if path.tree != Tree::Scopes || path.names.len() < 2 {
+        editor.set_error(
+            "Mark a variable (not a scope or a watch): fast forward stops when it changes",
+        );
+        return;
+    }
+    let marked = &mut editor.debug.spectator.marked;
+    if !marked.remove(&path.names) {
+        marked.insert(path.names.clone());
+        editor.set_status("Marked: fast forward (f) stops when it changes");
+    } else {
+        editor.set_status("Unmarked");
+    }
+}
+
+/// The rows of the capture settings: the caps, then what a stop costs.
+pub fn settings_rows(editor: &Editor) -> Vec<Row> {
+    let spectator = &editor.debug.spectator;
+    let caps = spectator.caps;
+    let mut rows = vec![Row {
+        depth: 0,
+        marker: debug::Marker::None,
+        parts: vec![
+            ("Capture settings".into(), Role::Heading),
+            ("  what each stop records for rewind".into(), Role::Dim),
+        ],
+        target: Target::None,
+    }];
+    for (index, setting) in Setting::ALL.iter().enumerate() {
+        rows.push(Row {
+            depth: 1,
+            marker: debug::Marker::None,
+            parts: vec![
+                (format!("{:<17}", setting.title()), Role::Name),
+                (caps.show(*setting), Role::Value),
+            ],
+            target: Target::ConsoleLine(index),
+        });
+    }
+    let cost = match spectator.history.cost() {
+        Some((requests, bytes)) => format!(
+            "{requests:.0} requests per stop · {} per stop · history {} ({} stops), measured",
+            format_bytes(bytes),
+            format_bytes(spectator.history.bytes()),
+            spectator.history.stops.len()
+        ),
+        None => {
+            let (requests, bytes) = debug::history::estimate(&caps, 8, 2, 12);
+            format!(
+                "about {requests} requests and {} per stop (8 frames, estimated)",
+                format_bytes(bytes)
+            )
+        }
+    };
+    rows.push(Row {
+        depth: 1,
+        marker: debug::Marker::None,
+        parts: vec![("cost             ".into(), Role::Name), (cost, Role::Dim)],
+        target: Target::None,
+    });
+    if caps.is_unlimited() {
+        rows.push(Row {
+            depth: 1,
+            marker: debug::Marker::None,
+            parts: vec![(
+                "unlimited: a deep or big value can take thousands of requests per stop and slow playback down a lot".into(),
+                Role::Error,
+            )],
+            target: Target::None,
+        });
+    }
+    rows
+}
+
+/// Keys while the capture settings are open: `j`/`k` choose, `h`/`l` (or `-`/`+`) change, Esc,
+/// `q` or `R` close.
+fn settings_key(editor: &mut Editor, key: KeyEvent) {
+    use KeyCode::*;
+    let Some(row) = editor.debug.spectator.settings else {
+        return;
+    };
+    let setting = Setting::ALL[row.min(Setting::ALL.len() - 1)];
+    match key.code {
+        Esc | Char('q') | Char('R') => editor.debug.spectator.settings = None,
+        Char('j') | Down => {
+            editor.debug.spectator.settings = Some((row + 1).min(Setting::ALL.len() - 1))
+        }
+        Char('k') | Up => editor.debug.spectator.settings = Some(row.saturating_sub(1)),
+        Char('l') | Right | Char('+') | Char('=') => change_setting(editor, setting, 1),
+        Char('h') | Left | Char('-') => change_setting(editor, setting, -1),
+        Char('g') if key.modifiers == KeyModifiers::CONTROL => {
+            editor.debug.spectator.settings = None;
+            editor.debug.unfocus();
+        }
+        _ => {}
+    }
+}
+
+fn change_setting(editor: &mut Editor, setting: Setting, by: isize) {
+    let spectator = &mut editor.debug.spectator;
+    spectator.caps.change(setting, by);
+    if setting == Setting::History {
+        let limit = spectator.caps.history;
+        spectator.history.trim(limit);
+    }
 }

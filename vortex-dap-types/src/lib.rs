@@ -14,6 +14,26 @@ impl std::fmt::Display for ThreadId {
     }
 }
 
+/// How far a step goes: to the next statement, source line or machine instruction.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Deserialize, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum SteppingGranularity {
+    Statement,
+    Line,
+    Instruction,
+}
+
+impl SteppingGranularity {
+    /// The name on the wire.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Statement => "statement",
+            Self::Line => "line",
+            Self::Instruction => "instruction",
+        }
+    }
+}
+
 pub type ThreadStates = HashMap<ThreadId, String>;
 
 pub trait Request {
@@ -117,6 +137,8 @@ pub struct DebuggerCapabilities {
     pub supports_clipboard_context: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub supports_stepping_granularity: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub supports_single_thread_execution_requests: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub supports_instruction_breakpoints: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -500,6 +522,8 @@ pub mod requests {
     #[serde(rename_all = "camelCase")]
     pub struct ContinueArguments {
         pub thread_id: ThreadId,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        pub single_thread: Option<bool>,
     }
 
     #[derive(Debug, PartialEq, Eq, Clone, Deserialize, Serialize)]
@@ -622,7 +646,9 @@ pub mod requests {
         #[serde(skip_serializing_if = "Option::is_none")]
         pub target_id: Option<usize>,
         #[serde(skip_serializing_if = "Option::is_none")]
-        pub granularity: Option<String>,
+        pub granularity: Option<SteppingGranularity>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        pub single_thread: Option<bool>,
     }
 
     #[derive(Debug)]
@@ -639,7 +665,9 @@ pub mod requests {
     pub struct StepOutArguments {
         pub thread_id: ThreadId,
         #[serde(skip_serializing_if = "Option::is_none")]
-        pub granularity: Option<String>,
+        pub granularity: Option<SteppingGranularity>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        pub single_thread: Option<bool>,
     }
 
     #[derive(Debug)]
@@ -656,7 +684,9 @@ pub mod requests {
     pub struct NextArguments {
         pub thread_id: ThreadId,
         #[serde(skip_serializing_if = "Option::is_none")]
-        pub granularity: Option<String>,
+        pub granularity: Option<SteppingGranularity>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        pub single_thread: Option<bool>,
     }
 
     #[derive(Debug)]
@@ -1218,4 +1248,41 @@ fn test_negative_exit_code() {
     let raw = r#"{"exitCode": -1}"#;
     let body: events::ExitedBody = serde_json::from_str(raw).unwrap();
     assert_eq!(body.exit_code, -1);
+}
+
+#[test]
+fn test_step_arguments_serialization() {
+    let args = requests::NextArguments {
+        thread_id: serde_json::from_value(serde_json::json!(3)).unwrap(),
+        granularity: Some(SteppingGranularity::Instruction),
+        single_thread: Some(true),
+    };
+    assert_eq!(
+        serde_json::to_value(&args).unwrap(),
+        serde_json::json!({"threadId": 3, "granularity": "instruction", "singleThread": true})
+    );
+    let args = requests::NextArguments {
+        granularity: None,
+        single_thread: None,
+        ..args
+    };
+    assert_eq!(
+        serde_json::to_value(&args).unwrap(),
+        serde_json::json!({"threadId": 3})
+    );
+    assert_eq!(SteppingGranularity::Statement.as_str(), "statement");
+    assert_eq!(SteppingGranularity::Line.as_str(), "line");
+    assert_eq!(
+        serde_json::to_value(SteppingGranularity::Line).unwrap(),
+        serde_json::json!("line")
+    );
+}
+
+#[test]
+fn test_single_thread_capability() {
+    let caps: DebuggerCapabilities =
+        serde_json::from_str(r#"{"supportsSingleThreadExecutionRequests": true}"#).unwrap();
+    assert_eq!(caps.supports_single_thread_execution_requests, Some(true));
+    let caps: DebuggerCapabilities = serde_json::from_str("{}").unwrap();
+    assert_eq!(caps.supports_single_thread_execution_requests, None);
 }

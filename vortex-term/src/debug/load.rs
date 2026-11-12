@@ -4,11 +4,12 @@
 
 use vortex_dap::{registry::DebugAdapterId, requests::EvaluateResponse, Requester, ThreadId};
 use vortex_view::{
-    debug::{LineKind, Tree, VarNode, VarPath},
+    debug::{spectator::ThreadKey, LineKind, Tree, VarNode, VarPath},
     handlers::dap::jump_to_stack_frame,
     Editor,
 };
 
+use super::{playback, rewind};
 use crate::job;
 
 /// At most this many `variables` requests per reload, so a deep expanded tree can't flood the
@@ -150,6 +151,54 @@ fn frame_context(editor: &Editor) -> Option<(Requester, usize, String, bool)> {
     Some((client.requester(), frame.id, frame.name.clone(), index == 0))
 }
 
+/// The paths a reload loads: the expanded ones, and the way down to every marked variable.
+fn paths_to_load(editor: &Editor) -> Vec<VarPath> {
+    let mut paths = editor.debug.expanded_paths();
+    for names in &editor.debug.spectator.marked {
+        for len in 1..names.len() {
+            let path = VarPath {
+                tree: Tree::Scopes,
+                names: names[..len].to_vec(),
+            };
+            if !paths.contains(&path) {
+                paths.push(path);
+            }
+        }
+    }
+    paths.sort_by_key(|path| path.names.len());
+    paths
+}
+
+/// The value of the variable at `names` (a scope's name, then the variables down to it) in
+/// frame `frame_id`, loading the way down.
+pub async fn fetch_path(
+    requester: &Requester,
+    frame_id: usize,
+    names: &[String],
+) -> Option<String> {
+    let (scope_name, rest) = names.split_first()?;
+    let scopes = requester.scopes(frame_id).await.ok()?;
+    let mut reference = scopes
+        .into_iter()
+        .find(|scope| &scope.name == scope_name)?
+        .variables_reference;
+    let mut value = None;
+    for name in rest {
+        if reference == 0 {
+            return None;
+        }
+        let variable = requester
+            .variables(reference)
+            .await
+            .ok()?
+            .into_iter()
+            .find(|variable| &variable.name == name)?;
+        reference = variable.variables_reference;
+        value = Some(variable.value);
+    }
+    value
+}
+
 /// Reloads the variables and watches of the selected frame (after a frame switch, an edit, or a
 /// new watch).
 pub fn reload_frame(editor: &mut Editor) {
@@ -158,7 +207,7 @@ pub fn reload_frame(editor: &mut Editor) {
         return;
     };
     let generation = editor.debug.generation;
-    let expanded = editor.debug.expanded_paths();
+    let expanded = paths_to_load(editor);
     let collapsed = editor.debug.collapsed.clone();
     let watches = editor
         .debug
@@ -179,23 +228,21 @@ pub fn reload_frame(editor: &mut Editor) {
     });
 }
 
-/// A session stopped: loads its threads and the stack of the thread that stopped, jumps to the
-/// top frame, then loads its variables and the watches.
-pub fn after_stop(editor: &mut Editor, id: DebugAdapterId, thread: Option<ThreadId>) {
+/// A session stopped: loads its threads and the stack of the thread that stopped; playback
+/// decides what to make of the stop, and unless it is a stop on the way the editor jumps to the
+/// top frame and its variables and the watches load.
+pub fn after_stop(
+    editor: &mut Editor,
+    id: DebugAdapterId,
+    thread: Option<ThreadId>,
+    reason: String,
+) {
     let Some(client) = editor.debug_adapters.get_client(id) else {
         return;
     };
     let requester = client.requester();
     let known = client.thread_id;
     let generation = editor.debug.generation;
-    let expanded = editor.debug.expanded_paths();
-    let collapsed = editor.debug.collapsed.clone();
-    let watches: Vec<String> = editor
-        .debug
-        .watches
-        .iter()
-        .map(|w| w.expression.clone())
-        .collect();
     tokio::spawn(async move {
         let threads = requester.threads().await.unwrap_or_default();
         let Some(thread) = thread
@@ -209,9 +256,6 @@ pub fn after_stop(editor: &mut Editor, id: DebugAdapterId, thread: Option<Thread
             .await
             .map(|(frames, _)| frames)
             .unwrap_or_default();
-        let top = frames.first().map(|frame| (frame.id, frame.name.clone()));
-        // the code first: the variables follow
-        let jump = frames.first().cloned();
         job::dispatch(move |editor, _| {
             if editor.debug.generation != generation {
                 return;
@@ -219,38 +263,42 @@ pub fn after_stop(editor: &mut Editor, id: DebugAdapterId, thread: Option<Thread
             let Some(client) = editor.debug_adapters.get_client_mut(id) else {
                 return;
             };
-            client.stack_frames.insert(thread, frames);
+            client.stack_frames.insert(thread, frames.clone());
             client.thread_id = Some(thread);
             client.active_frame = Some(0);
             if !threads.is_empty() {
-                editor.debug.threads = threads;
+                editor.debug.set_threads(id, threads);
             }
-            if let Some(frame) = jump {
-                jump_to_stack_frame(editor, &frame);
-            }
-        })
-        .await;
-        let Some((frame_id, function)) = top else {
-            return;
-        };
-        let (scopes, watches) = load_frame(requester, frame_id, expanded, collapsed, watches).await;
-        job::dispatch(move |editor, _| {
-            if editor.debug.generation == generation {
-                editor
-                    .debug
-                    .apply_values(Some(function.as_str()), scopes, watches);
+            match playback::on_stopped(editor, id, thread, &reason, &frames) {
+                playback::Show::Quiet => {}
+                playback::Show::Full { follow } => {
+                    if editor.debug.is_rewinding() {
+                        // the rewind stays where it is; the live values load behind it
+                    } else if let Some(frame) = frames.first() {
+                        playback::show_frame(editor, frame, follow);
+                    }
+                    reload_frame(editor);
+                }
             }
         })
         .await;
     });
 }
 
-/// Selects frame `index` of `thread` (making it the current thread): jumps to its code and
-/// shows its variables. Loads the thread's stack first when it isn't loaded.
-pub fn select_frame(editor: &mut Editor, thread: ThreadId, index: usize) {
-    let Some(client) = editor.debug_adapters.get_active_client_mut() else {
+/// Selects frame `index` of the thread `key` (making it the current thread, and its session
+/// the one the panel follows): jumps to its code and shows its variables. Loads the thread's
+/// stack first when it isn't loaded. In rewind, selects a frame of the recorded stop.
+pub fn select_frame(editor: &mut Editor, key: ThreadKey, index: usize) {
+    if editor.debug.is_rewinding() {
+        rewind::select_frame(editor, index);
         return;
-    };
+    }
+    if editor.debug_adapters.get_client(key.session).is_none() {
+        return;
+    }
+    editor.debug_adapters.set_active_client(key.session);
+    let thread = key.thread;
+    let client = editor.debug_adapters.get_client_mut(key.session).unwrap();
     if let Some(frame) = client
         .stack_frames
         .get(&thread)
@@ -259,6 +307,7 @@ pub fn select_frame(editor: &mut Editor, thread: ThreadId, index: usize) {
     {
         client.thread_id = Some(thread);
         client.active_frame = Some(index);
+        editor.debug.session_name = client.name.clone();
         editor.debug.generation += 1;
         jump_to_stack_frame(editor, &frame);
         reload_frame(editor);
@@ -290,20 +339,21 @@ pub fn select_frame(editor: &mut Editor, thread: ThreadId, index: usize) {
             let has_frame = frames.len() > index;
             client.stack_frames.insert(thread, frames);
             if has_frame {
-                select_frame(editor, thread, index);
+                select_frame(editor, key, index);
             }
         })
         .await;
     });
 }
 
-/// Loads the frames of `thread` to show them in the call stack, without selecting it.
-pub fn load_thread(editor: &mut Editor, thread: ThreadId) {
-    let Some(client) = editor.debug_adapters.get_active_client() else {
+/// Loads the frames of the thread `key` to show them in the call stack, without selecting it.
+pub fn load_thread(editor: &mut Editor, key: ThreadKey) {
+    let Some(client) = editor.debug_adapters.get_client(key.session) else {
         return;
     };
     let id = client.id();
     let requester = client.requester();
+    let thread = key.thread;
     tokio::spawn(async move {
         let Ok((frames, _)) = requester.stack_trace(thread).await else {
             return;
@@ -354,6 +404,10 @@ pub fn expand(editor: &mut Editor, path: VarPath) {
 /// and its value in the console. The values shown are reloaded after, as the expression may
 /// have changed them.
 pub fn evaluate(editor: &mut Editor, expression: String) {
+    if editor.debug.is_rewinding() {
+        editor.set_error(rewind::READ_ONLY);
+        return;
+    }
     let Some(client) = editor.debug_adapters.get_active_client() else {
         editor
             .debug
@@ -389,6 +443,9 @@ pub fn evaluate(editor: &mut Editor, expression: String) {
 /// Sets the value of the variable or watch at `path` (DAP `setVariable`, or `setExpression`
 /// for a watch or when the adapter only has that), then reloads the values.
 pub fn set_value(editor: &mut Editor, path: VarPath, value: String) -> anyhow::Result<()> {
+    if editor.debug.is_rewinding() {
+        anyhow::bail!(rewind::READ_ONLY);
+    }
     let client = editor
         .debug_adapters
         .get_active_client()

@@ -5,7 +5,14 @@
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::path::{Path, PathBuf};
 
-use vortex_dap::{StackFrame, Thread, ThreadId};
+use vortex_dap::{registry::DebugAdapterId, StackFrame, Thread, ThreadId};
+
+pub mod config;
+pub mod history;
+pub mod spectator;
+pub mod timing;
+
+pub use spectator::{Spectator, ThreadKey};
 
 use crate::editor::Breakpoint;
 use crate::graphics::Rect;
@@ -114,6 +121,21 @@ impl VarNode {
         self.reference > 0
     }
 
+    /// About how much memory the node and its loaded children take.
+    pub fn approx_bytes(&self) -> usize {
+        std::mem::size_of::<VarNode>()
+            + self.name.len()
+            + self.value.len()
+            + self.ty.as_ref().map_or(0, String::len)
+            + self.evaluate_name.as_ref().map_or(0, String::len)
+            + self
+                .children
+                .iter()
+                .flatten()
+                .map(VarNode::approx_bytes)
+                .sum::<usize>()
+    }
+
     fn find(&self, path: &[String]) -> Option<&VarNode> {
         match path.split_first() {
             None => Some(self),
@@ -160,9 +182,9 @@ pub struct VarPath {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Target {
     Var(VarPath),
-    Thread(ThreadId),
+    Thread(ThreadKey),
     Frame {
-        thread: ThreadId,
+        key: ThreadKey,
         index: usize,
     },
     Breakpoint {
@@ -192,6 +214,10 @@ pub enum Role {
     Stderr,
     Info,
     Input,
+    /// A frozen thread's badge.
+    Frozen,
+    /// The rewind marker.
+    Rewind,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -341,10 +367,10 @@ pub struct DebugState {
     pub session_name: String,
     /// The exit code the adapter reported, kept until the session ends.
     pub exit_code: Option<i64>,
-    /// The threads of the session the panel follows.
-    pub threads: Vec<Thread>,
+    /// The threads of every session, in the order the sessions started.
+    pub threads: Vec<SessionThreads>,
     /// Threads the call stack shows expanded besides the current one.
-    pub expanded_threads: HashSet<ThreadId>,
+    pub expanded_threads: HashSet<ThreadKey>,
     /// The scopes of the selected frame.
     pub scopes: Vec<VarNode>,
     pub watches: Vec<Watch>,
@@ -367,6 +393,15 @@ pub struct DebugState {
     pub console_seen: usize,
     /// Counts stops and resumes: a load started before the last one is dropped.
     pub generation: u64,
+    /// Playback, threads, history and time labels.
+    pub spectator: Spectator,
+}
+
+/// The threads of one session.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SessionThreads {
+    pub session: DebugAdapterId,
+    pub threads: Vec<Thread>,
 }
 
 impl DebugState {
@@ -422,6 +457,78 @@ impl DebugState {
         }
         self.console.clear();
         self.generation += 1;
+        self.spectator.start_session();
+    }
+
+    /// The threads of `session`.
+    pub fn threads_of(&self, session: DebugAdapterId) -> &[Thread] {
+        self.threads
+            .iter()
+            .find(|entry| entry.session == session)
+            .map_or(&[], |entry| entry.threads.as_slice())
+    }
+
+    /// Replaces the threads of `session` (a new session goes last).
+    pub fn set_threads(&mut self, session: DebugAdapterId, threads: Vec<Thread>) {
+        match self
+            .threads
+            .iter_mut()
+            .find(|entry| entry.session == session)
+        {
+            Some(entry) => entry.threads = threads,
+            None => self.threads.push(SessionThreads { session, threads }),
+        }
+    }
+
+    /// Every thread of every session, in the call stack's order.
+    pub fn all_threads(&self) -> Vec<(ThreadKey, &Thread)> {
+        self.threads
+            .iter()
+            .flat_map(|entry| {
+                entry.threads.iter().map(move |thread| {
+                    (
+                        ThreadKey {
+                            session: entry.session,
+                            thread: thread.id,
+                        },
+                        thread,
+                    )
+                })
+            })
+            .collect()
+    }
+
+    /// The name of a thread, or `thread 4`.
+    pub fn thread_name(&self, key: ThreadKey) -> String {
+        self.threads_of(key.session)
+            .iter()
+            .find(|thread| thread.id == key.thread)
+            .map(|thread| thread.name.clone())
+            .unwrap_or_else(|| format!("thread {}", key.thread))
+    }
+
+    /// The scopes shown: the live ones, or in rewind the recorded ones of the frame shown.
+    pub fn shown_scopes(&self) -> &[VarNode] {
+        match self.spectator.history.current() {
+            Some(snapshot) => snapshot
+                .scopes
+                .get(self.spectator.history.frame)
+                .and_then(Option::as_deref)
+                .unwrap_or(&[]),
+            None => &self.scopes,
+        }
+    }
+
+    /// The watches shown: the live ones, or in rewind the recorded ones.
+    pub fn shown_watches(&self) -> &[Watch] {
+        match self.spectator.history.current() {
+            Some(snapshot) => &snapshot.watches,
+            None => &self.watches,
+        }
+    }
+
+    pub fn is_rewinding(&self) -> bool {
+        self.spectator.history.is_rewinding()
     }
 
     /// The program runs again: values stay shown until the next stop, unmarked.
@@ -441,6 +548,7 @@ impl DebugState {
         for watch in &mut self.watches {
             watch.node = None;
         }
+        self.spectator.end_session();
         self.hide();
     }
 
@@ -457,7 +565,7 @@ impl DebugState {
         path.tree == Tree::Scopes
             && path.names.len() == 1
             && self
-                .scopes
+                .shown_scopes()
                 .iter()
                 .find(|scope| !scope.expensive)
                 .is_some_and(|scope| scope.name == path.names[0])
@@ -475,11 +583,15 @@ impl DebugState {
         }
     }
 
+    /// The node at `path` as shown (recorded, in rewind).
     pub fn node(&self, path: &VarPath) -> Option<&VarNode> {
         let (first, rest) = path.names.split_first()?;
         let root = match path.tree {
-            Tree::Scopes => self.scopes.iter().find(|scope| &scope.name == first)?,
-            Tree::Watch(index) => self.watches.get(index)?.node.as_ref()?,
+            Tree::Scopes => self
+                .shown_scopes()
+                .iter()
+                .find(|scope| &scope.name == first)?,
+            Tree::Watch(index) => self.shown_watches().get(index)?.node.as_ref()?,
         };
         root.find(rest)
     }
@@ -586,10 +698,15 @@ impl DebugState {
     pub fn var_rows(&self, watch: bool) -> Vec<Row> {
         let mut rows = Vec::new();
         if watch {
-            if self.watches.is_empty() {
-                rows.push(Row::hint("a: add an expression to watch"));
+            let watches = self.shown_watches();
+            if watches.is_empty() {
+                rows.push(Row::hint(if self.is_rewinding() {
+                    "No watches were recorded at this stop"
+                } else {
+                    "a: add an expression to watch"
+                }));
             }
-            for (index, watch) in self.watches.iter().enumerate() {
+            for (index, watch) in watches.iter().enumerate() {
                 let path = VarPath {
                     tree: Tree::Watch(index),
                     names: vec![watch.expression.clone()],
@@ -609,14 +726,16 @@ impl DebugState {
                 }
             }
         } else {
-            if self.scopes.is_empty() {
+            let scopes = self.shown_scopes();
+            if scopes.is_empty() {
                 rows.push(Row::hint(match self.status {
+                    _ if self.is_rewinding() => "No variables were recorded for this frame",
                     Status::Stopped { .. } => "No variables in this frame",
                     Status::Running | Status::Starting => "Running: the variables show at a stop",
                     _ => "No debug session",
                 }));
             }
-            for scope in &self.scopes {
+            for scope in scopes {
                 let path = VarPath {
                     tree: Tree::Scopes,
                     names: vec![scope.name.clone()],
@@ -639,6 +758,9 @@ impl DebugState {
         if scope {
             parts.push((node.name.clone(), Role::Heading));
         } else {
+            if path.tree == Tree::Scopes && self.spectator.marked.contains(&path.names) {
+                parts.push(("◆ ".into(), Role::Changed));
+            }
             parts.push((node.name.clone(), Role::Name));
             let value_role = if node.error {
                 Role::Error
@@ -666,7 +788,15 @@ impl DebugState {
             None => rows.push(Row {
                 depth: depth + 1,
                 marker: Marker::None,
-                parts: vec![("loading…".into(), Role::Dim)],
+                parts: vec![(
+                    if self.is_rewinding() {
+                        "not recorded (capture depth)"
+                    } else {
+                        "loading…"
+                    }
+                    .into(),
+                    Role::Dim,
+                )],
                 target: Target::None,
             }),
             Some(children) if children.is_empty() => rows.push(Row {
@@ -750,95 +880,166 @@ fn mark(
     values.insert(path, node.value.clone());
 }
 
+/// Marks the values of `new` that differ from `old` at the same path (a recorded stop against the
+/// one before it).
+pub fn mark_changes(new: &mut [VarNode], old: &[VarNode]) {
+    let mut previous = HashMap::new();
+    for node in old {
+        let mut ignored = HashMap::new();
+        let mut copy = node.clone();
+        mark(Tree::Scopes, Vec::new(), &mut copy, None, &mut ignored);
+        previous.extend(ignored);
+    }
+    let mut values = HashMap::new();
+    for node in new {
+        mark(Tree::Scopes, Vec::new(), node, Some(&previous), &mut values);
+    }
+}
+
 /// A value on one line: newlines shown as `⏎`.
 fn one_line(value: &str) -> String {
     value.replace('\n', "⏎")
 }
 
-/// The rows of the call stack: every thread, the current one expanded to its frames (and any
-/// other the user expanded, once its frames are loaded).
+/// One session's part of the call stack.
+pub struct StackSession<'a> {
+    pub session: DebugAdapterId,
+    pub name: &'a str,
+    pub threads: &'a [Thread],
+    pub frames: &'a HashMap<ThreadId, Vec<StackFrame>>,
+    pub states: &'a HashMap<ThreadId, String>,
+    /// The current thread and its selected frame, in the session the panel follows.
+    pub current: Option<(ThreadId, Option<usize>)>,
+}
+
+fn frame_row(frame: &StackFrame, key: ThreadKey, index: usize, current: bool) -> Row {
+    let mut parts = vec![(
+        frame.name.clone(),
+        if current { Role::Current } else { Role::Name },
+    )];
+    match frame.source.as_ref() {
+        Some(source) => {
+            let place = source
+                .path
+                .as_deref()
+                .and_then(Path::file_name)
+                .map(|name| name.to_string_lossy().into_owned())
+                .or_else(|| source.name.clone())
+                .unwrap_or_default();
+            parts.push((format!("  {place}:{}", frame.line), Role::Dim));
+        }
+        None => parts.push(("  no source".into(), Role::Dim)),
+    }
+    Row {
+        depth: 1,
+        marker: if current {
+            Marker::Current
+        } else {
+            Marker::None
+        },
+        parts,
+        target: Target::Frame { key, index },
+    }
+}
+
+/// The rows of the call stack: every thread of every session (under the session's name when
+/// there are several), the current one expanded to its frames (and any other the user
+/// expanded, once its frames are loaded), with the spectated and frozen threads marked.
 pub fn stack_rows(
-    threads: &[Thread],
-    frames: &HashMap<ThreadId, Vec<StackFrame>>,
-    states: &HashMap<ThreadId, String>,
-    current: Option<ThreadId>,
-    active_frame: Option<usize>,
-    expanded: &HashSet<ThreadId>,
+    sessions: &[StackSession],
+    expanded: &HashSet<ThreadKey>,
+    spectator: &Spectator,
 ) -> Vec<Row> {
     let mut rows = Vec::new();
-    if threads.is_empty() {
+    let with_threads = sessions.iter().filter(|s| !s.threads.is_empty()).count();
+    if with_threads == 0 {
         rows.push(Row::hint("No threads: the call stack shows at a stop"));
     }
-    for thread in threads {
-        let is_current = current == Some(thread.id);
-        let open = is_current || expanded.contains(&thread.id);
-        let thread_frames = frames.get(&thread.id);
-        let marker = if open && thread_frames.is_some() {
-            Marker::Expanded
-        } else {
-            Marker::Collapsed
-        };
-        let state = states
-            .get(&thread.id)
-            .map(String::as_str)
-            .unwrap_or(if is_current { "stopped" } else { "" });
-        let mut parts = vec![(
-            format!("{} {}", thread.id, thread.name),
-            if is_current {
-                Role::Current
-            } else {
-                Role::Name
-            },
-        )];
-        if !state.is_empty() {
-            parts.push((format!("  {state}"), Role::Dim));
-        }
-        rows.push(Row {
-            depth: 0,
-            marker,
-            parts,
-            target: Target::Thread(thread.id),
-        });
-        let Some(thread_frames) = thread_frames.filter(|_| open) else {
+    for session in sessions {
+        if session.threads.is_empty() {
             continue;
-        };
-        for (index, frame) in thread_frames.iter().enumerate() {
-            let current_frame = is_current && active_frame == Some(index);
+        }
+        if with_threads > 1 {
+            rows.push(Row {
+                depth: 0,
+                marker: Marker::None,
+                parts: vec![(session.name.to_owned(), Role::Heading)],
+                target: Target::None,
+            });
+        }
+        for thread in session.threads {
+            let key = ThreadKey {
+                session: session.session,
+                thread: thread.id,
+            };
+            let current = session.current.filter(|(id, _)| *id == thread.id);
+            let is_current = current.is_some();
+            let open = is_current || expanded.contains(&key);
+            let thread_frames = session.frames.get(&thread.id);
+            let marker = if open && thread_frames.is_some() {
+                Marker::Expanded
+            } else {
+                Marker::Collapsed
+            };
+            let state = session
+                .states
+                .get(&thread.id)
+                .map(String::as_str)
+                .unwrap_or(if is_current { "stopped" } else { "" });
             let mut parts = vec![(
-                frame.name.clone(),
-                if current_frame {
+                format!("{} {}", thread.id, thread.name),
+                if is_current {
                     Role::Current
                 } else {
                     Role::Name
                 },
             )];
-            match frame.source.as_ref() {
-                Some(source) => {
-                    let place = source
-                        .path
-                        .as_deref()
-                        .and_then(Path::file_name)
-                        .map(|name| name.to_string_lossy().into_owned())
-                        .or_else(|| source.name.clone())
-                        .unwrap_or_default();
-                    parts.push((format!("  {place}:{}", frame.line), Role::Dim));
+            if !state.is_empty() {
+                parts.push((format!("  {state}"), Role::Dim));
+            }
+            if spectator.spectated == Some(key) {
+                parts.push(("  ◉ spectating".into(), Role::Current));
+                if spectator.solo {
+                    parts.push((" alone".into(), Role::Current));
                 }
-                None => parts.push(("  no source".into(), Role::Dim)),
+            }
+            if spectator.is_frozen(key) {
+                parts.push(("  ❄ frozen".into(), Role::Frozen));
             }
             rows.push(Row {
-                depth: 1,
-                marker: if current_frame {
-                    Marker::Current
-                } else {
-                    Marker::None
-                },
+                depth: 0,
+                marker,
                 parts,
-                target: Target::Frame {
-                    thread: thread.id,
-                    index,
-                },
+                target: Target::Thread(key),
             });
+            let Some(thread_frames) = thread_frames.filter(|_| open) else {
+                continue;
+            };
+            let active = current.and_then(|(_, frame)| frame);
+            for (index, frame) in thread_frames.iter().enumerate() {
+                rows.push(frame_row(frame, key, index, active == Some(index)));
+            }
         }
+    }
+    rows
+}
+
+/// The call stack of a recorded stop: its thread and frames, the frame shown marked.
+pub fn rewind_stack_rows(snapshot: &history::Snapshot, frame: usize) -> Vec<Row> {
+    let mut rows = vec![Row {
+        depth: 0,
+        marker: Marker::Expanded,
+        parts: vec![
+            (
+                format!("{} {}", snapshot.key.thread, snapshot.thread_name),
+                Role::Current,
+            ),
+            (format!("  {} (recorded)", snapshot.reason), Role::Dim),
+        ],
+        target: Target::Thread(snapshot.key),
+    }];
+    for (index, stack_frame) in snapshot.frames.iter().enumerate() {
+        rows.push(frame_row(stack_frame, snapshot.key, index, index == frame));
     }
     rows
 }
@@ -1096,14 +1297,38 @@ mod tests {
         frames.insert(threads[0].id, vec![frame("area", 16), frame("main", 30)]);
         let mut states = HashMap::new();
         states.insert(threads[0].id, "breakpoint".to_string());
-        let rows = stack_rows(
-            &threads,
-            &frames,
-            &states,
-            Some(threads[0].id),
-            Some(1),
-            &HashSet::new(),
-        );
+        let mut registry: slotmap::SlotMap<DebugAdapterId, ()> = slotmap::SlotMap::with_key();
+        let session = registry.insert(());
+        let child = registry.insert(());
+        let no_frames = HashMap::new();
+        let no_states = HashMap::new();
+        let child_threads = vec![Thread {
+            id: serde_json::from_str("1").unwrap(),
+            name: "worker.js".into(),
+        }];
+        let sessions = |with_child: bool| {
+            let mut sessions = vec![StackSession {
+                session,
+                name: "launch",
+                threads: &threads,
+                frames: &frames,
+                states: &states,
+                current: Some((threads[0].id, Some(1))),
+            }];
+            if with_child {
+                sessions.push(StackSession {
+                    session: child,
+                    name: "worker",
+                    threads: &child_threads,
+                    frames: &no_frames,
+                    states: &no_states,
+                    current: None,
+                });
+            }
+            sessions
+        };
+        let mut spectator = Spectator::default();
+        let rows = stack_rows(&sessions(false), &HashSet::new(), &spectator);
         let texts: Vec<_> = rows.iter().map(Row::text).collect();
         assert_eq!(
             texts,
@@ -1116,6 +1341,37 @@ mod tests {
         );
         assert_eq!(rows[2].marker, Marker::Current);
         assert_eq!(rows[3].marker, Marker::Collapsed);
+
+        // several sessions: under their names; the spectated and frozen threads are marked
+        spectator.spectated = Some(ThreadKey {
+            session,
+            thread: threads[0].id,
+        });
+        spectator.toggle_frozen(ThreadKey {
+            session,
+            thread: threads[1].id,
+        });
+        let rows = stack_rows(&sessions(true), &HashSet::new(), &spectator);
+        let texts: Vec<_> = rows.iter().map(Row::text).collect();
+        assert_eq!(
+            texts,
+            [
+                "launch",
+                "1 main  breakpoint  ◉ spectating",
+                "area  main.rs:16",
+                "main  main.rs:30",
+                "2 worker  ❄ frozen",
+                "worker",
+                "1 worker.js"
+            ]
+        );
+        assert_eq!(
+            rows[6].target,
+            Target::Thread(ThreadKey {
+                session: child,
+                thread: child_threads[0].id
+            })
+        );
     }
 
     #[test]

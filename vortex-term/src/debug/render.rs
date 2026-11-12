@@ -28,9 +28,17 @@ fn tab_label(section: Section) -> String {
     format!(" {} {} ", section.index() + 1, section.title())
 }
 
+/// Whether the panel has a row of key hints at its bottom.
+fn has_hints(area: Rect) -> bool {
+    area.height >= 6
+}
+
 fn layout(editor: &Editor, area: Rect) -> Layout {
     let state = &editor.debug;
-    let body = area.clip_top(1);
+    let mut body = area.clip_top(1);
+    if has_hints(area) {
+        body = body.clip_bottom(1);
+    }
     let mut tabs = Vec::new();
     let mut x = area.x;
     let mut push_tab = |section: Section, x: &mut u16| {
@@ -134,7 +142,18 @@ fn role_style(theme: &Theme, role: Role) -> Style {
             .unwrap_or_else(|| fg_only(theme.get("error"))),
         Role::Info => exact_or(theme, "ui.debug.console.info", "ui.text.info"),
         Role::Input => exact_or(theme, "ui.debug.console.input", "ui.text.focus"),
+        Role::Frozen => theme
+            .try_get_exact("ui.debug.frozen")
+            .unwrap_or_else(|| fg_only(theme.get("info"))),
+        Role::Rewind => rewind_style(theme),
     }
+}
+
+/// The REWIND marker's style: `ui.debug.rewind`, else the warning color, bold and reversed.
+pub fn rewind_style(theme: &Theme) -> Style {
+    theme.try_get_exact("ui.debug.rewind").unwrap_or_else(|| {
+        fg_only(theme.get("warning")).add_modifier(Modifier::BOLD | Modifier::REVERSED)
+    })
 }
 
 /// Draws the panel in `area` and remembers where it is.
@@ -171,7 +190,8 @@ pub fn render(editor: &mut Editor, area: Rect, surface: &mut Surface) {
         surface.set_stringn(*x, area.y, &label, *width as usize, base.patch(style));
     }
     // the status, at the right of the bar (or of the left pane's tabs)
-    let status = status_text(editor);
+    let rewind = editor.debug.spectator.history.marker();
+    let status = rewind.clone().unwrap_or_else(|| status_text(editor));
     let tabs_end = layout
         .tabs
         .iter()
@@ -197,8 +217,34 @@ pub fn render(editor: &mut Editor, area: Rect, surface: &mut Surface) {
             area.y,
             &text,
             room,
-            base.patch(bar).patch(theme.get("ui.text.inactive")),
+            if rewind.is_some() {
+                base.patch(bar).patch(rewind_style(theme))
+            } else {
+                base.patch(bar).patch(theme.get("ui.text.inactive"))
+            },
         );
+    }
+
+    if has_hints(area) {
+        let hints = hint_text(editor);
+        let style = base.patch(exact_or(theme, "ui.debug.hint", "ui.text.inactive"));
+        let y = area.bottom() - 1;
+        surface.set_stringn(
+            area.x + 1,
+            y,
+            &hints,
+            area.width.saturating_sub(2) as usize,
+            style,
+        );
+    }
+
+    if editor.debug.spectator.settings.is_some() {
+        let mut body = area.clip_top(1);
+        if has_hints(area) {
+            body = body.clip_bottom(1);
+        }
+        draw_settings(editor, body, surface, base);
+        return;
     }
 
     if let Some(divider) = layout.divider {
@@ -217,9 +263,38 @@ pub fn render(editor: &mut Editor, area: Rect, surface: &mut Surface) {
     }
 }
 
+/// The keys for what the panel shows now.
+fn hint_text(editor: &Editor) -> String {
+    let state = &editor.debug;
+    if state.spectator.settings.is_some() {
+        return "j/k choose · h/l or -/+ change · Esc closes".into();
+    }
+    if !state.is_focused() {
+        return "C-g: the panel's keys (Space plays there) · Space G Space plays from here".into();
+    }
+    if state.is_rewinding() {
+        return "[ ] scrub · { } by 10 · Enter: a frame · L or Space: back to live · Esc: editor"
+            .into();
+    }
+    if state.spectator.is_playing() {
+        return "Space pause · +/- speed · < > thread · e std/lib/own · r to cursor · Esc: editor"
+            .into();
+    }
+    "Space play · n step · +/- speed · f to a change · r to cursor · < > thread · z freeze · o alone · p run/pause thread · e std/lib/own · [ rewind · * mark · x clear times · R capture · Esc: editor (Space menu)".into()
+}
+
 fn status_text(editor: &Editor) -> String {
     let state = &editor.debug;
     let mut text = state.status.label();
+    if let Some(label) = state.spectator.label(std::time::Instant::now()) {
+        text = label;
+    } else if state.status.is_active() {
+        text = format!(
+            "{text} · {} · {}",
+            state.spectator.speed_label(),
+            state.spectator.follow.label()
+        );
+    }
     if let vortex_view::debug::Status::Stopped {
         description: Some(description),
         ..
@@ -237,6 +312,34 @@ fn status_text(editor: &Editor) -> String {
         text = format!("/{filter}  {text}");
     }
     text
+}
+
+/// The capture settings, over the sections.
+fn draw_settings(editor: &Editor, pane: Rect, surface: &mut Surface, base: Style) {
+    let theme = &editor.theme;
+    let rows = panel::settings_rows(editor);
+    let selected = editor.debug.spectator.settings.unwrap_or(0) + 1;
+    for (i, row) in rows.iter().enumerate().take(pane.height as usize) {
+        let y = pane.y + i as u16;
+        let row_base = if i == selected {
+            let style = base.patch(theme.get("ui.menu.selected"));
+            surface.set_style(Rect::new(pane.x, y, pane.width, 1), style);
+            style
+        } else {
+            base
+        };
+        draw_row(
+            theme,
+            row,
+            pane.x,
+            y,
+            pane.width,
+            row_base,
+            i == selected,
+            false,
+            surface,
+        );
+    }
 }
 
 fn draw_section(
@@ -298,6 +401,7 @@ fn draw_section(
             pane.width,
             row_base,
             is_cursor && active,
+            editor.debug.is_rewinding(),
             surface,
         );
     }
@@ -312,6 +416,7 @@ fn draw_row(
     width: u16,
     base: Style,
     selected: bool,
+    rewind: bool,
     surface: &mut Surface,
 ) {
     let mut x = x + 1;
@@ -337,7 +442,12 @@ fn draw_row(
         if x >= end {
             break;
         }
-        let mut style = base.patch(role_style(theme, *role));
+        // in rewind the values are greyed: they are history
+        let role = match role {
+            Role::Value if rewind => Role::Dim,
+            role => *role,
+        };
+        let mut style = base.patch(role_style(theme, role));
         if selected {
             // the selection's colors win over the roles' backgrounds
             style.bg = base.bg;

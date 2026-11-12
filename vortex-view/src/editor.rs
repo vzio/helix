@@ -530,6 +530,9 @@ pub struct Config {
     /// The terminal panel, opened with `C-t` and `:sh` (fork feature), and the external
     /// terminal the debugger runs programs in.
     pub terminal: crate::terminal::TerminalConfig,
+    /// Spectator mode's defaults: playback speed, what it follows, what each stop records
+    /// (fork feature).
+    pub debugger: crate::debug::config::DebuggerConfig,
     /// Column numbers at which to draw the rulers. Defaults to `[]`, meaning no rulers.
     pub rulers: Vec<u16>,
     #[serde(default)]
@@ -1346,6 +1349,7 @@ impl Default for Config {
             search: SearchConfig::default(),
             lsp: LspConfig::default(),
             terminal: crate::terminal::TerminalConfig::default(),
+            debugger: crate::debug::config::DebuggerConfig::default(),
             rulers: Vec::new(),
             whitespace: WhitespaceConfig::default(),
             bufferline: BufferLine::default(),
@@ -2780,8 +2784,19 @@ impl Editor {
         }
     }
 
+    /// The frame the editor shows the program at: the recorded one in rewind, else the
+    /// current frame, or while a playback step runs the one it left.
     pub fn current_stack_frame(&self) -> Option<&dap::StackFrame> {
-        self.debug_adapters.current_stack_frame()
+        let spectator = &self.debug.spectator;
+        if let Some(snapshot) = spectator.history.current() {
+            return snapshot.frames.get(spectator.history.frame);
+        }
+        self.debug_adapters.current_stack_frame().or_else(|| {
+            spectator
+                .shown_frame
+                .as_ref()
+                .filter(|_| spectator.step.is_some())
+        })
     }
 
     /// Returns the id of a view that this doc contains a selection for,

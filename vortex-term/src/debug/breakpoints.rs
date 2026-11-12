@@ -33,12 +33,38 @@ fn file_to_send(breakpoints: &[Breakpoint]) -> Vec<Sent> {
         .collect()
 }
 
+/// What `path` sends: its breakpoints but the disabled ones, and run to cursor's temporary one
+/// when it goes to a line of this file without a breakpoint.
+fn path_to_send(editor: &Editor, path: &Path) -> Vec<Sent> {
+    let list = editor
+        .breakpoints
+        .get(path)
+        .map(Vec::as_slice)
+        .unwrap_or(&[]);
+    let mut sent = file_to_send(list);
+    if let Some(line) = super::playback::run_to_breakpoint(editor, path) {
+        if !list.iter().any(|b| b.line == line) {
+            sent.push((
+                line,
+                SourceBreakpoint {
+                    line: line + 1,
+                    column: None,
+                    condition: None,
+                    hit_condition: None,
+                    log_message: None,
+                },
+            ));
+        }
+    }
+    sent
+}
+
 /// Every file's breakpoints, for a session's configuration.
 pub fn to_send(editor: &Editor) -> Vec<(PathBuf, Vec<Sent>)> {
     editor
         .breakpoints
-        .iter()
-        .map(|(path, list)| (path.clone(), file_to_send(list)))
+        .keys()
+        .map(|path| (path.clone(), path_to_send(editor, path)))
         .collect()
 }
 
@@ -77,11 +103,7 @@ pub fn check_support(editor: &Editor, path: &Path) -> anyhow::Result<()> {
 /// Sends the breakpoints of `path` to every configured session. The answers come back
 /// through the job queue.
 pub fn sync(editor: &mut Editor, path: &Path) {
-    let sent = editor
-        .breakpoints
-        .get(path)
-        .map(|list| file_to_send(list))
-        .unwrap_or_default();
+    let sent = path_to_send(editor, path);
     let sessions: Vec<_> = editor
         .debug_adapters
         .iter()
@@ -97,6 +119,34 @@ pub fn sync(editor: &mut Editor, path: &Path) {
             job::dispatch(move |editor, _| apply(editor, id, &path, &sent, result)).await;
         });
     }
+}
+
+/// Sends the breakpoints of `path` to `session` alone, then calls `then` once it answered (run
+/// to cursor: its temporary breakpoint must be set before the program continues).
+pub fn sync_then(
+    editor: &mut Editor,
+    path: &Path,
+    session: DebugAdapterId,
+    then: impl FnOnce(&mut Editor) + Send + 'static,
+) {
+    let sent = path_to_send(editor, path);
+    let Some(client) = editor.debug_adapters.get_client(session) else {
+        return;
+    };
+    let requester = client.requester();
+    let path = path.to_owned();
+    tokio::spawn(async move {
+        let breakpoints = sent.iter().map(|(_, b)| b.clone()).collect();
+        let result = requester.set_breakpoints(path.clone(), breakpoints).await;
+        job::dispatch(move |editor, _| {
+            let failed = result.is_err();
+            apply(editor, session, &path, &sent, result);
+            if !failed {
+                then(editor);
+            }
+        })
+        .await;
+    });
 }
 
 /// A session's answer to `setBreakpoints` for `path`: its ids and verification, matched to the

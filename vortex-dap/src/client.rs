@@ -382,7 +382,7 @@ impl Client {
             columns_start_at_one: Some(true),
             path_format: Some("path".to_owned()),
             supports_variable_type: Some(true),
-            supports_variable_paging: Some(false),
+            supports_variable_paging: Some(true),
             supports_run_in_terminal_request: Some(true),
             supports_memory_references: Some(false),
             supports_progress_reporting: Some(true),
@@ -461,7 +461,10 @@ impl Client {
     }
 
     pub fn continue_thread(&self, thread_id: ThreadId) -> impl Future<Output = Result<Value>> {
-        let args = requests::ContinueArguments { thread_id };
+        let args = requests::ContinueArguments {
+            thread_id,
+            single_thread: None,
+        };
 
         self.call::<requests::Continue>(args)
     }
@@ -490,6 +493,7 @@ impl Client {
             thread_id,
             target_id: None,
             granularity: None,
+            single_thread: None,
         };
 
         self.call::<requests::StepIn>(args)
@@ -499,6 +503,7 @@ impl Client {
         let args = requests::StepOutArguments {
             thread_id,
             granularity: None,
+            single_thread: None,
         };
 
         self.call::<requests::StepOut>(args)
@@ -508,6 +513,7 @@ impl Client {
         let args = requests::NextArguments {
             thread_id,
             granularity: None,
+            single_thread: None,
         };
 
         self.call::<requests::Next>(args)
