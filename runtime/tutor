@@ -58,7 +58,8 @@
  Try it: :dashboard, then Esc. To start without it, set
  dashboard = false under [editor] in your config; to calm the
  vortex behind it, dashboard-background = "load" (it stops once
- loaded), "static" (still) or "off".
+ loaded), "static" (still) or "off"; to leave out its title
+ and credit line, dashboard-title = false.
 
 
 

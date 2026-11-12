@@ -1529,6 +1529,7 @@ Nothing waits for the animations: every key works from the first frame.
 [editor]
 dashboard = false               # start as before: an empty buffer, or the file picker for vx <folder>
 dashboard-background = "on"     # "on", "load", "static" or "off"
+dashboard-title = false         # no title and no credit line: the stats and the actions only
 ```
 
 | `dashboard-background` | The vortex |
@@ -1551,6 +1552,10 @@ language bar fills in over it, so fast stats don't flash in and slow ones appear
 arrive. The title comes in three sizes for the room there is: large block letters, medium ones,
 and plain `v x` opening to `v o r t e x`. The credit line under it reads "fork of
 helix-editor/helix, by vzio".
+
+`dashboard-title = false` leaves out the title and its credit line, panel and all: the stats and
+the actions take the rows they took, so a short window keeps more of them. The loading shows in
+the rows, which shimmer and type in as before.
 
 ### The vortex
 

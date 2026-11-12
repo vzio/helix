@@ -178,6 +178,7 @@ impl Dashboard {
             timeline: self.timeline,
             dir: &self.dir,
             hints: &self.hints,
+            title: editor.config().dashboard_title,
         };
         render::render(&model, &editor.theme, area, surface, now);
     }

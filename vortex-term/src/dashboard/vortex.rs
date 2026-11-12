@@ -410,6 +410,7 @@ mod tests {
                 timeline: Timeline::new(born, DashboardBackground::On),
                 dir: std::path::Path::new("/src/vortex"),
                 hints: &hints,
+                title: true,
             };
             let start = Instant::now();
             for frame in 0..frames {
