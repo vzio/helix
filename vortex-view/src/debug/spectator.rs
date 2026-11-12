@@ -202,6 +202,11 @@ pub struct StepInFlight {
     pub sent: Instant,
     /// Step requests sent for it (the step, then any `stepOut`s).
     pub requests: u32,
+    /// When its last request was sent.
+    pub request_sent: Instant,
+    /// The time the adapter took for each request so far: from the request to its stop's event
+    /// (without what the editor loads in between).
+    pub times: Vec<Duration>,
     /// The file and 0-based line it leaves, which gets its time.
     pub from: Option<(PathBuf, usize)>,
     /// The function it leaves, for "blocked in".
@@ -277,6 +282,10 @@ pub struct Spectator {
     pub settings: Option<usize>,
     /// The process id of a local debuggee (the DAP `process` event), for CPU times.
     pub pid: Option<u32>,
+    /// When the last `stopped` event arrived, before its stack loaded.
+    pub stop_arrived: Option<Instant>,
+    /// Stops being recorded now: playback waits for them.
+    pub recording: usize,
 }
 
 impl Default for Spectator {
@@ -304,6 +313,8 @@ impl Default for Spectator {
             timing: Timing::default(),
             settings: None,
             pid: None,
+            stop_arrived: None,
+            recording: 0,
         }
     }
 }
@@ -360,6 +371,7 @@ impl Spectator {
         self.pause();
         self.finish_step();
         self.run_to = None;
+        self.recording = 0;
         self.baseline.clear();
         self.changes.clear();
         self.spectated = None;
@@ -439,9 +451,14 @@ impl Spectator {
         match self.mode {
             Mode::Paused => None,
             Mode::Playing => Some(format!(
-                "▶ {} · {}",
+                "▶ {} · {}{}",
                 self.speed_label(),
-                self.follow.label()
+                self.follow.label(),
+                if self.recording > 0 {
+                    " · recording…"
+                } else {
+                    ""
+                }
             )),
             Mode::FastForward => Some(format!("⏩ fast forward · {} steps", self.steps)),
         }
@@ -579,6 +596,8 @@ mod tests {
             },
             sent,
             requests: 1,
+            request_sent: sent,
+            times: Vec::new(),
             from: None,
             function: "read".into(),
             depth: 1,

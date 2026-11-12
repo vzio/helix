@@ -48,17 +48,38 @@ pub fn capture(
         .iter()
         .map(|watch| watch.expression.clone())
         .collect();
+    // frames playback doesn't follow (the runtime, in `own` mode) keep their own variables, not
+    // what is inside them: a deep runtime stack would cost hundreds of requests at every stop
+    let rules = super::playback::origin_rules(editor, session);
+    let follow = editor.debug.spectator.follow;
+    let followed: Vec<bool> = frames
+        .iter()
+        .map(|frame| follow.allows(rules.classify(frame)))
+        .collect();
     let step = editor.debug.spectator.history.next_step();
     let thread_name = editor.debug.thread_name(key);
     let reason = reason.to_owned();
     let (done, receiver) = oneshot::channel();
+    editor.debug.spectator.recording += 1;
     tokio::spawn(async move {
         let counters = Arc::new(Counters::default());
-        let scopes = join_all(
-            frames
-                .iter()
-                .map(|frame| capture_frame(requester.clone(), frame.id, caps, counters.clone())),
-        )
+        let scopes = join_all(frames.iter().enumerate().map(|(index, frame)| {
+            let caps = if followed[index] {
+                caps
+            } else {
+                Caps {
+                    depth: Some(caps.depth.map_or(1, |depth| depth.min(1))),
+                    ..caps
+                }
+            };
+            capture_frame(
+                requester.clone(),
+                frame.id,
+                index == 0,
+                caps,
+                counters.clone(),
+            )
+        }))
         .await;
         let mut watch_values = Vec::with_capacity(watches.len());
         for expression in watches {
@@ -126,6 +147,8 @@ pub fn capture(
 
 /// Keeps a snapshot, its changes marked against the stop before it in the same function.
 fn keep(editor: &mut Editor, mut snapshot: Snapshot) {
+    let spectator = &mut editor.debug.spectator;
+    spectator.recording = spectator.recording.saturating_sub(1);
     let history = &mut editor.debug.spectator.history;
     if let Some(previous) = history.stops.back() {
         let same_function = previous.key == snapshot.key
@@ -142,32 +165,57 @@ fn keep(editor: &mut Editor, mut snapshot: Snapshot) {
     editor.debug.spectator.history.push(snapshot, limit);
 }
 
-/// The scopes of a frame, each with its variables down to the depth cap. An expensive scope
-/// (registers, globals, as the adapter marks them) gets only its own variables.
+/// How deep a scope is recorded: the variables of a frame (`locals`, `arguments`, a return
+/// value) down to the depth cap; an expensive scope (as the adapter marks it: js-debug's global
+/// object) only its own variables, in the top frame; registers only their groups; and a scope
+/// that is the same in every frame (globals, statics: no hint, in a frame that hints its locals)
+/// only in the top frame.
+fn scope_depth(
+    scope: &vortex_dap::Scope,
+    top: bool,
+    hinted_frame: bool,
+    caps: Caps,
+) -> Option<usize> {
+    match scope.presentation_hint.as_deref() {
+        Some("registers") => Some(caps.depth.map_or(1, |depth| depth.min(1))),
+        _ if scope.expensive && !top => Some(0),
+        _ if scope.expensive => Some(caps.depth.map_or(1, |depth| depth.min(1))),
+        Some("locals" | "arguments" | "returnValue") => caps.depth,
+        _ if hinted_frame && !top => Some(0),
+        _ => caps.depth,
+    }
+}
+
+/// The scopes of a frame, each with its variables as deep as [`scope_depth`] says.
 async fn capture_frame(
     requester: Requester,
     frame_id: usize,
+    top: bool,
     caps: Caps,
     counters: Arc<Counters>,
 ) -> Option<Vec<VarNode>> {
     counters.requests.fetch_add(1, Ordering::Relaxed);
     let scopes = requester.scopes(frame_id).await.ok()?;
+    let hinted_frame = scopes.iter().any(|scope| {
+        matches!(
+            scope.presentation_hint.as_deref(),
+            Some("locals" | "arguments")
+        )
+    });
     let nodes = join_all(scopes.into_iter().map(|scope| {
         let requester = requester.clone();
         let counters = counters.clone();
         async move {
-            let depth = if scope.expensive {
-                caps.depth.map(|depth| depth.min(1)).or(Some(1))
-            } else {
-                caps.depth
-            };
+            let depth = scope_depth(&scope, top, hinted_frame, caps);
             let mut node = VarNode {
                 name: scope.name,
                 reference: scope.variables_reference,
                 expensive: scope.expensive,
                 ..Default::default()
             };
-            if node.reference > 0 && depth != Some(0) {
+            if node.reference > 0 && depth == Some(0) {
+                counters.truncated.store(true, Ordering::Relaxed);
+            } else if node.reference > 0 {
                 let total = match (scope.indexed_variables, scope.named_variables) {
                     (None, None) => None,
                     (indexed, named) => Some(indexed.unwrap_or(0) + named.unwrap_or(0)),
@@ -194,10 +242,19 @@ fn children(
 ) -> BoxFuture<'static, Vec<VarNode>> {
     async move {
         counters.requests.fetch_add(1, Ordering::Relaxed);
-        let variables = match requester
-            .variables_page(reference, None, caps.collection)
-            .await
+        let mut result = requester
+            .variables_page(reference, caps.collection.map(|_| 0), caps.collection)
+            .await;
+        // an adapter that answers a page with nothing although the variable has children doesn't
+        // page: ask for all of them
+        if caps.collection.is_some()
+            && total.is_some_and(|total| total > 0)
+            && result.as_ref().is_ok_and(Vec::is_empty)
         {
+            counters.requests.fetch_add(1, Ordering::Relaxed);
+            result = requester.variables_page(reference, None, None).await;
+        }
+        let variables = match result {
             Ok(variables) => variables,
             Err(err) => {
                 return vec![VarNode {

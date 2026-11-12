@@ -134,9 +134,48 @@ fn handle_event(editor: &mut Editor, id: DebugAdapterId, event: Event) -> bool {
             text,
             reason,
             all_threads_stopped,
+            preserve_focus_hint,
             ..
         }) => {
+            // An adapter that stops every thread may report each of them, hinting that only one
+            // caused the stop (lldb-dap: the others keep the reason of their last stop). Those
+            // only update their thread's state, unless no other stop comes soon after.
+            if preserve_focus_hint == Some(true) {
+                let client = editor.debug_adapters.get_client_mut(id).unwrap();
+                if let Some(thread) = thread_id {
+                    client.thread_states.insert(thread, reason.clone());
+                }
+                let generation = editor.debug.generation;
+                let body = events::StoppedBody {
+                    reason,
+                    description,
+                    thread_id,
+                    preserve_focus_hint: Some(false),
+                    text,
+                    all_threads_stopped,
+                    hit_breakpoint_ids: None,
+                };
+                tokio::spawn(async move {
+                    tokio::time::sleep(std::time::Duration::from_millis(150)).await;
+                    job::dispatch(move |editor, _| {
+                        if editor.debug.generation == generation
+                            && editor.debug_adapters.get_client(id).is_some()
+                        {
+                            handle_event(editor, id, Event::Stopped(body));
+                        }
+                    })
+                    .await;
+                });
+                return true;
+            }
             let reason_for_playback = reason.clone();
+            editor.debug.spectator.stop_arrived = Some(
+                editor
+                    .debug_adapters
+                    .get_client(id)
+                    .and_then(|client| client.last_stop_received())
+                    .unwrap_or_else(std::time::Instant::now),
+            );
             match all_threads_stopped {
                 Some(false) => {
                     editor.debug.spectator.non_stop.insert(id);

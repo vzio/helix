@@ -208,6 +208,7 @@ mod tests {
             quirks: Default::default(),
             std_paths: None,
             lib_paths: None,
+            capabilities: None,
         }
     }
 

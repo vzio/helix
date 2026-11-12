@@ -1,12 +1,14 @@
 //! Time per line: how long each playback step took, minus the cost of stepping itself, kept per
 //! line of the session so the code reads as a rough flame graph.
 //!
-//! A step is timed from its first request to the stop that ends it, in the editor. That includes
-//! the round trips to the adapter and the debugger's own work, which are about the same for
-//! every step: the overhead per request is the median of the faster half of the last plain steps
-//! (one request, the same function before and after), and a step's time is its wall time minus
-//! that overhead times its requests. Steps under the threshold count as free, so the noise of
-//! the correction doesn't pile up on cheap lines.
+//! Each request of a step is timed from when it is sent to when the event of its stop arrives
+//! (not what the editor loads after it). That includes the round trip to the adapter and the
+//! debugger's own work, which is about the same for every step of a kind: the overhead of a step
+//! in is the median of the faster half of the last plain steps (one request, the same function
+//! before and after), the overhead of a step out the same over the last step outs (most leave a
+//! cheap library call). A step's time is the time of its requests minus their overheads. Steps
+//! under the threshold, or under the step's own overhead (the overhead varies about as much as it
+//! is), count as free, so the noise of the correction doesn't pile up on cheap lines.
 
 use std::collections::{BTreeMap, HashMap, VecDeque};
 use std::path::{Path, PathBuf};
@@ -31,8 +33,10 @@ pub struct LineTime {
 #[derive(Debug, Clone)]
 pub struct Timing {
     pub lines: HashMap<PathBuf, BTreeMap<usize, LineTime>>,
-    /// The wall time per request of recent plain steps.
+    /// The time of recent plain steps.
     samples: VecDeque<Duration>,
+    /// The time of recent step outs.
+    out_samples: VecDeque<Duration>,
     /// Steps faster than this (after correction) aren't labelled.
     pub threshold: Duration,
     pub enabled: bool,
@@ -43,6 +47,7 @@ impl Default for Timing {
         Self {
             lines: HashMap::new(),
             samples: VecDeque::new(),
+            out_samples: VecDeque::new(),
             threshold: Duration::from_millis(1),
             enabled: true,
         }
@@ -50,37 +55,46 @@ impl Default for Timing {
 }
 
 impl Timing {
-    /// The measured cost of one step request; `None` until enough plain steps were seen.
+    /// The measured cost of a step in; `None` until enough plain steps were seen.
     pub fn overhead(&self) -> Option<Duration> {
-        if self.samples.len() < MIN_SAMPLES {
-            return None;
-        }
-        let mut sorted: Vec<Duration> = self.samples.iter().copied().collect();
-        sorted.sort();
-        let faster = &sorted[..sorted.len().div_ceil(2)];
-        Some(faster[faster.len() / 2])
+        faster_median(&self.samples)
     }
 
-    /// A playback step ended: `wall` from its first request to its stop, with `requests` step
-    /// requests; `plain` when it stayed in the same function with one request. Credits the line
-    /// it left with its corrected time when that is above the threshold, and returns that time.
+    /// The measured cost of a step out; the step in's until enough step outs were seen.
+    pub fn out_overhead(&self) -> Option<Duration> {
+        faster_median(&self.out_samples).or_else(|| self.overhead())
+    }
+
+    /// A playback step ended: `step` the time of its step in, `outs` the times of the step outs
+    /// that brought it back to the code playback follows; `plain` when it stayed in the same
+    /// function with one request. Credits the line it left with its corrected time when that is
+    /// above the threshold, and returns that time.
     pub fn record(
         &mut self,
         from: Option<(PathBuf, usize)>,
-        wall: Duration,
-        requests: u32,
+        step: Duration,
+        outs: &[Duration],
         plain: bool,
         cpu: Option<Duration>,
     ) -> Option<Duration> {
-        if plain && requests == 1 {
-            self.samples.push_back(wall);
-            while self.samples.len() > SAMPLES {
-                self.samples.pop_front();
-            }
+        if plain && outs.is_empty() {
+            push(&mut self.samples, step);
+        }
+        for out in outs {
+            push(&mut self.out_samples, *out);
         }
         let overhead = self.overhead()?;
-        let corrected = wall.saturating_sub(overhead * requests.max(1));
-        if !self.enabled || corrected < self.threshold {
+        let out_overhead = self.out_overhead()?;
+        let wall = step + outs.iter().sum::<Duration>();
+        let corrected = step.saturating_sub(overhead)
+            + outs
+                .iter()
+                .map(|out| out.saturating_sub(out_overhead))
+                .sum::<Duration>();
+        // the overhead varies about as much as it is: a step counts once it took at least as long
+        // again as stepping itself costs
+        let cost = overhead + out_overhead * outs.len() as u32;
+        if !self.enabled || corrected < self.threshold.max(cost) {
             return None;
         }
         let (path, line) = from?;
@@ -114,7 +128,27 @@ impl Timing {
     pub fn clear(&mut self) {
         self.lines.clear();
         self.samples.clear();
+        self.out_samples.clear();
     }
+}
+
+fn push(samples: &mut VecDeque<Duration>, sample: Duration) {
+    samples.push_back(sample);
+    while samples.len() > SAMPLES {
+        samples.pop_front();
+    }
+}
+
+/// The median of the faster half of `samples`: most steps are cheap, so this is what stepping
+/// itself costs, whatever a few slow lines take. `None` with fewer than [`MIN_SAMPLES`].
+fn faster_median(samples: &VecDeque<Duration>) -> Option<Duration> {
+    if samples.len() < MIN_SAMPLES {
+        return None;
+    }
+    let mut sorted: Vec<Duration> = samples.iter().copied().collect();
+    sorted.sort();
+    let faster = &sorted[..sorted.len().div_ceil(2)];
+    Some(faster[faster.len() / 2])
 }
 
 /// `850 µs`, `3.2 ms`, `120 ms`, `1.4 s`, `75 s`.
@@ -172,7 +206,7 @@ mod tests {
     fn nothing_is_labelled_until_calibrated() {
         let mut timing = Timing::default();
         for _ in 0..MIN_SAMPLES - 1 {
-            assert_eq!(timing.record(at(1), ms(50), 1, true, None), None);
+            assert_eq!(timing.record(at(1), ms(50), &[], true, None), None);
         }
         assert!(timing.overhead().is_none());
         assert!(timing.lines.is_empty());
@@ -182,20 +216,23 @@ mod tests {
     fn the_overhead_is_taken_off_and_cheap_lines_stay_clean() {
         let mut timing = Timing::default();
         for _ in 0..8 {
-            timing.record(at(1), ms(4), 1, true, None);
+            timing.record(at(1), ms(4), &[], true, None);
         }
         assert_eq!(timing.overhead(), Some(ms(4)));
         // a cheap line: under the threshold after correction
         assert_eq!(
-            timing.record(at(2), Duration::from_micros(4500), 1, true, None),
+            timing.record(at(2), Duration::from_micros(4500), &[], true, None),
             None
         );
         assert_eq!(timing.label(Path::new("/w/main.rs"), 2), None);
         // a slow line: 30 ms - 4 ms
-        assert_eq!(timing.record(at(3), ms(30), 1, true, None), Some(ms(26)));
+        assert_eq!(timing.record(at(3), ms(30), &[], true, None), Some(ms(26)));
         assert_eq!(timing.label(Path::new("/w/main.rs"), 3).unwrap(), "26 ms");
-        // with a step out: two requests of overhead
-        assert_eq!(timing.record(at(4), ms(20), 2, false, None), Some(ms(12)));
+        // with a step out: until step outs are calibrated, they cost what a step in costs
+        assert_eq!(
+            timing.record(at(4), ms(10), &[ms(10)], false, None),
+            Some(ms(12))
+        );
     }
 
     #[test]
@@ -204,7 +241,7 @@ mod tests {
         for i in 0..32 {
             // a third of the plain steps are slow
             let wall = if i % 3 == 0 { ms(80) } else { ms(2) };
-            timing.record(at(1), wall, 1, true, None);
+            timing.record(at(1), wall, &[], true, None);
         }
         assert_eq!(timing.overhead(), Some(ms(2)));
     }
@@ -213,14 +250,14 @@ mod tests {
     fn labels_add_up_visits_and_show_the_cpu() {
         let mut timing = Timing::default();
         for _ in 0..8 {
-            timing.record(at(1), ms(1), 1, true, None);
+            timing.record(at(1), ms(1), &[], true, None);
         }
-        timing.record(at(5), ms(13), 1, false, Some(ms(3)));
+        timing.record(at(5), ms(13), &[], false, Some(ms(3)));
         assert_eq!(
             timing.label(Path::new("/w/main.rs"), 5).unwrap(),
             "12 ms (3 cpu)"
         );
-        timing.record(at(5), ms(13), 1, false, Some(ms(3)));
+        timing.record(at(5), ms(13), &[], false, Some(ms(3)));
         assert_eq!(
             timing.label(Path::new("/w/main.rs"), 5).unwrap(),
             "24 ms (6 cpu) ×2"
@@ -228,6 +265,24 @@ mod tests {
         timing.clear_labels();
         assert_eq!(timing.label(Path::new("/w/main.rs"), 5), None);
         assert!(timing.overhead().is_some());
+    }
+
+    #[test]
+    fn step_outs_have_their_own_overhead() {
+        let mut timing = Timing::default();
+        for _ in 0..8 {
+            timing.record(at(1), ms(3), &[], true, None);
+        }
+        // step outs of cheap library calls cost 40 ms each in this debugger
+        for _ in 0..8 {
+            timing.record(at(2), ms(3), &[ms(40)], false, None);
+        }
+        assert_eq!(timing.out_overhead(), Some(ms(40)));
+        // a library call that works for 100 ms
+        assert_eq!(
+            timing.record(at(3), ms(3), &[ms(140)], false, None),
+            Some(ms(100))
+        );
     }
 
     #[test]

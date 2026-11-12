@@ -249,7 +249,12 @@ pub fn render(editor: &mut Editor, area: Rect, surface: &mut Surface) {
 
     if let Some(divider) = layout.divider {
         let style = base.patch(theme.get("ui.window"));
-        for y in area.y + 1..area.bottom() {
+        let bottom = if has_hints(area) {
+            area.bottom() - 1
+        } else {
+            area.bottom()
+        };
+        for y in area.y + 1..bottom {
             surface.set_stringn(divider, y, "│", 1, style);
         }
         if let Some((_, x, width)) = layout.tabs.iter().find(|(s, _, _)| *s == Section::Console) {
@@ -285,25 +290,28 @@ fn hint_text(editor: &Editor) -> String {
 
 fn status_text(editor: &Editor) -> String {
     let state = &editor.debug;
-    let mut text = state.status.label();
-    if let Some(label) = state.spectator.label(std::time::Instant::now()) {
-        text = label;
-    } else if state.status.is_active() {
-        text = format!(
-            "{text} · {} · {}",
-            state.spectator.speed_label(),
-            state.spectator.follow.label()
-        );
-    }
-    if let vortex_view::debug::Status::Stopped {
-        description: Some(description),
-        ..
-    } = &state.status
+    // playing (or blocked) says so instead of the program's state
+    let playing = state.spectator.label(std::time::Instant::now());
+    let mut text = playing.clone().unwrap_or_else(|| state.status.label());
+    if let (
+        None,
+        vortex_view::debug::Status::Stopped {
+            description: Some(description),
+            ..
+        },
+    ) = (&playing, &state.status)
     {
         let reason = text.trim_start_matches("stopped: ").to_lowercase();
         if !description.to_lowercase().contains(&reason) {
             text = format!("{text} ({description})");
         }
+    }
+    if playing.is_none() && state.status.is_active() {
+        text = format!(
+            "{text} · {} · {}",
+            state.spectator.speed_label(),
+            state.spectator.follow.label()
+        );
     }
     if !state.session_name.is_empty() && state.status.is_active() {
         text = format!("{text} · {}", state.session_name);

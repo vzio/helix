@@ -300,6 +300,8 @@ fn send_step(editor: &mut Editor, single: bool) {
         key,
         sent: now,
         requests: 1,
+        request_sent: now,
+        times: Vec::new(),
         from,
         function: top.map(|frame| frame.name).unwrap_or_default(),
         depth: frames.len(),
@@ -368,6 +370,22 @@ pub fn on_stopped(
         thread,
     };
     finish_run_to(editor, frames);
+    let arrived = editor
+        .debug
+        .spectator
+        .stop_arrived
+        .take()
+        .unwrap_or_else(Instant::now);
+    if let Some(step) = editor
+        .debug
+        .spectator
+        .step
+        .as_mut()
+        .filter(|step| step.key.session == id)
+    {
+        step.times
+            .push(arrived.saturating_duration_since(step.request_sent));
+    }
     let in_flight = editor
         .debug
         .spectator
@@ -393,8 +411,13 @@ pub fn on_stopped(
     };
 
     if reason != "step" || step.key != key {
-        // something else stopped it: a breakpoint, an exception, a pause
-        editor.debug.spectator.finish_step();
+        // something else stopped it: a breakpoint, an exception, a pause (the step of this thread
+        // still took its time: a step that ends on a breakpoint is timed)
+        if let Some(step) = editor.debug.spectator.finish_step() {
+            if step.key == key {
+                time_step(editor, &step, frames);
+            }
+        }
         editor.debug.spectator.spectated = Some(key);
         if editor.debug.spectator.is_playing() {
             editor.debug.spectator.pause();
@@ -416,6 +439,7 @@ pub fn on_stopped(
         let requester = client.requester();
         if let Some(step) = editor.debug.spectator.step.as_mut() {
             step.requests += 1;
+            step.request_sent = Instant::now();
         }
         let single_thread = single_thread(editor, key);
         let granularity = granularity(editor, id);
@@ -433,18 +457,7 @@ pub fn on_stopped(
 
     // the step is done
     let step = editor.debug.spectator.finish_step().unwrap_or(step);
-    let wall = step.sent.elapsed();
-    let plain = frames.len() == step.depth
-        && frames.first().map(|frame| frame.name.as_str()) == Some(step.function.as_str());
-    let cpu = step
-        .cpu_before
-        .zip(cpu_now(editor, thread))
-        .map(|(before, after)| after.saturating_sub(before));
-    editor
-        .debug
-        .spectator
-        .timing
-        .record(step.from.clone(), wall, step.requests, plain, cpu);
+    time_step(editor, &step, frames);
     editor.debug.spectator.steps += 1;
     editor.debug.spectator.shown_frame = frames.first().cloned();
     let done = record::capture(editor, id, key, reason, frames.to_vec());
@@ -470,6 +483,23 @@ pub fn on_stopped(
             Show::Quiet
         }
     }
+}
+
+/// Gives the line a step left its time (and CPU time).
+fn time_step(editor: &mut Editor, step: &StepInFlight, frames: &[StackFrame]) {
+    let plain = frames.len() == step.depth
+        && frames.first().map(|frame| frame.name.as_str()) == Some(step.function.as_str());
+    let cpu = step
+        .cpu_before
+        .zip(cpu_now(editor, step.key.thread))
+        .map(|(before, after)| after.saturating_sub(before));
+    editor.debug.spectator.timing.record(
+        step.from.clone(),
+        step.times.first().copied().unwrap_or_default(),
+        step.times.get(1..).unwrap_or_default(),
+        plain,
+        cpu,
+    );
 }
 
 fn at_line(frames: &[StackFrame], target: &RunTo) -> bool {
@@ -607,7 +637,10 @@ fn fast_forward_check(
             let steps = editor.debug.spectator.steps;
             let text = changes
                 .iter()
-                .map(|change| format!("{}: {} -> {}", change.name, change.old, change.new))
+                .map(|change| {
+                    let name = change.name.trim_start_matches("watch: ");
+                    format!("{name}: {} -> {}", change.old, change.new)
+                })
                 .collect::<Vec<_>>()
                 .join(", ");
             editor.debug.console.line(

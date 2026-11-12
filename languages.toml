@@ -367,6 +367,9 @@ persistent-diagnostic-sources = ["rustc", "clippy"]
 name = "lldb-dap"
 transport = "stdio"
 command = "lldb-dap"
+# spectator mode: frames whose path contains these are the runtime's (std) or a library's (lib)
+std-paths = ["/rustc/", "/lib/rustlib/src/", "/usr/include/", "/usr/lib/"]
+lib-paths = ["/.cargo/registry/", "/.cargo/git/", "/vendor/"]
 
 [[language.debugger.templates]]
 name = "binary"
@@ -717,6 +720,8 @@ indent = { tab-width = 2, unit = "  " }
 name = "lldb-dap"
 transport = "stdio"
 command = "lldb-dap"
+# spectator mode: frames whose path contains these are the runtime's (std) or a library's (lib)
+std-paths = ["/usr/include/", "/usr/lib/", "/usr/src/", "/usr/local/include/"]
 
 [[language.debugger.templates]]
 name = "binary"
@@ -761,6 +766,8 @@ formatter = { command = "clang-format" }
 name = "lldb-dap"
 transport = "stdio"
 command = "lldb-dap"
+# spectator mode: frames whose path contains these are the runtime's (std) or a library's (lib)
+std-paths = ["/usr/include/", "/usr/lib/", "/usr/src/", "/usr/local/include/"]
 
 [[language.debugger.templates]]
 name = "binary"
@@ -1034,6 +1041,9 @@ name = "js-debug-dap"
 transport = "tcp"
 # js-debug's dapDebugServer.js, run by node: FORK.md ("The debugger") says how to install it
 command = "js-debug-dap"
+# spectator mode: frames whose path contains these are the runtime's (std) or a library's (lib)
+std-paths = ["node:", "<node_internals>"]
+lib-paths = ["/node_modules/"]
 port-arg = "{} 127.0.0.1"
 quirks = { absolute-paths = true }
 
@@ -1087,6 +1097,9 @@ name = "js-debug-dap"
 transport = "tcp"
 # js-debug's dapDebugServer.js, run by node: FORK.md ("The debugger") says how to install it
 command = "js-debug-dap"
+# spectator mode: frames whose path contains these are the runtime's (std) or a library's (lib)
+std-paths = ["node:", "<node_internals>"]
+lib-paths = ["/node_modules/"]
 port-arg = "{} 127.0.0.1"
 quirks = { absolute-paths = true }
 

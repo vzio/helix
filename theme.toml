@@ -198,6 +198,11 @@ hint = { fg = "n_8", bg = "n_1" }
 "ui.statusline.debug.stopped" = { fg = "n_11", bg = "red", modifiers = ["bold"] }
 "ui.statusline.debug.exited" = { fg = "background", bg = "purple_light", modifiers = ["bold"] }
 "ui.statusline.debug.failed" = { fg = "n_11", bg = "crimson", modifiers = ["bold"] }
+"ui.statusline.debug.playing" = { fg = "n_11", bg = "purple_mid", modifiers = ["bold"] }
+"ui.debug.rewind" = { fg = "background", bg = "red_faded", modifiers = ["bold"] }
+"ui.debug.frozen" = "purple_soft"
+"ui.debug.hint" = "n_6"
+"ui.virtual.step-time" = { fg = "n_6", modifiers = ["italic"] }
 
 # Hex view
 "ui.hex.null" = "n_4"

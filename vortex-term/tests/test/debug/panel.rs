@@ -84,6 +84,7 @@ fn adapter_config() -> DebugAdapterConfig {
         quirks: Default::default(),
         std_paths: None,
         lib_paths: None,
+        capabilities: None,
     }
 }
 

@@ -58,7 +58,22 @@ pub fn spectate(editor: &mut Editor, key: ThreadKey) {
     editor.debug.spectator.spectated = Some(key);
     let name = editor.debug.thread_name(key);
     if playback::is_stopped(editor, key) {
-        load::select_frame(editor, key, 0);
+        // the first frame whose code is here: a thread waiting in libc shows where it waits
+        let index = editor
+            .debug_adapters
+            .get_client(key.session)
+            .and_then(|client| client.stack_frames.get(&key.thread))
+            .and_then(|frames| {
+                frames.iter().position(|frame| {
+                    frame
+                        .source
+                        .as_ref()
+                        .and_then(|source| source.path.as_ref())
+                        .is_some_and(|path| path.exists())
+                })
+            })
+            .unwrap_or(0);
+        load::select_frame(editor, key, index);
         editor.set_status(format!("Spectating thread {} {name}", key.thread));
     } else {
         editor.set_status(format!(

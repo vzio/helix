@@ -36,6 +36,11 @@ pub fn jump_to_stack_frame(editor: &mut Editor, frame: &vortex_dap::StackFrame) 
         return;
     };
 
+    // a frame in code whose source isn't on this machine (libc, the Rust sysroot without
+    // rust-src): stay where we are rather than open an empty buffer
+    if !path.exists() {
+        return;
+    }
     if let Err(e) = editor.open(&path, Action::Replace) {
         editor.set_error(format!("Unable to jump to stack frame: {}", e));
         return;

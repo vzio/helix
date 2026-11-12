@@ -505,6 +505,11 @@ pub struct DebugAdapterConfig {
     /// workspace. Unset: a default list (registries, `node_modules`, `vendor`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub lib_paths: Option<Vec<String>>,
+    /// DAP capabilities to assume over what the adapter says in its `initialize` response
+    /// (`supportsSingleThreadExecutionRequests = true` for an adapter that honours `singleThread`
+    /// without saying so).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub capabilities: Option<serde_json::Map<String, serde_json::Value>>,
 }
 
 // Different workarounds for adapters' differences
