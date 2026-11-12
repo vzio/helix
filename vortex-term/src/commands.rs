@@ -10,6 +10,7 @@ pub(crate) mod move_lines;
 pub(crate) mod syntax;
 pub(crate) mod typed;
 pub(crate) mod uncommitted;
+pub(crate) mod worktrees;
 
 pub use blame::*;
 pub use dap::*;

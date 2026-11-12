@@ -1354,7 +1354,10 @@ fn parse_first_arg_as_dir(args: &Args, last_cwd: Option<PathBuf>) -> anyhow::Res
 
 /// Helper function to apply a directory change for an already-parsed Path ref
 #[inline]
-fn apply_directory_change(cx: &mut compositor::Context, dir: &Path) -> anyhow::Result<()> {
+pub(crate) fn apply_directory_change(
+    cx: &mut compositor::Context,
+    dir: &Path,
+) -> anyhow::Result<()> {
     cx.editor.set_cwd(dir).map_err(|err| {
         anyhow!(
             "Could not change working directory to '{}': {err}",
@@ -2796,6 +2799,22 @@ fn git_log(cx: &mut compositor::Context, _args: Args, event: PromptEvent) -> any
     cx.jobs.callback(async move {
         let call = move |editor: &mut Editor, compositor: &mut Compositor| {
             if let Some(picker) = super::git_log::commit_picker(editor) {
+                compositor.push(Box::new(overlaid(picker)));
+            }
+        };
+        Ok(Callback::EditorCompositor(Box::new(call)))
+    });
+    Ok(())
+}
+
+/// `:worktrees` (this fork): the picker of the repository's worktrees.
+fn worktrees(cx: &mut compositor::Context, _args: Args, event: PromptEvent) -> anyhow::Result<()> {
+    if event != PromptEvent::Validate {
+        return Ok(());
+    }
+    cx.jobs.callback(async move {
+        let call = move |editor: &mut Editor, compositor: &mut Compositor| {
+            if let Some(picker) = super::worktrees::worktree_picker(editor) {
                 compositor.push(Box::new(overlaid(picker)));
             }
         };
@@ -4249,6 +4268,17 @@ pub const TYPABLE_COMMAND_LIST: &[TypableCommand] = &[
         aliases: &[],
         doc: "Open the git commit log picker. Enter lists the files changed by a commit, Enter on a file shows its diff.",
         fun: git_log,
+        completer: CommandCompleter::none(),
+        signature: Signature {
+            positionals: (0, Some(0)),
+            ..Signature::DEFAULT
+        },
+    },
+    TypableCommand {
+        name: "worktrees",
+        aliases: &["wt"],
+        doc: "Open the picker of the repository's worktrees. Enter changes the working directory to the selected one, like :cd.",
+        fun: worktrees,
         completer: CommandCompleter::none(),
         signature: Signature {
             positionals: (0, Some(0)),

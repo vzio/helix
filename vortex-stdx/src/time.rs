@@ -69,8 +69,43 @@ pub fn format_relative_time(timestamp: i64, timezone_offset: i32) -> String {
     format!("{value} {unit} {label}")
 }
 
+/// How long ago `then` was, in a few characters (this fork): `just now` under a minute, then
+/// `5m ago`, `2h ago`, `3d ago`, `4mo ago` (30 days), `2y ago` (365 days). A time in the future
+/// (a clock that moved) is `just now`.
+pub fn format_ago(then: SystemTime, now: SystemTime) -> String {
+    let secs = now.duration_since(then).map_or(0, |ago| ago.as_secs()) as i64;
+    let (value, unit) = match secs {
+        YEAR.. => (secs / YEAR, "y"),
+        MONTH.. => (secs / MONTH, "mo"),
+        DAY.. => (secs / DAY, "d"),
+        HOUR.. => (secs / HOUR, "h"),
+        MINUTE.. => (secs / MINUTE, "m"),
+        _ => return "just now".to_string(),
+    };
+    format!("{value}{unit} ago")
+}
+
 #[cfg(test)]
 mod test {
+    use std::time::Duration;
+
+    #[test]
+    fn format_ago_is_short() {
+        let now = std::time::UNIX_EPOCH + Duration::from_secs(1_000_000_000);
+        let ago = |secs: u64| super::format_ago(now - Duration::from_secs(secs), now);
+        assert_eq!(ago(0), "just now");
+        assert_eq!(ago(59), "just now");
+        assert_eq!(ago(60), "1m ago");
+        assert_eq!(ago(2 * 3600 + 59), "2h ago");
+        assert_eq!(ago(3 * 86400), "3d ago");
+        assert_eq!(ago(45 * 86400), "1mo ago");
+        assert_eq!(ago(800 * 86400), "2y ago");
+        assert_eq!(
+            super::format_ago(now + Duration::from_secs(90), now),
+            "just now"
+        );
+    }
+
     use super::*;
 
     fn now_secs() -> i64 {

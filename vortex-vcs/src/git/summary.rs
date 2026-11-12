@@ -5,6 +5,7 @@
 use std::{
     collections::BTreeSet,
     path::{Path, PathBuf},
+    time::SystemTime,
 };
 
 use anyhow::{Context, Result};
@@ -25,6 +26,8 @@ const SHORT_ID_LEN: usize = 7;
 pub struct Repo {
     repo: ThreadSafeRepository,
     work_dir: PathBuf,
+    /// Whether it was opened with full workspace trust, for opening its other worktrees alike.
+    trust_full: bool,
 }
 
 /// Where HEAD is.
@@ -119,12 +122,62 @@ pub struct InProgress {
 /// A working tree of the repository.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Worktree {
-    /// Its root.
+    /// Its root (for a worktree git no longer knows the root of, its directory in `.git`).
     pub path: PathBuf,
     /// The short name of its branch, `None` when detached.
     pub branch: Option<String>,
     /// The short id of its HEAD, `None` when unborn.
     pub short_id: Option<String>,
+    /// Its directory in the repository's `.git` (`.git` itself for the main worktree).
+    pub git_dir: PathBuf,
+    /// Its folder is gone (deleted, or git lost track of it): `git worktree prune` would remove
+    /// it. Nothing else about it can be read.
+    pub missing: bool,
+}
+
+/// A worktree with when it was last modified, see [`Repo::status`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Dated {
+    pub worktree: Worktree,
+    /// `None` when it is missing or nothing in it could be dated.
+    pub modified: Option<SystemTime>,
+}
+
+/// The state of a worktree's files, from one status: what [`Repo::changes`] counts, and when
+/// the worktree was last modified (see [`Repo::status`]).
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Status {
+    pub changes: Changes,
+    /// `None` when nothing could be dated.
+    pub modified: Option<SystemTime>,
+}
+
+/// Orders worktrees by when they were last modified, newest first; the undated (missing ones
+/// among them) last, by path.
+pub fn sort_by_modified(worktrees: &mut [Dated]) {
+    worktrees.sort_by(|a, b| {
+        b.modified
+            .cmp(&a.modified)
+            .then_with(|| a.worktree.path.cmp(&b.worktree.path))
+    });
+}
+
+/// The newest modification time of `paths`, skipping those that can't be read (a deleted file).
+fn newest(paths: impl IntoIterator<Item = PathBuf>) -> Option<SystemTime> {
+    paths
+        .into_iter()
+        .filter_map(|path| path.symlink_metadata().ok()?.modified().ok())
+        .max()
+}
+
+/// The files of a worktree's git dir that change with its work: its index, its `HEAD` and the
+/// log of its `HEAD` (commits, checkouts, resets).
+fn git_files(git_dir: &Path, index: PathBuf) -> [PathBuf; 3] {
+    [
+        index,
+        git_dir.join("HEAD"),
+        git_dir.join("logs").join("HEAD"),
+    ]
 }
 
 /// `branch.<branch>.<key>`, from the repository's config or else its own config file.
@@ -166,7 +219,11 @@ impl Repo {
             Err(err) => return Err(err),
         };
         let work_dir = repo.to_thread_local().workdir().map(Path::to_path_buf);
-        Ok(work_dir.map(|work_dir| Repo { repo, work_dir }))
+        Ok(work_dir.map(|work_dir| Repo {
+            repo,
+            work_dir,
+            trust_full,
+        }))
     }
 
     /// The root of the working tree.
@@ -309,6 +366,18 @@ impl Repo {
     /// Counts of uncommitted changes, by file, like `git status --porcelain`. Unmerged files
     /// are in none of the counts.
     pub fn changes(&self) -> Result<Changes> {
+        Ok(self.read_status(false)?.changes)
+    }
+
+    /// The counts of [`Repo::changes`], and when the worktree was last modified: the newest of
+    /// the modification times of the files the status lists (changed, staged or untracked, those
+    /// still on disk), of its index, and of its `HEAD` and `logs/HEAD`. Only the files the status
+    /// already lists are looked at, never every tracked file.
+    pub fn status(&self) -> Result<Status> {
+        self.read_status(true)
+    }
+
+    fn read_status(&self, date: bool) -> Result<Status> {
         let repo = self.local();
         let platform = repo
             .status(gix::progress::Discard)?
@@ -316,8 +385,15 @@ impl Repo {
             // renames in the working tree don't change the counts, don't look for them
             .index_worktree_rewrites(None);
         let mut changes = Changes::default();
+        let mut files = Vec::new();
         for item in platform.into_iter(Vec::new())? {
-            match item? {
+            let item = item?;
+            if date {
+                if let Ok(path) = gix::path::try_from_bstr(item.location()) {
+                    files.push(self.work_dir.join(path));
+                }
+            }
+            match item {
                 StatusItem::TreeIndex(_) => changes.staged += 1,
                 StatusItem::IndexWorktree(Item::Modification { status, .. }) => match status {
                     EntryStatus::Conflict { .. } => {}
@@ -333,7 +409,16 @@ impl Repo {
                 StatusItem::IndexWorktree(_) => {}
             }
         }
-        Ok(changes)
+        let modified = date
+            .then(|| {
+                newest(
+                    files
+                        .into_iter()
+                        .chain(git_files(repo.git_dir(), repo.index_path())),
+                )
+            })
+            .flatten();
+        Ok(Status { changes, modified })
     }
 
     /// The operation in progress and the number of unmerged files. `None` when nothing is in
@@ -394,8 +479,16 @@ impl Repo {
             if same_path(proxy.git_dir(), &git_dir) {
                 continue;
             }
-            let Ok(path) = proxy.base() else { continue };
-            linked.push(worktree_at(&repo, path, proxy.git_dir())?);
+            let mut worktree = match proxy.base() {
+                Ok(path) => worktree_at(&repo, path, proxy.git_dir())?,
+                // its `gitdir` file is gone: git doesn't know where it is anymore
+                Err(_) => Worktree {
+                    missing: true,
+                    ..worktree_at(&repo, proxy.git_dir().to_path_buf(), proxy.git_dir())?
+                },
+            };
+            worktree.missing |= !worktree.path.is_dir();
+            linked.push(worktree);
         }
         linked.sort_by(|a, b| a.path.cmp(&b.path));
 
@@ -411,6 +504,33 @@ impl Repo {
         }
         all.extend(linked);
         Ok(all)
+    }
+
+    /// [`Repo::worktrees`], each with when it was last modified (a status of each, read at
+    /// once on threads of their own), newest first, see [`sort_by_modified`].
+    pub fn dated_worktrees(&self) -> Result<Vec<Dated>> {
+        let trust_full = self.trust_full;
+        let mut dated: Vec<Dated> = std::thread::scope(|scope| {
+            let jobs: Vec<_> = self
+                .worktrees()?
+                .into_iter()
+                .map(|worktree| {
+                    scope.spawn(move || Dated {
+                        modified: worktree.modified(trust_full),
+                        worktree,
+                    })
+                })
+                .collect();
+            anyhow::Ok(jobs.into_iter().filter_map(|job| job.join().ok()).collect())
+        })?;
+        sort_by_modified(&mut dated);
+        Ok(dated)
+    }
+
+    /// The worktree this repository was opened in.
+    pub fn current_worktree(&self) -> Result<Worktree> {
+        let repo = self.local();
+        worktree_at(&repo, self.work_dir.clone(), repo.git_dir())
     }
 
     /// The files git tracks, as absolute paths in index order, once each. Submodules and
@@ -465,5 +585,52 @@ fn worktree_at(repo: &gix::Repository, path: PathBuf, git_dir: &Path) -> Result<
         path,
         branch,
         short_id: id,
+        git_dir: git_dir.to_path_buf(),
+        missing: false,
     })
+}
+
+/// What the `:worktrees` picker shows of a worktree besides its path and branch, read in the
+/// background: its uncommitted changes, its upstream and when it was last modified.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Details {
+    pub changes: Changes,
+    /// `None` without an upstream (or while detached).
+    pub upstream: Option<Upstream>,
+    pub modified: Option<SystemTime>,
+}
+
+impl Worktree {
+    /// Reads its [`Details`], opening it as a repository of its own. Fails when it is missing.
+    pub fn details(&self, trust_full: bool) -> Result<Details> {
+        anyhow::ensure!(!self.missing, "missing");
+        let repo = Repo::open(&self.path, trust_full)?.context("not a worktree")?;
+        let status = repo.status()?;
+        Ok(Details {
+            changes: status.changes,
+            upstream: repo.upstream()?,
+            modified: status.modified,
+        })
+    }
+
+    /// When it was last modified, from its git dir alone: the newest of its index, `HEAD` and
+    /// `logs/HEAD`, a few `stat`s without a status (so without its files, see
+    /// [`Repo::status`]). `None` when it is missing.
+    pub fn quick_modified(&self) -> Option<SystemTime> {
+        if self.missing {
+            return None;
+        }
+        let index = self.git_dir.join("index");
+        newest(git_files(&self.git_dir, index))
+    }
+
+    /// When it was last modified, with a status of its files (see [`Repo::status`]); `None`
+    /// when it is missing or can't be read.
+    pub fn modified(&self, trust_full: bool) -> Option<SystemTime> {
+        if self.missing {
+            return None;
+        }
+        let repo = Repo::open(&self.path, trust_full).ok()??;
+        repo.status().ok()?.modified
+    }
 }

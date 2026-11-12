@@ -47,6 +47,8 @@ pub struct Hints {
     pub files: Option<String>,
     pub tree: Option<String>,
     pub history: Option<String>,
+    /// `:worktrees`, which has no key by default (`:wt`).
+    pub worktrees: Option<String>,
     pub quit: Option<String>,
 }
 
@@ -57,11 +59,11 @@ pub struct Styles {
     shadow: Style,
     credit: Style,
     heading: Style,
-    detail: Style,
-    label: Style,
-    value: Style,
-    good: Style,
-    warning: Style,
+    pub(crate) detail: Style,
+    pub(crate) label: Style,
+    pub(crate) value: Style,
+    pub(crate) good: Style,
+    pub(crate) warning: Style,
     key: Style,
     action: Style,
     hint: Style,
@@ -419,16 +421,26 @@ fn project_rows(stats: &Stats, s: &Styles, worktrees_max: usize) -> Vec<Row> {
         } else {
             worktrees.len()
         };
-        for (i, worktree) in worktrees.iter().take(shown).enumerate() {
+        let now = std::time::SystemTime::now();
+        for (i, dated) in worktrees.iter().take(shown).enumerate() {
+            let worktree = &dated.worktree;
             let path = vortex_stdx::path::fold_home_dir(&worktree.path);
             let mut spans = vec![
                 (path.display().to_string(), s.value),
                 ("  ".into(), s.value),
             ];
-            match (&worktree.branch, &worktree.short_id) {
-                (Some(branch), _) => spans.push((branch.clone(), s.detail)),
-                (None, Some(id)) => spans.push((format!("detached at {id}"), s.label)),
-                (None, None) => {}
+            if worktree.missing {
+                spans.push(("missing".into(), s.label));
+            } else {
+                match (&worktree.branch, &worktree.short_id) {
+                    (Some(branch), _) => spans.push((branch.clone(), s.detail)),
+                    (None, Some(id)) => spans.push((format!("detached at {id}"), s.label)),
+                    (None, None) => {}
+                }
+                if let Some(modified) = dated.modified {
+                    spans.push(("  ".into(), s.value));
+                    spans.push((vortex_stdx::time::format_ago(modified, now), s.label));
+                }
             }
             let label = if i == 0 { "worktrees" } else { "" };
             rows.push(Row::new(label, Value::Ready(spans, at)));
@@ -562,6 +574,14 @@ fn actions(model: &Model) -> Vec<Action> {
             short: "history",
             label: "Git history",
             hint: model.hints.history.clone(),
+        });
+    }
+    if model.stats.shows_worktrees() {
+        actions.push(Action {
+            key: "t",
+            short: "worktrees",
+            label: "Worktrees",
+            hint: model.hints.worktrees.clone(),
         });
     }
     actions.push(Action {
@@ -790,7 +810,7 @@ fn draw_heading(
 }
 
 /// A placeholder with a light running along it.
-fn shimmer(width: u16, born: Instant, now: Instant, s: &Styles) -> Vec<Span> {
+pub fn shimmer(width: u16, born: Instant, now: Instant, s: &Styles) -> Vec<Span> {
     let width = width as i64;
     let band = 4;
     let step = (now.saturating_duration_since(born).as_millis() / 45) as i64;
@@ -1043,7 +1063,7 @@ pub(crate) mod tests {
     use std::sync::atomic::Ordering;
     use std::time::Duration;
     use vortex_vcs::summary::{
-        Changes, Commit, Head, InProgress, Operation, Remote, Upstream, Worktree,
+        Changes, Commit, Dated, Head, InProgress, Operation, Remote, Upstream, Worktree,
     };
     use vortex_view::editor::DashboardBackground;
 
@@ -1067,6 +1087,7 @@ pub(crate) mod tests {
             files: Some("space f".into()),
             tree: Some("space e".into()),
             history: Some("space l".into()),
+            worktrees: Some(":wt".into()),
             quit: Some(":q".into()),
         }
     }
@@ -1118,10 +1139,15 @@ pub(crate) mod tests {
             at,
         );
         stats.worktrees.set_at(
-            Ok(vec![Worktree {
-                path: PathBuf::from("/src/vortex-review"),
-                branch: Some("review".into()),
-                short_id: Some("8b83cad".into()),
+            Ok(vec![Dated {
+                worktree: Worktree {
+                    path: PathBuf::from("/src/vortex-review"),
+                    branch: Some("review".into()),
+                    short_id: Some("8b83cad".into()),
+                    git_dir: PathBuf::from("/src/vortex/.git/worktrees/vortex-review"),
+                    missing: false,
+                },
+                modified: None,
             }]),
             at,
         );

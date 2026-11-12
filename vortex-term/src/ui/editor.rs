@@ -104,6 +104,9 @@ impl EditorView {
         {
             self.dashboard = None;
         }
+        if let Some(dashboard) = &mut self.dashboard {
+            dashboard.follow_cwd(editor);
+        }
         self.dashboard.as_ref()
     }
 

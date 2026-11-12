@@ -310,6 +310,7 @@ fn worktrees_of_both_sides() {
         path,
         branch,
         short_id,
+        ..
     } = &from_linked[0];
     assert_eq!(canonical(path), canonical(main));
     assert_eq!(branch.as_deref(), Some("main"));

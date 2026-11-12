@@ -2,6 +2,7 @@
 //! don't need `cfg`s of their own. No repository is ever found: [`Repo::open`] returns `None`.
 
 use std::path::{Path, PathBuf};
+use std::time::SystemTime;
 
 use anyhow::{bail, Result};
 
@@ -109,6 +110,58 @@ pub struct Worktree {
     pub branch: Option<String>,
     /// The short id of its HEAD, `None` when unborn.
     pub short_id: Option<String>,
+    /// Its directory in the repository's `.git`.
+    pub git_dir: PathBuf,
+    /// Its folder is gone.
+    pub missing: bool,
+}
+
+/// A worktree with when it was last modified.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Dated {
+    pub worktree: Worktree,
+    pub modified: Option<SystemTime>,
+}
+
+/// The state of a worktree's files.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Status {
+    pub changes: Changes,
+    pub modified: Option<SystemTime>,
+}
+
+/// What the `:worktrees` picker shows of a worktree besides its path and branch.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Details {
+    pub changes: Changes,
+    pub upstream: Option<Upstream>,
+    pub modified: Option<SystemTime>,
+}
+
+/// Orders worktrees by when they were last modified, newest first; the undated last, by path.
+pub fn sort_by_modified(worktrees: &mut [Dated]) {
+    worktrees.sort_by(|a, b| {
+        b.modified
+            .cmp(&a.modified)
+            .then_with(|| a.worktree.path.cmp(&b.worktree.path))
+    });
+}
+
+impl Worktree {
+    /// Fails: there is no git support compiled in.
+    pub fn details(&self, _trust_full: bool) -> Result<Details> {
+        bail!("no git support")
+    }
+
+    /// Always `None`: there is no git support compiled in.
+    pub fn quick_modified(&self) -> Option<SystemTime> {
+        None
+    }
+
+    /// Always `None`: there is no git support compiled in.
+    pub fn modified(&self, _trust_full: bool) -> Option<SystemTime> {
+        None
+    }
 }
 
 impl Repo {
@@ -148,7 +201,22 @@ impl Repo {
     }
 
     /// Fails: there is no git support compiled in.
+    pub fn status(&self) -> Result<Status> {
+        bail!("no git support")
+    }
+
+    /// Fails: there is no git support compiled in.
     pub fn worktrees(&self) -> Result<Vec<Worktree>> {
+        bail!("no git support")
+    }
+
+    /// Fails: there is no git support compiled in.
+    pub fn dated_worktrees(&self) -> Result<Vec<Dated>> {
+        bail!("no git support")
+    }
+
+    /// Fails: there is no git support compiled in.
+    pub fn current_worktree(&self) -> Result<Worktree> {
         bail!("no git support")
     }
 
