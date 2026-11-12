@@ -248,7 +248,7 @@ impl Repo {
     }
 
     /// The repository's own config file (`.git/config`), parsed as plain data. Without full
-    /// workspace trust gix leaves it out of the repository's config, but remotes and upstreams
+    /// workspace trust gix can leave it out of the repository's config, but remotes and upstreams
     /// are names and URLs that make nothing run, so they are read from it.
     fn local_config(&self) -> Option<gix::config::File<'static>> {
         let path = self.local().common_dir().join("config");

@@ -1354,7 +1354,7 @@ editor is idle. Closing the dashboard stops the counting.
 Nothing touches the network (`vortex-vcs` builds gix without any network feature) and nothing is
 written: there is no cache and no list of recent files.
 
-In a workspace that isn't trusted, gix leaves out the repository's own config; the remote and the
+In a workspace that isn't trusted, gix can leave out the repository's own config; the remote and the
 upstream are names and URLs, so they are read from `.git/config` directly as plain data.
 
 ### Dashboard theme
