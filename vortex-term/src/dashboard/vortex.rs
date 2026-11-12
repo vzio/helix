@@ -12,14 +12,14 @@
 //!   bright streak, long and curved near the eye.
 //!
 //! A frame is a pure function of its phase (the time, in seconds of spin) and the size of the
-//! area: the same phase draws the same frame, which the tests rely on. Its cost is a logarithm,
-//! an arc tangent and two cosines a cell, and a few for each particle; see FORK.md for the
-//! measured time.
+//! area: the same phase draws the same frame, which the tests rely on. The geometry of each cell
+//! is kept for the size, so a frame costs a few multiplications a cell and a logarithm and a sine
+//! for each point of a particle's trail; see FORK.md for the measured time.
 //!
 //! A cell's light picks its character, from `·` through `░▒▓` to `█`, and dims its color into
-//! the background; its distance to the eye picks the color, along a gradient of the theme's
-//! colors. Cells are about twice as tall as wide, so distances count a row as two columns and
-//! circles stay round.
+//! the background; its distance to the eye picks the color, along a gradient (by default two
+//! tones: the title's color at the eye, the text's at the rim). Cells are about twice as tall as
+//! wide, so distances count a row as two columns and circles stay round.
 
 use std::f64::consts::TAU;
 
@@ -49,11 +49,11 @@ const EYE: f64 = 0.045;
 /// The cells per particle.
 const CELLS_PER_PARTICLE: f64 = 4.0;
 /// The points of a trail, and the time between two of them, in seconds of spin.
-const TRAIL: usize = 5;
+const TRAIL: usize = 4;
 const TRAIL_STEP: f64 = 0.045;
 /// The shades of the gradient and of the light: fewer colors, so neighbor cells often share one.
-const SHADES: f64 = 16.0;
-const GLOWS: f64 = 6.0;
+const SHADES: f64 = 10.0;
+const GLOWS: f64 = 3.0;
 
 /// A number from 0 to 1 that looks random, from a particle and a key.
 fn hash(particle: u64, key: u64) -> f64 {
@@ -101,7 +101,8 @@ impl Colors {
             0 => return None,
             1 => stops[0],
             _ => {
-                let at = t * (stops.len() - 1) as f64;
+                // the eye's color holds through the middle, the rim's comes late
+                let at = t.powf(1.7) * (stops.len() - 1) as f64;
                 let i = (at.floor() as usize).min(stops.len() - 2);
                 match (rgb(stops[i]), rgb(stops[i + 1])) {
                     (Some(a), Some(b)) => {
@@ -136,6 +137,60 @@ pub fn fits(area: Rect) -> bool {
     area.width >= MIN_WIDTH && area.height >= MIN_HEIGHT
 }
 
+/// For each cell, row by row: see [`geometry`].
+type Geometry = std::rc::Rc<Vec<[f32; 6]>>;
+
+thread_local! {
+    /// The geometry of the last size drawn: the vortex is drawn at one size frame after frame.
+    static GEOMETRY: std::cell::RefCell<Option<(u16, u16, Geometry)>> =
+        const { std::cell::RefCell::new(None) };
+}
+
+/// For each cell of an area of `width` × `height` cells, row by row: the cosine and sine of the
+/// angle of the arms and of the ripples at its place, its weight (brighter towards the eye, dark
+/// in it), and its distance to the eye from 0 to 1 at the corners. Kept in memory for the last
+/// size.
+fn geometry(width: u16, height: u16) -> Geometry {
+    GEOMETRY.with(|cache| {
+        let mut cache = cache.borrow_mut();
+        if let Some((w, h, cells)) = cache.as_ref() {
+            if (*w, *h) == (width, height) {
+                return cells.clone();
+            }
+        }
+        let (cols, rows) = (width as usize, height as usize);
+        let (w, h) = (cols as f64, rows as f64 * 2.0);
+        let (cx, cy) = (w / 2.0, h / 2.0);
+        let rim = (cx * cx + cy * cy).sqrt() * 1.04;
+        let mut cells = Vec::with_capacity(cols * rows);
+        for row in 0..rows {
+            let dy = (row as f64 + 0.5) * 2.0 - cy;
+            for col in 0..cols {
+                let dx = col as f64 + 0.5 - cx;
+                let r = (dx * dx + dy * dy).sqrt().max(0.5);
+                let near = r / rim;
+                let theta = dy.atan2(dx);
+                let wound = (rim / r).ln();
+                let (arm_sin, arm_cos) = (ARMS * (theta - wound / PITCH)).sin_cos();
+                let (ripple_sin, ripple_cos) = (RIPPLES * (theta - wound / RIPPLE_PITCH)).sin_cos();
+                let inner = 0.7 + 0.45 * (1.0 - near);
+                let eye = ((near - EYE) / (EYE * 2.0)).clamp(0.0, 1.0);
+                cells.push([
+                    arm_cos as f32,
+                    arm_sin as f32,
+                    ripple_cos as f32,
+                    ripple_sin as f32,
+                    (inner * eye) as f32,
+                    (r * 1.04 / rim) as f32,
+                ]);
+            }
+        }
+        let cells = std::rc::Rc::new(cells);
+        *cache = Some((width, height, cells.clone()));
+        cells
+    })
+}
+
 /// The light of the vortex at phase `spin` in each cell of an area of `width` × `height`
 /// cells, row by row: the current, and the particles spread over the cells around them.
 pub fn light(width: u16, height: u16, spin: f64) -> Vec<f32> {
@@ -147,24 +202,17 @@ pub fn light(width: u16, height: u16, spin: f64) -> Vec<f32> {
     // the rim goes past the corners, so particles are born out of sight
     let rim = (cx * cx + cy * cy).sqrt() * 1.04;
 
-    // the current
-    for row in 0..rows {
-        let dy = (row as f64 + 0.5) * 2.0 - cy;
-        for col in 0..cols {
-            let dx = col as f64 + 0.5 - cx;
-            let r = (dx * dx + dy * dy).sqrt().max(0.5);
-            let near = r / rim;
-            let theta = dy.atan2(dx);
-            let wound = (rim / r).ln();
-            let arms = 0.5 + 0.5 * (ARMS * (theta - wound / PITCH) - POUR * spin).cos();
-            let ripples =
-                0.5 + 0.5 * (RIPPLES * (theta - wound / RIPPLE_PITCH) - RIPPLE_POUR * spin).cos();
-            // sharper arms, brighter towards the eye, dark in it
-            let light = 0.22 + 0.50 * arms * arms + 0.20 * ripples * arms + 0.14 * ripples;
-            let inner = 0.7 + 0.45 * (1.0 - near);
-            let eye = ((near - EYE) / (EYE * 2.0)).clamp(0.0, 1.0);
-            cells[row * cols + col] = (light * inner * eye) as f32;
-        }
+    // the current: each cell's phases are cos(a - pour), sin(a - pour) for an angle `a` of the
+    // cell's own, so with cos a and sin a kept for the size there is no trigonometry per cell
+    let geometry = geometry(width, height);
+    let (pour_sin, pour_cos) = ((POUR * spin) as f32).sin_cos();
+    let (ripple_sin, ripple_cos) = ((RIPPLE_POUR * spin) as f32).sin_cos();
+    for (light, cell) in cells.iter_mut().zip(geometry.iter()) {
+        let [arm_cos, arm_sin, ripple_cos_a, ripple_sin_a, weight, _] = *cell;
+        let arms = 0.5 + 0.5 * (arm_cos * pour_cos + arm_sin * pour_sin);
+        let ripples = 0.5 + 0.5 * (ripple_cos_a * ripple_cos + ripple_sin_a * ripple_sin);
+        // sharper arms
+        *light = (0.22 + 0.50 * arms * arms + 0.20 * ripples * arms + 0.14 * ripples) * weight;
     }
 
     // the particles
@@ -196,7 +244,7 @@ pub fn light(width: u16, height: u16, spin: f64) -> Vec<f32> {
         };
         let birth = hash(i, 3);
         let spread = ((hash(i, 4) - 0.5) + (hash(i, 5) - 0.5)) * 0.18;
-        let wobble = 1.0 + (hash(i, 6) - 0.5) * 0.08;
+        let wobble = 1.0 + (hash(i, 6) as f32 - 0.5) * 0.08;
         let now = (spin / LIFE + birth).rem_euclid(1.0);
         for step in 0..TRAIL {
             let t = spin - step as f64 * TRAIL_STEP;
@@ -208,14 +256,18 @@ pub fn light(width: u16, height: u16, spin: f64) -> Vec<f32> {
             if life > 0.97 {
                 continue; // swallowed by the eye
             }
-            // the fall speeds up towards the eye
-            let fall = (1.0 - life).powf(0.8);
-            let radius = rim * (EYE + (1.0 - EYE) * fall) * wobble;
-            // on its arm as the arm pours in
-            let angle = arm + (rim / radius).ln() / PITCH + POUR * t / ARMS + spread;
+            // the fall speeds up towards the eye: about (1 - life)^0.8, without a power
+            let left = (1.0 - life) as f32;
+            let fall = left * (1.3 - 0.3 * left);
+            let share = (EYE as f32 + (1.0 - EYE as f32) * fall) * wobble;
+            // on its arm as the arm pours in (the turns so far taken out in f64, the rest is
+            // precise enough in f32)
+            let turned = (arm + POUR * t / ARMS + spread).rem_euclid(TAU) as f32;
+            let angle = turned - share.ln() / PITCH as f32;
             let (sin, cos) = angle.sin_cos();
-            let x = cx + radius * cos;
-            let y = cy + radius * sin;
+            let radius = rim * share as f64;
+            let x = cx + radius * cos as f64;
+            let y = cy + radius * sin as f64;
             if x < -1.0 || y < -2.0 || x > w + 1.0 || y > h + 2.0 {
                 continue;
             }
@@ -233,11 +285,15 @@ pub fn draw(surface: &mut Surface, area: Rect, spin: f64, holes: &[Rect], colors
         return;
     }
     let cells = light(area.width, area.height, spin);
-    let (cx, cy) = (area.width as f64 / 2.0, area.height as f64 / 2.0);
-    // the distance in cell widths, cells being about twice as tall as wide
-    let rim = (cx * cx + cy * cy * 4.0).sqrt();
+    let geometry = geometry(area.width, area.height);
     let full = LEVELS[LEVELS.len() - 1] as f64;
-    let mut last: Option<((usize, usize), Option<Color>)> = None;
+    // every color a cell can take, by its shade and its glow
+    let glows = GLOWS as usize + 1;
+    let table: Vec<Option<Color>> = (0..=SHADES as usize)
+        .flat_map(|shade| {
+            (0..glows).map(move |glow| colors.at(shade as f64 / SHADES, glow as f64 / GLOWS))
+        })
+        .collect();
     for row in 0..area.height {
         for col in 0..area.width {
             let light = cells[row as usize * area.width as usize + col as usize];
@@ -248,22 +304,10 @@ pub fn draw(surface: &mut Surface, area: Rect, spin: f64, holes: &[Rect], colors
             if holes.iter().any(|hole| contains(hole, x, y)) {
                 continue;
             }
-            let dx = col as f64 + 0.5 - cx;
-            let dy = (row as f64 + 0.5 - cy) * 2.0;
-            let t = (dx * dx + dy * dy).sqrt() / rim;
+            let t = geometry[row as usize * area.width as usize + col as usize][5] as f64;
             let glow = (light as f64 / full).min(1.0);
-            let key = (
-                (t * SHADES).round() as usize,
-                (glow * GLOWS).round() as usize,
-            );
-            let color = match last {
-                Some((last_key, color)) if last_key == key => color,
-                _ => {
-                    let color = colors.at(t, glow);
-                    last = Some((key, color));
-                    color
-                }
-            };
+            let shade = ((t.min(1.0) * SHADES).round() as usize).min(SHADES as usize);
+            let color = table[shade * glows + (glow * GLOWS).round() as usize];
             let Some(cell) = surface.get_mut(x, y) else {
                 continue;
             };
@@ -310,7 +354,9 @@ mod tests {
             background: None,
         };
         assert_eq!(colors.at(0.0, 1.0), Some(Color::Rgb(0, 0, 0)));
-        assert_eq!(colors.at(0.5, 1.0), Some(Color::Rgb(90, 90, 90)));
+        assert_eq!(colors.at(1.0, 1.0), Some(Color::Rgb(180, 180, 180)));
+        // the eye's color holds through the middle: halfway out is nearer to it
+        assert!(matches!(colors.at(0.5, 1.0), Some(Color::Rgb(r, _, _)) if r > 0 && r < 90));
         // dimmed into the background
         let dimmed = Colors {
             background: Some(Color::Rgb(0, 0, 0)),

@@ -1322,7 +1322,7 @@ dashboard-background = "on"     # "on", "load", "static" or "off"
 
 | `dashboard-background` | The vortex |
 | --- | --- |
-| `on` (default) | spins while the dashboard is up, at about 30 frames a second |
+| `on` (default) | spins while the dashboard is up, at about 20 frames a second |
 | `load` | spins fast while the dashboard loads, then slows down to a stop over about three seconds once the title is open; no more frames after that |
 | `static` | one still frame, never animated |
 | `off` | no vortex and no panels: the title, the stats and the actions on the background |
@@ -1350,18 +1350,31 @@ another pitch; a log spiral that turns looks the same as one that flows inwards,
 into the eye, and as the two sets drift at their own speeds their crossings shift like ripples.
 On it, particles ride the arms from beyond the corners towards the eye, faster and faster as they
 near it, each leaving a short bright streak. A cell's light picks its character and dims its
-color into the background; its distance to the eye picks the color, along the colors of the
-language bar (or `ui.dashboard.vortex.*`), mixed smoothly with true colors.
+color into the background; its distance to the eye picks the color, in two tones: the title's
+color at the eye, held through the middle, fading into the color of the text at the rim.
+`ui.dashboard.vortex` changes the eye's color, and `ui.dashboard.vortex.1`, `.2`, ... replace
+the two tones with a gradient of your own.
 
 The title, the stats and the actions each sit on a panel of the theme's background
 (`ui.dashboard.panel`) with a margin of a row and two columns around their text; the vortex is
 never drawn in a panel. The panel of the title widens as it opens. A window smaller than 48 × 16
 gets no vortex.
 
-A frame is a function of the time: the same time draws the same frame, which the tests use. Its
-cost, and what the `on` mode costs at rest (an optimized build, 160 × 50, this repository):
+A frame is a function of the time: the same time draws the same frame, which the tests use. What
+it costs, measured on an optimized build (the `integration` profile) in this repository:
 
-PERF_TABLE
+| | 200 × 60 | 160 × 50 | 100 × 44 |
+| --- | --- | --- | --- |
+| the vortex alone, a frame | 1.3 ms | 0.9 ms | 0.5 ms |
+| the whole dashboard, a frame | 1.8 ms | 1.3 ms | 0.9 ms |
+
+The geometry of each cell (its angle on the arms and the ripples, its distance to the eye) is
+kept in memory for the window's size, so a frame needs no trigonometry per cell: the arms are
+`cos(a − t)` expanded with the cell's `cos a` and `sin a`. With `vx` running in a pseudo-terminal
+at 160 × 50, the `on` mode at rest draws about 20 frames a second, writes about 35 KiB to the
+terminal a frame (some 0.7 MB/s, mostly colors: the shades of the gradient are few so that
+neighbor cells share them), and takes about 9% of a CPU, the whole editor included. The editor
+draws a frame at most 33 ms after asking for one, which keeps it under 30.
 
 The `load` mode (once stopped), `static` and `off` ask for no frames at rest: 0 bytes and 0
 frames over 10 seconds.
@@ -1438,17 +1451,17 @@ upstream are names and URLs, so they are read from `.git/config` directly as pla
 | `ui.dashboard.hint` | the keymap's keys next to the actions | `ui.text.inactive`, `comment` |
 | `ui.dashboard.spinner` | the spinner of a heading while loading | `ui.dashboard.logo` |
 | `ui.dashboard.panel` | the panels under the title, the stats and the actions | `ui.background` |
-| `ui.dashboard.vortex` | the whole vortex, in one color | the colors of the language bar |
-| `ui.dashboard.vortex.1`, `.2`, ... | the vortex's gradient, from the eye out (as many as you like) | `ui.dashboard.vortex` |
+| `ui.dashboard.vortex` | the vortex's color at the eye, fading into the text's at the rim | `ui.dashboard.logo` |
+| `ui.dashboard.vortex.1`, `.2`, ... | a gradient of your own for the vortex, from the eye out (as many as you like) | the two tones above |
 
 Each scope is looked up exactly (a theme with only `ui.dashboard.logo` doesn't color the shadow
 like the letters). `clean` and `all pushed` take the foreground of `diff.plus`, the unpushed
 count, an operation in progress and conflicts that of `warning`. The language bar takes its
 colors from the foregrounds of `function`, `string`, `keyword`, `type` and `constant`, in that
 order (the largest language first), and `other` the foreground of `ui.text.inactive` (or
-`comment`): scopes every theme has, so the bar and the vortex work with any theme. The vortex
-mixes neighbor colors only when both are true colors (`#rrggbb`), and fades into the background
-only when that is one; with named colors each band takes the nearest.
+`comment`): scopes every theme has, so the bar works with any theme. The vortex mixes its
+colors only when they are true colors (`#rrggbb`), and dims into the background only when that is
+one; with named colors each band takes the nearest stop.
 
 ### Limitations
 

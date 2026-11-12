@@ -30,8 +30,10 @@ pub const TITLE: Duration = Duration::from_millis(720);
 /// How long the vortex takes to stop in the `load` mode, once the title is open.
 pub const SPIN_DOWN: Duration = Duration::from_millis(3200);
 
-/// The time between frames while something moves: about 30 frames a second.
-pub const FRAME: Duration = Duration::from_millis(33);
+/// The time between two requests for a frame while something moves. The editor draws a frame
+/// 33 ms after the first request that finds none pending, so asking twice as often keeps one
+/// pending most of the time: about 20 frames a second.
+pub const FRAME: Duration = Duration::from_millis(16);
 
 /// The speed of the vortex in the `on` mode, and while loading in the `load` mode: seconds of
 /// spin per second.

@@ -111,23 +111,22 @@ impl Styles {
         let panel = theme
             .try_get_exact("ui.dashboard.panel")
             .unwrap_or(background);
-        // the vortex: `ui.dashboard.vortex.1`, `.2`, ... from the eye out, else
-        // `ui.dashboard.vortex` alone, else the colors of the language bar
+        // the vortex, in two tones: the color of the title at the eye (or
+        // `ui.dashboard.vortex`), fading into the color of the text at the rim; or the stops
+        // `ui.dashboard.vortex.1`, `.2`, ... from the eye out
         let numbered: Vec<Color> = (1..)
             .map_while(|n| theme.try_get_exact(&format!("ui.dashboard.vortex.{n}")))
             .filter_map(|style| style.fg)
             .collect();
         let gradient = if !numbered.is_empty() {
             numbered
-        } else if let Some(fg) = theme
-            .try_get_exact("ui.dashboard.vortex")
-            .and_then(|style| style.fg)
-        {
-            vec![fg]
-        } else if !palette_colors.is_empty() {
-            palette_colors
         } else {
-            text.fg.into_iter().collect()
+            let eye = theme
+                .try_get_exact("ui.dashboard.vortex")
+                .and_then(|style| style.fg)
+                .or(logo.fg)
+                .or(palette_colors.first().copied());
+            eye.into_iter().chain(text.fg).collect()
         };
         Self {
             logo,
