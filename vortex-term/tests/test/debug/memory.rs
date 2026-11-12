@@ -521,7 +521,7 @@ async fn only_the_pages_drawn_are_read_a_page_at_a_time() -> anyhow::Result<()> 
         .memory_reads()
         .iter()
         .all(|(_, count)| *count == 1 || *count == 1024));
-    let (view, doc) = current_ref!(e.h.app.editor);
+    let (view, _) = current_ref!(e.h.app.editor);
     let shown = (view.area.height as u64 - 1) * 16;
     assert!(first.len() as u64 * 1024 >= shown, "the screen is covered");
 
@@ -572,12 +572,17 @@ async fn unreadable_bytes_are_cells_and_question_marks_never_errors() -> anyhow:
             Cell::Unreadable
         ]
     );
-    // the first byte shown is in a page nothing is mapped in
-    let first_shown = shown(&e.h.app).0;
-    assert!(first_shown < 0x1000);
-    e.has_byte(first_shown, Cell::Unreadable).await;
     e.h.until("?? on screen", |app| screen_has(app, "??")).await;
     assert!(e.h.errors.is_empty(), "{:?}", e.h.errors);
+    // a whole page of nothing, in the same view
+    e.h.keys(":debug-memory<space>0x9000<ret>").await?;
+    e.says("memory of 0x9000 at 0x9000").await;
+    e.cells_are(0x9000, &[Cell::Unreadable; 16]).await;
+    assert_eq!(memory_views(&e.h.app), 1);
+    assert!(e.h.errors.is_empty(), "{:?}", e.h.errors);
+    e.h.keys(":debug-memory<space>0x10f0<ret>").await?;
+    e.says("memory of 0x10f0 at 0x10f0").await;
+    e.has_byte(0x10ff, Cell::Byte(0xff)).await;
 
     // there is nothing to overwrite there
     e.h.keys("j").await?; // 0x1100
@@ -893,7 +898,7 @@ async fn writes_are_refused_while_running_and_in_rewind() -> anyhow::Result<()> 
             .memory_with(0x1000, 0x1000, |i| (i % 251) as u8)
             .stop(Stop::new(2, "entry").scope(locals()))
             .stop(Stop::new(3, "entry").scope(locals()))
-            .stop(Stop::new(4, "entry").scope(locals()).delay(1500))
+            .stop(Stop::new(4, "entry").scope(locals()).delay(60_000))
     })
     .await?;
     open_read(&mut e, 0x1010).await?;
@@ -922,6 +927,9 @@ async fn writes_are_refused_while_running_and_in_rewind() -> anyhow::Result<()> 
     e.panel("n").await?;
     e.h.until("running", |app| {
         matches!(app.editor.debug.status, Status::Running)
+            && memory_doc(app)
+                .and_then(|doc| debug::memory::note(&app.editor, doc))
+                .is_some_and(|note| note.starts_with("running"))
     })
     .await;
     e.h.keys("<C-g>").await?;
@@ -931,7 +939,6 @@ async fn writes_are_refused_while_running_and_in_rewind() -> anyhow::Result<()> 
     )
     .await?;
     assert!(e.fake.requests_named("writeMemory").is_empty());
-    e.settled(3).await;
     e.h.finish().await
 }
 
@@ -959,6 +966,14 @@ async fn writes_are_refused_while_playing_and_fast_forwarding() -> anyhow::Resul
     e.open(0x1010).await?;
     e.has_byte(0x1010, Cell::Byte(16)).await;
 
+    // fast forward needs something to wait for: a watch
+    e.panel("2ax<ret>").await?;
+    e.h.until("the watch", |app| {
+        texts(app, Section::Watch)
+            .iter()
+            .any(|t| t.starts_with("x = "))
+    })
+    .await;
     e.panel("<space>").await?;
     e.h.until("playing", |app| {
         app.editor.debug.spectator.mode == Mode::Playing
@@ -1080,28 +1095,30 @@ async fn rewind_shows_the_recorded_bytes_and_never_live_memory() -> anyhow::Resu
     e.has_byte(0x12000, Cell::Byte(original(0x12000))).await;
     let (top, height) = shown(&e.h.app);
     let (start, end) = (top - 512, top + height + 512);
-    e.step(2).await?; // stops 2 and 3: stop 3 pokes
-    e.has_byte(0x12003, Cell::Changed(0xee)).await;
+    // stops 2, 3 (it pokes) and 4
+    e.step(3).await?;
+    e.cells_are(0x12003, &[Cell::Byte(0xee)]).await;
     // the program's memory moves on, the history doesn't
     e.fake.set_memory(0x12005, &[0x77]);
+    e.fake.set_memory(start, &[0x66]);
     let reads = e.fake.memory_reads().len();
 
-    // stop 2: the window is there, bytes as then
+    // stop 3: the window is there, the byte that changed is marked
     e.panel("[").await?;
     assert!(e.h.app.editor.debug.is_rewinding());
-    e.h.until("the recorded stop 2", |app| {
-        memory(app).recorded.as_ref().is_some_and(|r| r.step == 2)
+    e.h.until("the recorded stop 3", |app| {
+        memory(app).recorded.as_ref().is_some_and(|r| r.step == 3)
     })
     .await;
     assert_eq!(
-        cells(&e.h.app, 0x12003, 4),
-        bytes(&[
-            original(0x12003),
-            original(0x12004),
-            original(0x12005),
-            original(0x12006)
-        ]),
-        "not the live 0xee, not the 0x77"
+        cells(&e.h.app, 0x12002, 4),
+        [
+            Cell::Byte(original(0x12002)),
+            Cell::Changed(0xee),
+            Cell::Byte(original(0x12004)),
+            Cell::Byte(original(0x12005)),
+        ],
+        "not the live 0x77"
     );
     // outside the window: not recorded, never live memory
     assert_eq!(cells(&e.h.app, start - 1, 1), [Cell::NotRecorded]);
@@ -1115,11 +1132,25 @@ async fn rewind_shows_the_recorded_bytes_and_never_live_memory() -> anyhow::Resu
     {
         let doc = memory_doc(&e.h.app).unwrap();
         let note = debug::memory::note(&e.h.app.editor, doc).unwrap();
-        assert!(note.starts_with("REWIND 2/4 · "), "{note}");
-        assert!(note.ends_with(" recorded"), "{note}");
+        assert!(note.ends_with(" recorded at this stop"), "{note}");
+        assert!(!note.starts_with("not recorded"), "{note}");
     }
-    e.h.until("the note on screen", |app| screen_has(app, "REWIND 2/4"))
-        .await;
+    // the panel says so too
+    e.h.until("the marker on screen", |app| {
+        screen_has(app, "REWIND · step 3/4")
+    })
+    .await;
+
+    // stop 2: the same bytes, nothing marked
+    e.panel("[").await?;
+    e.h.until("the recorded stop 2", |app| {
+        memory(app).recorded.as_ref().is_some_and(|r| r.step == 2)
+    })
+    .await;
+    assert_eq!(
+        cells(&e.h.app, 0x12002, 3),
+        bytes(&[original(0x12002), original(0x12003), original(0x12004)])
+    );
 
     // stop 1 was before the view: nothing recorded for it
     e.panel("[").await?;
@@ -1135,35 +1166,34 @@ async fn rewind_shows_the_recorded_bytes_and_never_live_memory() -> anyhow::Resu
     {
         let doc = memory_doc(&e.h.app).unwrap();
         let note = debug::memory::note(&e.h.app.editor, doc).unwrap();
-        assert_eq!(note, "REWIND 1/4 · not recorded");
+        assert_eq!(note, "not recorded at this stop");
     }
     // drawn as dots
     e.h.until("·· on screen", |app| screen_has(app, "··")).await;
 
-    // stop 3: the byte that changed is marked, the 0x77 isn't there yet
+    // forward again, and live: the last stop is the live one
     e.panel("]]").await?;
     e.h.until("the recorded stop 3", |app| {
         memory(app).recorded.as_ref().is_some_and(|r| r.step == 3)
     })
     .await;
-    assert_eq!(
-        cells(&e.h.app, 0x12002, 4),
-        [
-            Cell::Byte(original(0x12002)),
-            Cell::Changed(0xee),
-            Cell::Byte(original(0x12004)),
-            Cell::Byte(original(0x12005)),
-        ]
-    );
+    e.panel("]").await?;
+    e.h.until("live", |app| memory(app).recorded.is_none())
+        .await;
+    e.cells_are(0x12003, &[Cell::Byte(0xee)]).await;
     // all that without reading memory
     assert_eq!(e.fake.memory_reads().len(), reads);
 
-    // back to live
+    // L from anywhere
+    e.panel("[[").await?;
+    e.h.until("rewinding", |app| memory(app).recorded.is_some())
+        .await;
     e.panel("L").await?;
+    e.h.until("live", |app| memory(app).recorded.is_none())
+        .await;
     e.h.keys("<C-g>").await?;
-    assert!(memory(&e.h.app).recorded.is_none());
-    assert!(!screen_has(&e.h.app, "REWIND"));
-    assert_eq!(cells(&e.h.app, 0x12003, 1), [Cell::Changed(0xee)]);
+    e.h.until("no marker", |app| !screen_has(app, "REWIND"))
+        .await;
     e.h.finish().await
 }
 
@@ -1242,16 +1272,14 @@ async fn the_memory_window_setting_changes_the_cap_and_the_recorded_windows() ->
     assert_eq!(window.bytes, e.fake.memory_at(window.start, 1024));
 
     // 256
-    e.panel("R").await?;
-    e.h.keys("h").await?;
+    e.panel("Rjjjh").await?;
     assert_eq!(memory_cap(&e.h.app), Some(256));
     e.h.keys("<esc>").await?;
     e.step(1).await?;
     assert_eq!(last_windows(&e.h.app)[0].bytes.len(), 256);
 
     // off: no windows
-    e.panel("R").await?;
-    e.h.keys("h").await?;
+    e.panel("Rjjjh").await?;
     assert_eq!(memory_cap(&e.h.app), Some(0));
     assert!(settings_texts(&e.h.app)
         .iter()
@@ -1261,8 +1289,7 @@ async fn the_memory_window_setting_changes_the_cap_and_the_recorded_windows() ->
     assert!(last_windows(&e.h.app).is_empty());
 
     // unlimited: all that is shown and the margins
-    e.panel("R").await?;
-    e.h.keys("llllll").await?;
+    e.panel("Rjjjllllll").await?;
     assert_eq!(memory_cap(&e.h.app), None);
     e.h.keys("<esc>").await?;
     e.step(1).await?;

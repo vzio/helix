@@ -689,7 +689,7 @@ impl FakeAdapter {
     pub fn memory_reads(&self) -> Vec<(u64, usize)> {
         self.requests_named("readMemory")
             .into_iter()
-            .filter_map(|(_, args)| memory_range(&args).map(|(address, count)| (address, count)))
+            .filter_map(|(_, args)| memory_range(&args))
             .collect()
     }
 
@@ -2155,7 +2155,7 @@ async fn fake_adapter_single_session_to_a_stop_and_to_exit() -> Result<()> {
     c.expect_event("process").await?;
     assert_eq!(c.expect_event("thread").await?["body"]["reason"], "started");
     assert_eq!(c.expect_event("output").await?["body"]["output"], "hello\n");
-    let stopped = c.until(|m| m["event"] == "stopped").await?;
+    let stopped = c.expect_event("stopped").await?;
     assert_eq!(stopped["body"]["reason"], "breakpoint");
     assert_eq!(stopped["body"]["threadId"], 1);
 
@@ -2455,7 +2455,7 @@ async fn fake_adapter_memory_reads_writes_and_pokes() -> Result<()> {
     c.call("configurationDone", json!({})).await?;
     let seq = c.request("launch", json!({})).await?;
     c.response(seq).await?;
-    c.expect_event("stopped").await?;
+    c.until(|m| m["event"] == "stopped").await?;
 
     // the poke is in, a read stops where the region ends, then counts the unreadable bytes
     let r = c
