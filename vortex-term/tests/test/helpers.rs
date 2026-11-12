@@ -317,6 +317,9 @@ pub fn test_editor_config() -> vortex_view::editor::Config {
         // No dashboard (this fork) over the empty buffer or instead of the file picker of
         // `vx <folder>`: the tests of the dashboard turn it on.
         dashboard: false,
+        // ... and when they do, without the vortex behind it, which asks for frames for as long
+        // as it is up: the tests of the vortex turn it on.
+        dashboard_background: vortex_view::editor::DashboardBackground::Off,
         // Trust everything implicitly so tests don't hit popups.
         workspace_trust: WorkspaceTrustConfig {
             level: ImplicitTrustLevelConfig::Insecure,

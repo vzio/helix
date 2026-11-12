@@ -657,8 +657,8 @@ fn label_style(app: &Application, label: &str) -> vortex_view::graphics::Style {
 async fn the_statusline_shows_the_move_mode() -> anyhow::Result<()> {
     let mut config = rebound();
     config.editor.color_modes = true;
-    // a theme with colors for the modes: without it the test depends on the terminal it runs
-    // in, since true color (COLORTERM=truecolor) picks the default theme, which has none
+    // a theme with colors for the modes, named: without it the test depends on the terminal it
+    // runs in, since true color (COLORTERM=truecolor) picks the default theme, else base16_default
     config.theme = Some(vortex_view::theme::Config::Constant(
         "base16_default".into(),
     ));

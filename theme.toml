@@ -1,119 +1,261 @@
-attribute = "lilac"
-keyword = "almond"
-"keyword.directive" = "lilac" # -- preprocessor comments (#if in C)
-namespace = "lilac"
-punctuation = "lavender"
-"punctuation.delimiter" = "lavender"
-operator = "lilac"
-special = "honey"
-"variable.other.member" = "white"
-variable = "lavender"
-# variable = "almond" # TODO: metavariables only
-# "variable.parameter" = { fg = "lavender", modifiers = ["underlined"] }
-"variable.parameter" = { fg = "lavender" }
-"variable.builtin" = "mint"
-type = "white"
-"type.builtin" = "white" # TODO: distinguish?
-constructor = "lilac"
-function = "white"
-"function.macro" = "lilac"
-"function.builtin" = "white"
-tag = "almond"
-comment = "sirocco"
-constant = "white"
-"constant.builtin" = "white"
-string = "silver"
-"constant.numeric" = "chamois"
-"constant.character.escape" = "honey"
-# used for lifetimes
-label = "honey"
-tabstop = { modifiers = ["italic"], bg = "bossanova" }
+# Vortex default theme
+# --------------------
+# Author: vzio <github.com/vzio>
+# License: MIT License
+# --------------------
+# Sections:
+# - Syntax highlighting
+# - User interface
+# - Vortex fork screens
+# - Palette
 
-"markup.heading" = "lilac"
+# Syntax highlighting
+# -------------------
+"attribute" = "purple_soft"
+
+"type" = "purple_mid"
+"type.builtin" = "purple_mid"
+"type.parameter" = { fg = "purple_mid", modifiers = ["italic"] }
+"type.enum.variant" = "red_light"
+
+"constructor" = "n_10"
+
+"constant" = "red_light"
+"constant.builtin" = "purple_light"
+"constant.character" = { fg = "red_faded", modifiers = ["bold"] }
+"constant.character.escape" = { fg = "red_light", modifiers = ["bold"] }
+"constant.numeric" = "purple_light"
+
+"string" = "red_faded"
+"string.regexp" = "red_light"
+"string.special" = "red_light"
+"string.special.url" = { fg = "red_faded", modifiers = ["underlined"] }
+"string.special.path" = { fg = "red_faded", modifiers = ["bold"] }
+"string.special.symbol" = "red_dusty"
+
+"comment" = { fg = "n_6", modifiers = ["italic"] }
+"comment.block.documentation" = { fg = "n_7", modifiers = ["italic"] }
+"comment.line.documentation" = { fg = "n_7", modifiers = ["italic"] }
+
+"variable" = "n_9"
+"variable.parameter" = { fg = "n_10", modifiers = ["italic"] }
+"variable.builtin" = "purple_light"
+"variable.other.member" = "n_10"
+
+"label" = "red_dusty"
+
+"punctuation" = "n_8"
+"punctuation.special" = "purple_light"
+"punctuation.bracket" = "n_6"
+"punctuation.delimiter" = "n_7"
+
+"keyword" = "red"
+"keyword.operator" = "red_dusty"
+"keyword.directive" = { fg = "red", modifiers = ["italic"] }
+"keyword.storage.modifier" = { fg = "red", modifiers = ["italic"] }
+
+"operator" = "red_dusty"
+
+"function" = { fg = "n_11", modifiers = ["bold"] }
+"function.builtin" = { fg = "n_11", modifiers = ["bold", "italic"] }
+"function.macro" = "red_light"
+
+"tag" = { fg = "red_light", modifiers = ["italic"] }
+
+"namespace" = { fg = "purple_soft", modifiers = ["bold"] }
+
+"special" = "purple_light" # fuzzy highlight
+
+"markup.heading" = { fg = "purple_light", modifiers = ["bold"] }
+"markup.list" = "red_dusty"
 "markup.bold" = { modifiers = ["bold"] }
 "markup.italic" = { modifiers = ["italic"] }
-"markup.strikethrough" = { modifiers = ["crossed_out"] }
-"markup.link.url" = { fg = "silver", modifiers = ["underlined"] }
-"markup.link.text" = "almond"
-"markup.raw" = "almond"
+"markup.link" = "red_faded"
+"markup.link.url" = { fg = "red_faded", modifiers = ["italic", "underlined"] }
+"markup.link.text" = "red_light"
+"markup.raw" = { fg = "n_10", bg = "n_2" }
+"markup.quote" = { fg = "n_8", modifiers = ["italic"] }
 
-"diff.plus" = "#35bf86"
-"diff.minus" = "#f22c86"
-"diff.delta" = "#6f44f0"
+"diff.plus" = "purple_light"
+"diff.minus" = "red"
+"diff.delta" = "red_faded"
+"diff.delta.moved" = "purple_soft"
+"diff.delta.conflict" = { fg = "red_light", modifiers = ["bold"] }
 
-# TODO: differentiate doc comment
-# concat (ERROR) @error.syntax and "MISSING ;" selectors for errors
+# User interface
+"ui.background" = { fg = "text", bg = "background" }
+"ui.background.separator" = "n_4"
 
-"ui.background" = { bg = "midnight" }
-"ui.background.separator" = { fg = "comet" }
-"ui.linenr" = { fg = "comet" }
-"ui.linenr.selected" = { fg = "lilac" }
-"ui.statusline" = { fg = "lilac", bg = "revolver" }
-"ui.statusline.inactive" = { fg = "lavender", bg = "revolver" }
-"ui.popup" = { bg = "revolver" }
-"ui.window" = { fg = "bossanova" }
-"ui.help" = { bg = "#7958DC", fg = "#171452" }
-"ui.text" = { fg = "lavender" }
-"ui.text.focus" = { fg = "white" }
-"ui.text.inactive" = "sirocco"
-"ui.hex.null" = "sirocco"
-"ui.hex.printable" = "almond"
-"ui.hex.whitespace" = "mint"
-"ui.hex.control" = "honey"
-"ui.hex.other" = "lavender"
-"ui.text.directory" = { fg = "lilac" }
-"ui.virtual" = { fg = "comet" }
-"ui.virtual.ruler" = { bg = "bossanova" }
-"ui.virtual.jump-label" = { fg = "apricot", modifiers = ["bold"] }
+"ui.gutter" = { bg = "background" }
+"ui.gutter.selected" = { bg = "n_1" }
 
-"ui.virtual.indent-guide" = { fg = "comet" }
+"ui.linenr" = "n_4"
+"ui.linenr.selected" = "n_7"
 
-"ui.selection" = { bg = "#540099" }
-"ui.selection.primary" = { bg = "#540099" }
-# TODO: namespace ui.cursor as ui.selection.cursor?
-"ui.cursor.select" = { bg = "delta" }
-"ui.cursor.insert" = { bg = "white" }
-"ui.cursor.primary.select" = { bg = "delta" }
-"ui.cursor.primary.insert" = { bg = "white" }
-"ui.cursor.match" = { fg = "#212121", bg = "#6C6999" }
-"ui.cursor" = { modifiers = ["reversed"] }
-"ui.cursorline.primary" = { bg = "bossanova" }
-"ui.highlight" = { bg = "bossanova" }
-"ui.highlight.frameline" = { bg = "#634450" }
-"ui.debug" = { fg = "#634450" }
-"ui.debug.breakpoint" = { fg = "apricot" }
-"ui.menu" = { fg = "lavender", bg = "revolver" }
-"ui.menu.selected" = { fg = "revolver", bg = "white" }
-"ui.menu.scroll" = { fg = "lavender", bg = "comet" }
+"ui.statusline" = { fg = "n_9", bg = "n_2" }
+"ui.statusline.inactive" = { fg = "n_6", bg = "n_1" }
+"ui.statusline.normal" = { fg = "n_11", bg = "purple", modifiers = ["bold"] }
+"ui.statusline.insert" = { fg = "n_11", bg = "plum", modifiers = ["bold"] }
+"ui.statusline.select" = { fg = "n_11", bg = "crimson", modifiers = ["bold"] }
 
-"diagnostic.hint" = { underline = { color = "silver", style = "curl" } }
-"diagnostic.info" = { underline = { color = "delta", style = "curl" } }
-"diagnostic.warning" = { underline = { color = "lightning", style = "curl" } }
-"diagnostic.error" = { underline = { color = "apricot", style = "curl" } }
+"ui.popup" = { fg = "text", bg = "n_1" }
+"ui.popup.info" = { fg = "text", bg = "n_1" }
+"ui.info" = { fg = "purple_light", bg = "n_1" }
+"ui.window" = "n_4"
+"ui.help" = { fg = "text", bg = "n_1", modifiers = ["bold"] }
+
+"ui.bufferline" = { fg = "n_7", bg = "background" }
+"ui.bufferline.active" = { fg = "n_10", bg = "n_2", underline = { color = "purple", style = "line" } }
+"ui.bufferline.background" = { bg = "background" }
+
+"ui.text" = "text"
+"ui.text.focus" = { fg = "n_11", bg = "n_2", underline = { color = "purple", style = "line" }, modifiers = ["bold"] }
+"ui.text.inactive" = "n_5"
+"ui.text.info" = "n_8"
+"ui.text.directory" = "purple_light"
+
+"ui.virtual" = "n_6"
+"ui.virtual.ruler" = { bg = "n_1" }
+"ui.virtual.whitespace" = "n_4"
+"ui.virtual.indent-guide" = "n_3"
+"ui.virtual.wrap" = "n_4"
+"ui.virtual.inlay-hint" = { fg = "n_6", modifiers = ["italic"] }
+"ui.virtual.jump-label" = { fg = "n_11", bg = "purple", modifiers = ["bold"] }
+
+"ui.selection" = { bg = "selection" }
+"ui.selection.primary" = { bg = "selection_primary" }
+
+"ui.cursor" = { fg = "n_11", bg = "cursor_dim" }
+"ui.cursor.primary" = { fg = "n_11", bg = "cursor", modifiers = ["bold"] }
+"ui.cursor.normal" = { fg = "n_11", bg = "cursor_dim" }
+"ui.cursor.insert" = { fg = "background", bg = "n_6" }
+"ui.cursor.select" = { fg = "n_11", bg = "crimson_dark" }
+"ui.cursor.primary.normal" = { fg = "n_11", bg = "cursor", modifiers = ["bold"] }
+"ui.cursor.primary.insert" = { fg = "background", bg = "n_10", modifiers = ["bold"] }
+"ui.cursor.primary.select" = { fg = "n_11", bg = "crimson", modifiers = ["bold"] }
+"ui.cursor.match" = { fg = "red_light", modifiers = ["underlined"] }
+
+"ui.cursorline.primary" = { bg = "n_1" }
+"ui.cursorline" = { bg = "deep" }
+
+"ui.highlight" = { fg = "purple_light", bg = "n_1", underline = { color = "purple", style = "line" }, modifiers = ["bold"] }
+
+"ui.menu" = { fg = "n_10", bg = "n_1" }
+"ui.menu.selected" = { fg = "n_11", bg = "purple", modifiers = ["bold"] }
+
+"ui.picker.header" = { fg = "n_9", modifiers = ["bold"] }
+"ui.picker.header.column" = "n_7"
+"ui.picker.header.column.active" = { fg = "purple_light", modifiers = ["bold", "underlined"] }
+
+"ui.debug.breakpoint" = "red"
+"ui.debug.active" = "purple_light"
+
+"diagnostic.error" = { underline = { color = "red", style = "curl" } }
+"diagnostic.warning" = { underline = { color = "red_faded", style = "curl" } }
+"diagnostic.info" = { underline = { color = "purple_light", style = "dotted" } }
+"diagnostic.hint" = { underline = { color = "n_6", style = "dotted" } }
 "diagnostic.unnecessary" = { modifiers = ["dim"] }
 "diagnostic.deprecated" = { modifiers = ["crossed_out"] }
 
-warning = "lightning"
-error = "apricot"
-info = "delta"
-hint = "silver"
+error = { fg = "red", bg = "n_1" }
+warning = { fg = "red_faded", bg = "n_1" }
+info = { fg = "purple_light", bg = "n_1" }
+hint = { fg = "n_8", bg = "n_1" }
+
+# File tree and pickers
+"ui.picker.divider" = { fg = "n_6", modifiers = ["bold"] }
+"ui.explorer.ignored" = "n_5"
+
+# Merge conflicts
+"diagnostic.conflict" = { underline = { color = "red_light", style = "double_line" } }
+
+# Inline blame
+"ui.virtual.inline-blame" = { fg = "n_5", modifiers = ["italic"] }
+"ui.virtual.inline-blame.hash" = "n_6"
+
+# Terminal panel and its SH indicator
+"ui.terminal" = { fg = "text", bg = "background" }
+"ui.statusline.shell" = { fg = "n_8", bg = "n_2" }
+"ui.statusline.shell.running" = { fg = "n_11", bg = "purple", modifiers = ["bold"] }
+"ui.statusline.shell.success" = { fg = "background", bg = "purple_light", modifiers = ["bold"] }
+"ui.statusline.shell.failure" = { fg = "n_11", bg = "red", modifiers = ["bold"] }
+
+# Hex view
+"ui.hex.null" = "n_4"
+"ui.hex.printable" = "n_10"
+"ui.hex.whitespace" = "purple_soft"
+"ui.hex.control" = "red_dusty"
+"ui.hex.other" = "purple_mid"
+"ui.hex.prefix" = "n_4"
+"ui.hex.offset" = "n_6"
+"ui.hex.match" = { fg = "n_11", bg = "purple", modifiers = ["bold"] }
+
+# Dashboard
+"ui.dashboard.logo" = { fg = "purple", modifiers = ["bold"] }
+"ui.dashboard.logo.shadow" = "purple_dark"
+"ui.dashboard.credit" = "n_6"
+"ui.dashboard.heading" = { fg = "n_11", modifiers = ["bold"] }
+"ui.dashboard.label" = "n_6"
+"ui.dashboard.value" = "n_9"
+"ui.dashboard.key" = { fg = "n_11", bg = "purple", modifiers = ["bold"] }
+"ui.dashboard.action" = "n_10"
+"ui.dashboard.hint" = "n_5"
+"ui.dashboard.spinner" = "purple_light"
+# dashboard v2 (ignored until it lands): panels and the vortex gradient, center outwards
+"ui.dashboard.panel" = { bg = "background" }
+"ui.dashboard.vortex.1" = "purple_light"
+"ui.dashboard.vortex.2" = "purple_mid"
+"ui.dashboard.vortex.3" = "purple"
+"ui.dashboard.vortex.4" = "crimson"
+"ui.dashboard.vortex.5" = "plum_bright"
+
+# :practice
+"ui.practice" = { fg = "text", bg = "n_1" }
+"ui.practice.lesson" = "n_9"
+"ui.practice.goal" = { fg = "purple_light", modifiers = ["bold"] }
+"ui.practice.hint" = { fg = "n_7", modifiers = ["italic"] }
+"ui.practice.key" = { fg = "purple_light", modifiers = ["bold"] }
+"ui.practice.label" = "n_6"
+"ui.practice.status" = "n_8"
+"ui.practice.solved" = { fg = "purple_light", modifiers = ["bold"] }
+"ui.practice.dim" = "n_5"
 
 [palette]
-white = "#ffffff"
-lilac = "#dbbfef"
-lavender = "#a4a0e8"
-comet = "#5a5977"
-bossanova = "#452859"
-midnight = "#3b224c"
-revolver = "#281733"
+background = "#0f0f0f"
 
-silver = "#cccccc"
-sirocco = "#697C81"
-mint = "#9ff28f"
-almond = "#eccdba"
-chamois = "#E8DCA0"
-honey = "#efba5d"
+# Reds, vivid to faded;
+# contrast on the background in comments
+red = "#d32836"           # 3.9  keywords, errors, deletions
+red_light = "#e2595c"     # 5.5  constants, macros, escapes
+red_faded = "#b9625e"     # 4.7  strings, warnings, changes
+red_dusty = "#9c6a66"     # 4.4  operators, lifetimes
+crimson = "#871c3e"       # 2.1  select mode (fills)
+crimson_dark = "#4f1e37"  #      select-mode secondary cursors
 
-apricot = "#f47868"
-lightning = "#ffcd1c"
-delta = "#6F44F0"
+# Purples, deep to soft
+purple = "#7a46d3"        # 3.4  main color: title, normal mode, menus
+purple_mid = "#9160e3"    # 4.7  types
+purple_light = "#a585e8"  # 6.7  numbers, builtins, additions, main color as small text
+purple_soft = "#9a86c4"   # 6.2  namespaces, attributes
+purple_dark = "#3b1d6e"   #      logo shadow
+cursor = "#5c32ad"        #      primary cursor (normal mode)
+cursor_dim = "#3f2178"    #      secondary cursors
+plum = "#3a1d4c"          #      insert mode
+plum_bright = "#53296b"   #      vortex gradient
+selection = "#211234"     #      secondary selections
+selection_primary = "#2c1745" # primary selection
+deep = "#131313"
+
+# Neutral greys, no tint (n_1 darkest)
+text = "#b1b1b3"
+n_1 = "#151515"
+n_2 = "#1d1d1e"
+n_3 = "#29292a"
+n_4 = "#383839"
+n_5 = "#4c4c4c"
+n_6 = "#636364"  # 3.3
+n_7 = "#7d7d7f"  # 4.8
+n_8 = "#979799"  # 6.8
+n_9 = "#b1b1b3"  # 9.2
+n_10 = "#c6c6c9" # 11.5
+n_11 = "#d7d7da" # 13.7

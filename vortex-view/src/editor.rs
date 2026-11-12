@@ -346,6 +346,21 @@ impl<'de> Deserialize<'de> for Ignored {
     }
 }
 
+/// The background of the dashboard (fork feature).
+#[derive(Debug, Copy, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum DashboardBackground {
+    /// A vortex that spins while the dashboard is up.
+    #[default]
+    On,
+    /// A vortex that spins fast while the dashboard loads, then slows down to a stop.
+    Load,
+    /// A vortex that doesn't move.
+    Static,
+    /// No vortex.
+    Off,
+}
+
 /// Which lines get inline blame.
 #[derive(Debug, Copy, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
@@ -489,6 +504,10 @@ pub struct Config {
     /// Whether `vx` and `vx <folder>` open on the dashboard rather than an empty buffer or the
     /// file picker (fork feature). `:dashboard` shows it either way. Defaults to true.
     pub dashboard: bool,
+    /// The animated vortex behind the dashboard (fork feature): `on` (spins while the dashboard
+    /// is up), `load` (spins while it loads, then slows down to a stop), `static` (one still
+    /// frame) or `off`. Defaults to `on`.
+    pub dashboard_background: DashboardBackground,
     /// Inline git blame (fork feature).
     pub inline_blame: InlineBlameConfig,
     /// The lists of changes: the uncommitted changes and the commits (fork feature).
@@ -1309,6 +1328,7 @@ impl Default for Config {
             file_explorer: FileExplorerConfig::default(),
             explorer: ExplorerConfig::default(),
             dashboard: true,
+            dashboard_background: DashboardBackground::default(),
             inline_blame: InlineBlameConfig::default(),
             changes: ChangesConfig::default(),
             statusline: StatusLineConfig::default(),

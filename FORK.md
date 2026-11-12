@@ -90,6 +90,7 @@ git blame FILE
 - [Terminal panel](#terminal-panel)
 - [Hex view](#hex-view)
 - [Dashboard](#dashboard)
+- [The vortex theme](#the-vortex-theme)
 - [Practice](#practice)
 - [Tutor](#tutor)
 
@@ -112,7 +113,8 @@ Each feature lives in its own modules, to keep rebasing on upstream cheap:
 | Move lines | `vortex-term/src/commands/move_lines.rs` |
 | Terminal panel | `vortex-terminal/` (the shell: pty, emulator, OSC 133, bash/zsh integration), `vortex-view/src/terminal.rs` (panel state, `[editor.terminal]`), `vortex-term/src/terminal/` (drawing, focus, input encoding, the `vx` shim), `vortex-term/tests/test/terminal.rs` |
 | Hex view | `vortex-view/src/hex.rs` (the bytes: windowed reads, the overwritten bytes, undo, cursors, search, the row layout), `vortex-term/src/ui/hex_view.rs` (drawing, the statusline texts), `vortex-term/src/commands/hex.rs` (keys, mouse, prompts, `:hex`), `vortex-term/tests/test/hex_view.rs` |
-| Dashboard | `vortex-term/src/dashboard.rs` (when it is up, its keys), `vortex-term/src/dashboard/` (`stats.rs` the background reading, `languages.rs` the line counts, `render.rs` the layout and the animations, `logo.rs` the logo, `snapshots/` the drawings the tests compare with), `vortex-vcs/src/git/summary.rs` (the git summary), `vortex-term/tests/test/dashboard.rs` |
+| Dashboard | `vortex-term/src/dashboard.rs` (when it is up, its keys), `vortex-term/src/dashboard/` (`stats.rs` the background reading, `languages.rs` the line counts, `render.rs` the layout and the panels, `timeline.rs` when things move, `title.rs` the title, `vortex.rs` the vortex, `wrap.rs` long values on two rows, `snapshots/` the drawings the tests compare with), `vortex-vcs/src/git/summary.rs` (the git summary), `vortex-term/tests/test/dashboard.rs` |
+| The vortex theme | `theme.toml` (the theme), `helix_theme.toml` (upstream's default theme), the built-in themes in `vortex-view/src/theme.rs` |
 | Practice | `vortex-term/src/practice.rs`, `vortex-term/src/practice/`, `runtime/practice/`, `vortex-term/tests/test/practice.rs` |
 
 Hooks into core files: commands and keys in `vortex-term/src/commands.rs`,
@@ -172,8 +174,12 @@ other elements in `ui/statusline.rs`; `:hex`, and `:goto`/`:0x…` going to an o
 The dashboard changes core files: the `dashboard` field of `EditorView`, its keys first in
 `handle_event`, its drawing in `render` (over the views, under the infobox and the command line)
 and no cursor in `cursor`, in `ui/editor.rs`; the startup decision in `Application::new` (and
-no file picker for `vx <folder>` when it shows); `:dashboard` in `typed.rs`; `dashboard` in
-`vortex-view/src/editor.rs`; `Args::initial_working_dir` in `args.rs`, used by `main.rs`.
+no file picker for `vx <folder>` when it shows); `:dashboard` in `typed.rs`; `dashboard` and
+`dashboard-background` (`DashboardBackground`) in `vortex-view/src/editor.rs`; `Args::initial_working_dir` in `args.rs`, used by `main.rs`.
+
+The vortex theme changes `vortex-view/src/theme.rs` (the built-in themes and their names, the
+`default` alias), the `:theme` completion in `vortex-term/src/ui/mod.rs` and the theme check in
+`xtask`.
 
 The hunk actions add `Editor::save_messages` (`vortex-view/src/editor.rs`), a message shown
 instead of `'file' written` when a document's save completes (`handle_document_write` in
@@ -674,7 +680,8 @@ exercise).
 | `diagnostic.conflict` | `diagnostic.error` | the text of the block |
 | `conflict.diagnostic.inline` | `error.diagnostic.inline` | the inline message |
 
-No bundled theme sets them, so conflicts look like errors with their own gutter symbol.
+The default theme, `vortex`, underlines the text of a block twice (`diagnostic.conflict`); with
+the other bundled themes conflicts look like errors with their own gutter symbol.
 
 ### Limitations
 
@@ -1244,36 +1251,51 @@ Overwritten bytes use `diff.delta`, the selection `ui.selection` and the cursor 
 ## Dashboard
 
 `vx` and `vx <folder>` open on a dashboard instead of an empty buffer or the file picker: a main
-menu with the logo, the state of the project in a git repository, its languages, and a key for
-each way to start. `vx <file>` opens the file as before, never the dashboard.
+menu with the title, the state of the project in a git repository, its languages, and a key for
+each way to start, over a vortex that spins behind it. `vx <file>` opens the file as before, never
+the dashboard.
 
 ```text
-                ╭─────────╮  ██╗   ██╗ ██████╗ ██████╗ ████████╗███████╗██╗  ██╗
-                │ ╭─────╮ │  ██║   ██║██╔═══██╗██╔══██╗╚══██╔══╝██╔════╝╚██╗██╔╝
-                │ │ ╶─╮ │ │  ██║   ██║██║   ██║██████╔╝   ██║   █████╗   ╚███╔╝
-                │ ╰───╯ │ │  ╚██╗ ██╔╝██║   ██║██╔══██╗   ██║   ██╔══╝   ██╔██╗
-                ╰───────╯ │   ╚████╔╝ ╚██████╔╝██║  ██║   ██║   ███████╗██╔╝ ██╗
-                ╶─────────╯    ╚═══╝   ╚═════╝ ╚═╝  ╚═╝   ╚═╝   ╚══════╝╚═╝  ╚═╝
-
-                                   fork of helix-editor/helix
-
-  PROJECT                                         ~/src/vortex
-  branch    dashboard
-  commit    3768ea4  feat: remove microslop support and fix CI (#27)
-  upstream  origin/main  3 unpushed
-  remote    origin  https://github.com/vzio/vortex
-  changes   2 staged · 5 unstaged · 1 untracked
-
-  LANGUAGES                                       68,351 lines
-  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-  ■ Rust          48,210   ■ Tree-sitter   12,650   ■ Markdown       3,377
-  ■ TOML           1,904   ■ other          2,210
-
-                                  i    Start typing
-                                  f    Find a file     space f
-                                  e    File tree       space e
-                                  l    Git history     space l
-                                  q    Quit                 :q
+░········░░░░░░░░░▒▒▓▓██▓▓▓▓▓█████▓▓▒▒▓▓▓▓███████▓▓▒░░░·········░░▒▓██▓▓▒░░░░▒░░░▓████▓▒░········░▒█
+········░░░░░▒▒▓▓▓▓█████▓▓▓▓▓▒▒░░░░░░░░░▒▒▒▓▓▓▓█████▓██▓▓░░········░▒▓███▓▒░░░░░░░▒█████▓░········░▒
+·····░░░▒▓▓▒▓███████▓▓▒▒▒▒░░░░░░░░░░░░░░░░░░░░▒▒▒▒▓▓▒▓▓▓▓▓█▓▒░·······░▓█████▓░░░░░░░▓▓███▓▒········░
+··░░░▒▓▓█▓▓█████▒▒░░░░░░·░░░░░░░░▒▒▒▒░░░░░░░░░░░░░░░░░░░▒▒▓▓▓█▓▓▒░·····░▓████▓░░░░▒░░▒▓███▓░·······░
+░░▒▒▓█████▓▓▒▒░░░·····                                                       █▓▒░░░·░░░▓██▓░░·······
+▒▓██████▓▒░░░·····░░░░  ██╗   ██╗ ██████╗ ██████╗ ████████╗███████╗██╗  ██╗  ▓▓█▒░▒░░░░░▒▒▓▒░·······
+████▓▓▓▒░░·····░░▒▓█▓▓  ██║   ██║██╔═══██╗██╔══██╗╚══██╔══╝██╔════╝╚██╗██╔╝  ▓█▓▓▒░▒▒░░░░▒▓▒░░······
+██▒▒▒░░······░▒▓▓███▒▒  ██║   ██║██║   ██║██████╔╝   ██║   █████╗   ╚███╔╝   ▒▓██▓▒░▒▒░░░░▓▓▒░░·····
+▒░░░······░▒▒▓███▓▒░··  ╚██╗ ██╔╝██║   ██║██╔══██╗   ██║   ██╔══╝   ██╔██╗   ░▓███▓▒░░··░░▒██▒░···░·
+░░······░░▓████▓▒·····   ╚████╔╝ ╚██████╔╝██║  ██║   ██║   ███████╗██╔╝ ██╗  ·░▓███▓░░···░░▓█▒░░···▒
+······░░▓██▓█▓▒▒·····░    ╚═══╝   ╚═════╝ ╚═╝  ╚═╝   ╚═╝   ╚══════╝╚═╝  ╚═╝  ··░▒███▓░░··░░▒██▒░···░
+·····░▒▓█▓▒▒░░░····░▓█                                                       ··░░▒█▓▓▒░···░░▓█▒░····
+···░░▓█▒▒░······░░▓▓██          fork of helix-editor/helix, by vzio          ░··░░▓█▓▒░░··░░▒█▒▒····
+·░░▒██▓░░·····░░▓████▒                                                       ▒░·░░▒██▒░░···░▒█▓▒░···
+░▒▓███░·····░░▒███▓▒░░░░▒▓▓▓▓▒░░▒▒██████▒░░░·░░░▒▒▒▓▓▓▒░░▓██░·░██▓░░▓██▓··░▓▓▒░░░░▒▓█▓░░···░▒██▓░···
+▒▓▓█▓░·····░                                                                            ···░▓██▓░··░
+▓▒▓█░····░░▒  PROJECT                                                      /src/vortex  ···░████▒░·░
+▒▒▓░····░░▒▓  branch    dashboard                                                       ···░███▓▒░··
+▒▒▒····░▒▓██  commit    3768ea4  feat: remove microslop support and fix CI (#27)        ···░█▓▒░░░░·
+░░····░▒████  upstream  origin/main  3 unpushed                                         ···░█▓▒░░░░·
+░····░░▓███▒  remote    origin  https://github.com/vzio/vortex                          ··░▒█▒░░░▒▒░
+····░░▒██▓▓░  changes   2 staged · 5 unstaged · 1 untracked                             ··░▓█▒░·▒▓░░
+·░··░▒▓█▓▒░░  rebase    in progress · 2 conflicted files                                ·░▓▓▒░░·▓▒▒░
+░▒·░░▒██▓▒░·  worktrees /src/vortex-review  review                                      ▒▒█▓░░··▒░░░
+░░·░▒▓██▓░░·                                                                            ███▒░···░░░▓
+░░░░▓▓▓▓▒░··                                                                            ██▒░░··░▒░▓█
+··░░▓▓▓█▒░··  LANGUAGES                                                   68,351 lines  ▓▒░░···░░▓██
+··░░▓▓▓█░░··  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━  ▒░░···░░▒▓██
+·░░▒▒██▓▒░··  ■ Rust          48,210   ■ Tree-sitter   12,650   ■ Markdown       3,377  ▒░░░░░░▒▓▓█▓
+·░░▓▒▓█▓▒░··  ■ TOML           1,904   ■ other          2,210                           ░░░░░▒▓██▓▓░
+·░░▓▓▓█▒░░··                                                                            ▒░░░▓███▓▒░░
+·░░▒▓██▓░░···░░██▓▒░··░▓██▒░░░▓██▓··░▓███▒░░▒▓███▓▓▒░░░·░·░░░░░▓█████▓░░░░·░▒▒▓▓▓▒▒░░░░░░░▒▓███▒░░··
+··░░▓███▒░···░░▒██▒▒░·░░▓█▓▒░░░▒█                                 ▒▒░···░▓████▓▒░░░▒░░░▒▒▓▓██▓▒░░···
+··░░▒███▓░·····░▒█▓░░░·░▒▓█▓▒░░░░   i    Start typing             ░░░░▒▓██▓▓▓▒░░░░░░░▒▓███▓▓▒░░···░░
+··░░░▓▓██▓░····░░▓█▒░░··░▒▓██▒░░·   f    Find a file     space f  ▓█████▓▒▒░░░░░░░▒▓████▓█▓░░····░▒░
+···░░▒▓███▓▒░···░███▒░···░▒▓██▓░░   e    File tree       space e  █▓▒▒▒░░░░░░░▒▓▓██████▓▒░······▒▒▒▓
+···░░▒▓████▒░░···░███▒░···░░▒▓██▒   l    Git history     space l  ▒▒▒░░░░░░░▓███████▒▒▒░···░░··░▒▓██
+░···░░▒▓██▓█▒░····░▓█▓▒░░·░░░▒▓▓▓   q    Quit                 :q  ░░░░░▒▒▓▓████▓▒▒▒░·····░░░·░▒▓▓█▓█
+░····░▒████▓▒░····░▓█▓▓▓▒░░▒░▒▒▒▓                                 ▓▓████████▓▒░░░░·······░░░▒▓▓▒▒▒▒▓
+░░···░░▒████▒▒░····░▓▓▓▓▓▒░░░░▒▒▒▓▓█████▓░······░░░▒▒▒▓▓▓▓▓▓▓▓▓▒██▓▓▓▒▓▓▒░░·░░░░······░░▒▒▒█▓▒▒░░▒░·
 ```
 
 ### Usage
@@ -1286,13 +1308,14 @@ each way to start. `vx <file>` opens the file as before, never the dashboard.
 | `e` | The file tree (`space e`) |
 | `l` | The commit log (`space l`), in a git repository |
 | `q` | Quit (`:q`) |
-| `:dashboard` | Show the dashboard again, over a new empty buffer (or over the current one when it is an empty scratch buffer) |
+| `:dashboard` | Show the dashboard again, over a new empty buffer (or over the current one when it is an empty scratch buffer), its animations from the start |
 
 Every other key goes to the keymap as in any buffer: `:`, the `space` menu and its infobox,
 `Ctrl-w`... A key that edits the buffer or leaves normal mode (`o`, `v`, a paste) drops into the
 buffer like `i`. Opening a file from anywhere (a picker, the file tree, `:open`) replaces the
 dashboard; closing a picker or the tree with `Esc` comes back to it. The keys on the right are
 the shortest ones the keymap has for the same commands, so a remapped key shows as remapped.
+Nothing waits for the animations: every key works from the first frame.
 
 `vx <folder>` also makes the folder the working directory, as before.
 
@@ -1300,14 +1323,72 @@ the shortest ones the keymap has for the same commands, so a remapped key shows 
 
 ```toml
 [editor]
-dashboard = false   # start as before: an empty buffer, or the file picker for vx <folder>
+dashboard = false               # start as before: an empty buffer, or the file picker for vx <folder>
+dashboard-background = "on"     # "on", "load", "static" or "off"
 ```
 
-`:dashboard` works either way.
+| `dashboard-background` | The vortex |
+| --- | --- |
+| `on` (default) | spins while the dashboard is up, at about 20 frames a second |
+| `load` | spins fast while the dashboard loads, then slows down to a stop over about three seconds once the title is open; no more frames after that |
+| `static` | one still frame, never animated |
+| `off` | no vortex and no panels: the title, the stats and the actions on the background |
+
+`:dashboard` works with `dashboard = false` too.
+
+### The title
+
+The title is the loading indicator: it reads `VX` while the stats load, and opens to `VORTEX`
+once they are all in, `V` and `X` sliding apart from the center while `O`, `R`, `T` and `E`
+condense in the room they leave through the shades `░▒▓` (the inner letters first), in about
+0.7 s. It never opens sooner than a second after the dashboard did: rows shimmer until their stat
+is in, then type themselves in, in a cascade from the top spread over that second, and the
+language bar fills in over it, so fast stats don't flash in and slow ones appear when they
+arrive. The title comes in three sizes for the room there is: large block letters, medium ones,
+and plain `v x` opening to `v o r t e x`. The credit line under it reads "fork of
+helix-editor/helix, by vzio".
+
+### The vortex
+
+A whirlpool fills the whole dashboard, every cell lit, from a faint `·` through `░▒▓` to `█`. It
+is a flow, not a turning picture, in two layers. The current: eight arms of logarithmic spirals
+with the golden pitch (the radius grows by φ every quarter turn), crossed by five finer ones of
+another pitch; a log spiral that turns looks the same as one that flows inwards, so the arms pour
+into the eye, and as the two sets drift at their own speeds their crossings shift like ripples.
+On it, particles ride the arms from beyond the corners towards the eye, faster and faster as they
+near it, each leaving a short bright streak. A cell's light picks its character and dims its
+color into the background; its distance to the eye picks the color, in two tones: the title's
+color at the eye, held through the middle, fading into the color of the text at the rim.
+`ui.dashboard.vortex` changes the eye's color, and `ui.dashboard.vortex.1`, `.2`, ... replace
+the two tones with a gradient of your own.
+
+The title, the stats and the actions each sit on a panel of the theme's background
+(`ui.dashboard.panel`) with a margin of a row and two columns around their text; the vortex is
+never drawn in a panel. The panel of the title widens as it opens. A window smaller than 48 × 16
+gets no vortex.
+
+A frame is a function of the time: the same time draws the same frame, which the tests use. What
+it costs, measured on an optimized build (the `integration` profile) in this repository:
+
+| | 200 × 60 | 160 × 50 | 100 × 44 |
+| --- | --- | --- | --- |
+| the vortex alone, a frame | 1.3 ms | 0.9 ms | 0.5 ms |
+| the whole dashboard, a frame | 1.8 ms | 1.3 ms | 0.9 ms |
+
+The geometry of each cell (its angle on the arms and the ripples, its distance to the eye) is
+kept in memory for the window's size, so a frame needs no trigonometry per cell: the arms are
+`cos(a − t)` expanded with the cell's `cos a` and `sin a`. With `vx` running in a pseudo-terminal
+at 160 × 50, the `on` mode at rest draws about 20 frames a second, writes about 35 KiB to the
+terminal a frame (some 0.7 MB/s, mostly colors: the shades of the gradient are few so that
+neighbor cells share them), and takes about 9% of a CPU, the whole editor included. The editor
+draws a frame at most 33 ms after asking for one, which keeps it under 30.
+
+The `load` mode (once stopped), `static` and `off` ask for no frames at rest: 0 bytes and 0
+frames over 10 seconds.
 
 ### What it shows
 
-Only in a git repository (a folder outside one gets the logo, the credit line and the actions,
+Only in a git repository (a folder outside one gets the title, the credit line and the actions,
 without `l`):
 
 - **branch** and **commit**: the branch (`detached at 8b83cad` when detached) and HEAD's short id
@@ -1329,6 +1410,10 @@ without `l`):
   `languages.toml`). Files of no known language, and the languages too small for a segment (under
   a 200th of the lines, or past the fifth), are **other**, in grey, always last.
 
+A value too long for its column goes on to a second row, under the value column, and ends with
+`…` past two rows. Commit summaries and other values break between words, remote URLs also after
+a `/` (or the `:` of an scp-style `git@host:path`).
+
 Errors stay calm and in place: `no upstream`, `detached at 8b83cad`, `couldn't read` for a stat
 git couldn't read, `3 unreadable` next to the total for files that couldn't be read. A
 repository that can't be opened at all (a broken `.git`) shows no stats.
@@ -1337,19 +1422,20 @@ repository that can't be opened at all (a broken `.git`) shows no stats.
 
 Everything is centered. From 108 columns on, the project and its languages are side by side;
 narrower, they are stacked. When the window is too short, the layout gives up room in steps:
-smaller gaps, fewer rows of languages, the medium logo, one row of worktrees, the actions on one
-row, the one-line logo, no languages names, no gaps, and at last no stats (the actions back in a
-column when they fit). The actions go on one row only when it fits the width.
+smaller gaps, long values back on one row (with `…`), fewer rows of languages, the medium title,
+one row of worktrees, the actions on one row, the plain-text title, no language names, no gaps,
+and at last no stats (the actions back in a column when they fit). Long values give up their
+second row first, before anything is dropped. The actions go on one row only when it fits the
+width.
 
-### Loading and animations
+### Loading
 
 The first frame draws at once: nothing is read before it but a look for `.git` in the folder and
-its parents. Each stat is read in the background on its own, and while it loads its row
-shimmers; when it arrives, it types itself in. The language bar fills in as the files are read
-(a few threads at once), with the counts so far, and the heading counts the files read. The
-logo draws itself when the dashboard opens: the spiral from its center outwards, the word from
-the left. Once everything is in, the dashboard asks for no more frames: nothing moves, and the
-editor is idle. Closing the dashboard stops the counting.
+its parents. Each stat is read in the background on its own. The language bar fills in as the
+files are read (a few threads at once), with the counts so far, and the heading counts the files
+read. Once nothing moves anymore (everything in, the title open, the vortex still or off), the
+dashboard asks for no more frames and the editor is idle; in the `on` mode the vortex asks for
+frames until the dashboard closes. Closing the dashboard stops the counting and the frames.
 
 Nothing touches the network (`vortex-vcs` builds gix without any network feature) and nothing is
 written: there is no cache and no list of recent files.
@@ -1361,9 +1447,9 @@ upstream are names and URLs, so they are read from `.git/config` directly as pla
 
 | Scope | For | Falls back to |
 | --- | --- | --- |
-| `ui.dashboard.logo` | the spiral and the letters of the logo | `keyword` |
+| `ui.dashboard.logo` | the letters of the title, and its shades while it opens | `keyword` |
 | `ui.dashboard.logo.shadow` | the shadow of the letters | `ui.text.inactive`, `comment` |
-| `ui.dashboard.credit` | the line under the logo | `ui.text.inactive`, `comment` |
+| `ui.dashboard.credit` | the line under the title | `ui.text.inactive`, `comment` |
 | `ui.dashboard.heading` | `PROJECT`, `LANGUAGES` (bold) | `ui.text.focus`, `ui.text` |
 | `ui.dashboard.label` | the labels of the rows, calm errors | `ui.text.inactive`, `comment` |
 | `ui.dashboard.value` | the values | `ui.text` |
@@ -1371,24 +1457,49 @@ upstream are names and URLs, so they are read from `.git/config` directly as pla
 | `ui.dashboard.action` | the actions | `ui.text` |
 | `ui.dashboard.hint` | the keymap's keys next to the actions | `ui.text.inactive`, `comment` |
 | `ui.dashboard.spinner` | the spinner of a heading while loading | `ui.dashboard.logo` |
+| `ui.dashboard.panel` | the panels under the title, the stats and the actions | `ui.background` |
+| `ui.dashboard.vortex` | the vortex's color at the eye, fading into the text's at the rim | `ui.dashboard.logo` |
+| `ui.dashboard.vortex.1`, `.2`, ... | a gradient of your own for the vortex, from the eye out (as many as you like) | the two tones above |
 
 Each scope is looked up exactly (a theme with only `ui.dashboard.logo` doesn't color the shadow
 like the letters). `clean` and `all pushed` take the foreground of `diff.plus`, the unpushed
 count, an operation in progress and conflicts that of `warning`. The language bar takes its
 colors from the foregrounds of `function`, `string`, `keyword`, `type` and `constant`, in that
 order (the largest language first), and `other` the foreground of `ui.text.inactive` (or
-`comment`): scopes every theme has, so the bar works with any theme.
+`comment`): scopes every theme has, so the bar works with any theme. The vortex mixes its
+colors only when they are true colors (`#rrggbb`), and dims into the background only when that is
+one; with named colors each band takes the nearest stop.
 
 ### Limitations
 
 - The language counts read every tracked file, in the background; in a very large repository
   (hundreds of thousands of files) that takes a while and keeps a few threads busy until done or
-  until the dashboard closes.
+  until the dashboard closes, and the title stays `VX` until then.
 - Language detection is by file name only (no shebangs), like a file's language before its text
   is read.
 - The stats aren't refreshed while the dashboard is up: `:dashboard` reads them again.
 - `l` isn't offered when the repository couldn't be opened, even though the commit log might.
 - The actions are keys only, not clickable.
+- In the `on` mode the whole screen is redrawn about 20 times a second while the dashboard is up,
+  under a picker too; over a slow connection (ssh) prefer `load` or `static`.
+- The vortex's center is the window's, mostly under the panels; the eye shows only in windows
+  much larger than the text.
+
+## The vortex theme
+
+The editor's default theme is the owner's own, `vortex`: near-black greys, reds for keywords,
+strings and errors, purples for types, numbers and the modes, and colors for every screen of this
+fork (the file tree, the terminal panel, the hex view, the dashboard and its vortex, `:practice`).
+It is built into the binary, like the 16-color `base16_default`, so it works without a runtime
+directory. Upstream's default theme is built in beside it as `helix`:
+
+```toml
+theme = "helix"
+```
+
+`default`, the name the built-in theme had before, still loads `vortex` (in `theme = "default"`
+and in a theme's `inherits = "default"`), so older configs keep working; it is no longer listed by
+`:theme`. A terminal without true color still starts with `base16_default`.
 
 ## Practice
 

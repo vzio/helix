@@ -21,6 +21,10 @@ const ALLOWED_FILES: &[(&str, &str)] = &[
     ),
     ("vortex-term/tests/name_guard.rs", "this test"),
     (
+        "helix_theme.toml",
+        "upstream's default theme, built in under its own name",
+    ),
+    (
         "tests/query/highlights/haxe/members.hx",
         "a Haxe file: .hx is Haxe's extension",
     ),
@@ -52,6 +56,10 @@ const ALLOWED_TEXT: &[(&str, &str)] = &[
     (
         r"\bhelix[-_]<crate>",
         "FORK.md's history of the crate rename",
+    ),
+    (
+        r#""helix"|`helix`|\bhelix_theme\.toml\b"#,
+        "upstream's default theme, built in under its own name, `helix`",
     ),
 ];
 

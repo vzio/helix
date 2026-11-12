@@ -56,7 +56,9 @@
   f  e  l  q     file picker, file tree, git history, quit
 
  Try it: :dashboard, then Esc. To start without it, set
- dashboard = false under [editor] in your config.
+ dashboard = false under [editor] in your config; to calm the
+ vortex behind it, dashboard-background = "load" (it stops once
+ loaded), "static" (still) or "off".
 
 
 

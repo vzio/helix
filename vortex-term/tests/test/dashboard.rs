@@ -9,13 +9,24 @@
 
 use std::{
     path::{Path, PathBuf},
-    sync::Arc,
+    sync::{
+        atomic::{AtomicUsize, Ordering},
+        Arc,
+    },
     time::{Duration, Instant},
 };
 
 use vortex_loader::workspace_trust::WorkspaceTrust;
-use vortex_term::{application::Application, args::Args, config::Config};
-use vortex_view::{doc, document::Mode};
+use vortex_term::{
+    application::Application,
+    args::Args,
+    config::Config,
+    dashboard::{
+        stats::{tick, Stats},
+        timeline::Timeline,
+    },
+};
+use vortex_view::{doc, document::Mode, editor::DashboardBackground};
 
 use super::git_log::{on_screen, Repo, Session};
 use super::helpers::{temp_file_with_contents, test_config, test_syntax_loader};
@@ -32,7 +43,11 @@ fn config(dashboard: bool) -> Config {
 
 /// A session on the dashboard, with the first frame drawn.
 async fn session() -> Session {
-    let mut session = Session::with_config(config(true));
+    session_with(config(true)).await
+}
+
+async fn session_with(config: Config) -> Session {
+    let mut session = Session::with_config(config);
     // (the picker previews files: the highlight scopes must be the theme's)
     session
         .app
@@ -291,6 +306,10 @@ async fn outside_of_a_repository_l_is_the_keymaps_and_there_is_no_git_stat() {
         true,
         Arc::new(test_syntax_loader(None)),
         Default::default(),
+        vortex_term::dashboard::Timeline::new(
+            Instant::now(),
+            vortex_view::editor::DashboardBackground::Off,
+        ),
     );
     assert!(!stats.git);
     assert!(!stats.shows_git());
@@ -327,14 +346,19 @@ async fn the_stats_of_a_repository_load_and_settle() {
     else {
         return;
     };
+    let born = Instant::now();
+    let timeline = vortex_term::dashboard::Timeline::new(
+        born,
+        vortex_view::editor::DashboardBackground::Static,
+    );
     let stats = vortex_term::dashboard::stats::load(
         dir,
         true,
         Arc::new(test_syntax_loader(None)),
         Default::default(),
+        timeline,
     );
     assert!(stats.git && stats.shows_git());
-    let born = Instant::now();
     let deadline = Instant::now() + Duration::from_secs(20);
     while stats.languages_done.get().is_none() {
         assert!(Instant::now() < deadline, "the languages never finished");
@@ -348,11 +372,10 @@ async fn the_stats_of_a_repository_load_and_settle() {
     };
     assert_eq!(head.unwrap().branch.as_deref(), Some("feature"));
     assert!(stats.languages.lock().unwrap().finished);
-    // settled once the intro is over and every stat is in and revealed
-    tokio::time::sleep(Duration::from_millis(300)).await;
-    let after = born + vortex_term::dashboard::stats::INTRO + Duration::from_secs(1);
+    // settled once every stat is in and the title is open
+    let after = born + Duration::from_secs(3);
     let end = Instant::now() + Duration::from_secs(5);
-    while !stats.settled(born, after) {
+    while !timeline.settled(&stats, after) {
         assert!(Instant::now() < end, "never settled");
         tokio::time::sleep(Duration::from_millis(10)).await;
     }
@@ -448,6 +471,99 @@ async fn dashboard_does_not_delay_the_first_frame() {
         loading_frames > 0 || added < loaded,
         "every first frame had the stats already: {added:?} added, {loaded:?} to load them"
     );
+}
+
+/// A session on the dashboard with the vortex spinning (the mode that never settles), with
+/// the first frame drawn: the keys of the tests below are typed well before the title opens.
+async fn animated_session() -> Session {
+    let mut config = config(true);
+    config.editor.dashboard_background = DashboardBackground::On;
+    session_with(config).await
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn f_opens_the_picker_at_once_while_it_animates() {
+    let mut session = animated_session().await;
+    assert!(up(&session));
+    // (the spinning vortex asks for frames all the time, so the loop is never idle: the key
+    // is handled at once, and the picker is there long before this stops waiting)
+    let _ = tokio::time::timeout(Duration::from_millis(300), session.keys("f")).await;
+    assert!(picker(&session), "{:#?}", session.rows());
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn i_starts_inserting_at_once_while_it_animates() {
+    let mut session = animated_session().await;
+    session.keys("i").await;
+    assert!(!up(&session));
+    assert_eq!(session.app.editor.mode(), Mode::Insert);
+    session.keys("ab<esc>").await;
+    assert_eq!(doc!(session.app.editor).text().to_string(), "ab\n");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn q_quits_at_once_while_it_animates() {
+    let mut session = animated_session().await;
+    assert!(session.quits_on("q").await);
+}
+
+/// Starts `tick` for a dashboard outside a repository in `background`, counting its frames.
+fn ticking(
+    background: DashboardBackground,
+) -> (Arc<Stats>, Arc<AtomicUsize>, tokio::task::JoinHandle<()>) {
+    let stats = Arc::new(Stats::default());
+    let frames = Arc::new(AtomicUsize::new(0));
+    let timeline = Timeline::new(Instant::now(), background);
+    let counter = frames.clone();
+    let task = tokio::spawn(tick(stats.clone(), timeline, move || {
+        counter.fetch_add(1, Ordering::Relaxed);
+    }));
+    (stats, frames, task)
+}
+
+fn frames(frames: &AtomicUsize) -> usize {
+    frames.load(Ordering::Relaxed)
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn frames_are_asked_for_as_long_as_the_mode_moves() {
+    let (on, on_frames, on_task) = ticking(DashboardBackground::On);
+    let (_, load_frames, load_task) = ticking(DashboardBackground::Load);
+    let (_, static_frames, static_task) = ticking(DashboardBackground::Static);
+    let (_, off_frames, off_task) = ticking(DashboardBackground::Off);
+
+    // static and off stop at about 1.7s (1s minimum and the title opening)
+    tokio::time::sleep(Duration::from_millis(3000)).await;
+    assert!(static_task.is_finished() && off_task.is_finished());
+    let (still, none) = (frames(&static_frames), frames(&off_frames));
+    assert!(still > 10 && none > 10, "{still} {none}");
+    // load is still slowing down at 3s
+    assert!(!load_task.is_finished());
+    assert!(!on_task.is_finished());
+
+    // load stops at about 4.9s
+    tokio::time::sleep(Duration::from_millis(3200)).await;
+    assert!(load_task.is_finished());
+    assert!(frames(&load_frames) > still);
+    assert!(!on_task.is_finished(), "the on mode never settles");
+    let (load_done, on_before) = (frames(&load_frames), frames(&on_frames));
+
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    assert_eq!(frames(&load_frames), load_done);
+    assert_eq!(frames(&static_frames), still);
+    assert_eq!(frames(&off_frames), none);
+    assert!(
+        frames(&on_frames) > on_before + 5,
+        "on keeps asking at 6.7s"
+    );
+
+    // closing the dashboard stops it
+    on.closed.store(true, Ordering::Relaxed);
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    assert!(on_task.is_finished());
+    let closed = frames(&on_frames);
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    assert_eq!(frames(&on_frames), closed);
 }
 
 async fn close(mut session: Session) {
