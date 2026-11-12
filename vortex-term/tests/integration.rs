@@ -37,5 +37,6 @@ mod test {
     mod stale_buffers;
     mod terminal;
     mod uncommitted;
+    mod worktrees;
     mod x_empty_line;
 }

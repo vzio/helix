@@ -1,9 +1,16 @@
-use std::{fs, path::Path};
+use std::{
+    fs,
+    path::{Path, PathBuf},
+    time::{Duration, SystemTime},
+};
 
 use tempfile::TempDir;
 
 use super::{
-    summary::{Changes, Commit, Head, InProgress, Operation, Remote, Repo, Upstream, Worktree},
+    summary::{
+        sort_by_modified, Changes, Commit, Dated, Head, InProgress, Operation, Remote, Repo,
+        Upstream, Worktree,
+    },
     test::{create_commit_with_message, empty_git_repo, exec_git_args},
 };
 
@@ -498,4 +505,465 @@ fn gix_is_built_without_network_features() {
             );
         }
     }
+}
+
+// ---- worktrees: last modified times, dated order, details ----
+
+/// An hour, the unit of the times the fixtures set.
+const HOUR: Duration = Duration::from_secs(3600);
+
+/// Sets the modification time of a file (no-op when it doesn't exist).
+fn touch(path: &Path, time: SystemTime) {
+    if let Ok(file) = fs::OpenOptions::new().write(true).open(path) {
+        file.set_modified(time).unwrap();
+    }
+}
+
+/// The files of a git dir that date a worktree: its index, `HEAD` and `logs/HEAD`.
+fn dating_files(git_dir: &Path) -> [PathBuf; 3] {
+    [
+        git_dir.join("index"),
+        git_dir.join("HEAD"),
+        git_dir.join("logs").join("HEAD"),
+    ]
+}
+
+/// Sets all the dating files of a git dir to `time`.
+fn touch_git_files(git_dir: &Path, time: SystemTime) {
+    for file in dating_files(git_dir) {
+        touch(&file, time);
+    }
+}
+
+fn canonical(path: &Path) -> PathBuf {
+    path.canonicalize().unwrap()
+}
+
+/// A main worktree with three linked ones and a deleted folder:
+///
+/// - `dirty`: a staged, an unstaged and an untracked file, modified 10 hours before `epoch`;
+/// - `ahead`: two commits ahead of its upstream (the local branch `main`), 35 hours before;
+/// - `detached`: nothing, 60 hours before;
+/// - `gone`: created, then its folder deleted.
+///
+/// The main worktree is 80 hours before `epoch` and clean, with `origin/main` as its upstream.
+struct Fleet {
+    _main_tmp: TempDir,
+    _others: TempDir,
+    _remote: TempDir,
+    epoch: SystemTime,
+    main: PathBuf,
+    dirty: PathBuf,
+    ahead: PathBuf,
+    detached: PathBuf,
+    gone: PathBuf,
+}
+
+impl Fleet {
+    fn new() -> Self {
+        let main_tmp = repo_with_commit();
+        let main = main_tmp.path().to_path_buf();
+        write(&main, "tracked.txt", "tracked\n");
+        create_commit_with_message(&main, true, "second");
+
+        let remote = tempfile::tempdir().unwrap();
+        git(remote.path(), &["init", "--bare"]);
+        git(
+            &main,
+            &["remote", "add", "origin", remote.path().to_str().unwrap()],
+        );
+        git(&main, &["push", "-u", "origin", "main"]);
+
+        let others = tempfile::tempdir().unwrap();
+        let add = |name: &str, args: &[&str]| {
+            let path = others.path().join(name);
+            let mut full = vec!["worktree", "add"];
+            full.extend_from_slice(args);
+            full.push(path.to_str().unwrap());
+            git(&main, &full);
+            path
+        };
+        let dirty = add("dirty", &["-b", "dirty"]);
+        let ahead = add("ahead", &["-b", "ahead"]);
+        let detached = add("detached", &["--detach"]);
+        let gone = add("gone", &["-b", "gone"]);
+
+        // dirty: staged, unstaged, untracked
+        write(&dirty, "staged.txt", "staged\n");
+        git(&dirty, &["add", "staged.txt"]);
+        write(&dirty, "tracked.txt", "changed\n");
+        write(&dirty, "untracked.txt", "untracked\n");
+
+        // ahead: two commits on top of the local branch `main`
+        write(&ahead, "one.txt", "1\n");
+        create_commit_with_message(&ahead, true, "one");
+        write(&ahead, "two.txt", "2\n");
+        create_commit_with_message(&ahead, true, "two");
+        git(&ahead, &["branch", "--set-upstream-to=main", "ahead"]);
+
+        fs::remove_dir_all(&gone).unwrap();
+
+        let epoch = SystemTime::now();
+        let fleet = Self {
+            _main_tmp: main_tmp,
+            _others: others,
+            _remote: remote,
+            epoch,
+            main,
+            dirty,
+            ahead,
+            detached,
+            gone,
+        };
+        fleet.set_times();
+        fleet
+    }
+
+    fn ago(&self, hours: u64) -> SystemTime {
+        self.epoch - HOUR * hours as u32
+    }
+
+    fn git_dir(&self, worktree: &Path) -> PathBuf {
+        open(worktree).current_worktree().unwrap().git_dir
+    }
+
+    fn set_times(&self) {
+        // git's own files first, all the same age per worktree
+        touch_git_files(&self.git_dir(&self.main), self.ago(80));
+        touch_git_files(&self.git_dir(&self.dirty), self.ago(50));
+        touch_git_files(&self.git_dir(&self.ahead), self.ago(35));
+        touch_git_files(&self.git_dir(&self.detached), self.ago(60));
+        // every file on disk is old, except the dirty ones
+        for dir in [&self.main, &self.dirty, &self.ahead, &self.detached] {
+            for entry in fs::read_dir(dir).unwrap() {
+                let path = entry.unwrap().path();
+                if path.is_file() {
+                    touch(&path, self.ago(200));
+                }
+            }
+        }
+        touch(&self.dirty.join("staged.txt"), self.ago(30));
+        touch(&self.dirty.join("untracked.txt"), self.ago(20));
+        touch(&self.dirty.join("tracked.txt"), self.ago(10));
+    }
+}
+
+#[test]
+fn status_modified_is_the_newest_of_the_listed_files_and_the_git_files() {
+    let tmp = repo_with_commit();
+    let dir = tmp.path();
+    write(dir, "a.txt", "changed\n");
+    write(dir, "new.txt", "new\n");
+    let repo = open(dir);
+    let git_dir = repo.current_worktree().unwrap().git_dir;
+    let [index, head, logs] = dating_files(&git_dir);
+    let base = SystemTime::now() - HOUR * 100;
+    let at = |hours: u64| base + HOUR * hours as u32;
+    let modified = || repo.status().unwrap().modified;
+
+    // each source on its own is the newest in turn
+    for (newest, set) in [
+        ("a changed file", dir.join("a.txt")),
+        ("an untracked file", dir.join("new.txt")),
+        ("the index", index.clone()),
+        ("HEAD", head.clone()),
+        ("logs/HEAD", logs.clone()),
+    ] {
+        for file in [
+            dir.join("a.txt"),
+            dir.join("new.txt"),
+            index.clone(),
+            head.clone(),
+            logs.clone(),
+        ] {
+            touch(&file, at(1));
+        }
+        touch(&set, at(7));
+        assert_eq!(modified(), Some(at(7)), "{newest}");
+    }
+
+    // a staged file counts too
+    git(dir, &["add", "new.txt"]);
+    touch(&dir.join("new.txt"), at(9));
+    touch(&index, at(2));
+    // a fresh handle: the first one may have kept the index it read before the add
+    let repo = open(dir);
+    assert_eq!(repo.status().unwrap().changes.staged, 1);
+    let modified = || repo.status().unwrap().modified;
+    assert_eq!(modified(), Some(at(9)));
+
+    // a listed file that is gone is skipped (here: a tracked file deleted)
+    fs::remove_file(dir.join("a.txt")).unwrap();
+    touch(&dir.join("new.txt"), at(3));
+    // (logs/HEAD, at 7, is now the newest of what is left)
+    assert_eq!(repo.status().unwrap().changes.unstaged, 1);
+    assert_eq!(modified(), Some(at(7)));
+}
+
+#[test]
+fn status_modified_never_looks_at_unchanged_tracked_files() {
+    let tmp = repo_with_commit();
+    let dir = tmp.path();
+    write(dir, "b.txt", "b\n");
+    create_commit_with_message(dir, true, "second");
+    let repo = open(dir);
+    let git_dir = repo.current_worktree().unwrap().git_dir;
+    let old = SystemTime::now() - HOUR * 100;
+    touch_git_files(&git_dir, old);
+    // tracked and unchanged, but touched just now
+    touch(&dir.join("a.txt"), SystemTime::now());
+    touch(&dir.join("b.txt"), SystemTime::now());
+    let status = repo.status().unwrap();
+    assert!(status.changes.is_clean());
+    assert_eq!(status.modified, Some(old));
+}
+
+#[test]
+fn changes_and_status_agree() {
+    let fleet = Fleet::new();
+    let repo = open(&fleet.dirty);
+    assert_eq!(repo.status().unwrap().changes, repo.changes().unwrap());
+}
+
+#[test]
+fn dated_worktrees_newest_first_with_the_missing_last() {
+    let fleet = Fleet::new();
+    let dated = open(&fleet.main).dated_worktrees().unwrap();
+    let got: Vec<_> = dated
+        .iter()
+        .map(|d| {
+            (
+                canonical_or_raw(&d.worktree.path),
+                d.worktree.missing,
+                d.modified,
+            )
+        })
+        .collect();
+    assert_eq!(
+        got,
+        vec![
+            (canonical_or_raw(&fleet.dirty), false, Some(fleet.ago(10))),
+            (canonical_or_raw(&fleet.ahead), false, Some(fleet.ago(35))),
+            (
+                canonical_or_raw(&fleet.detached),
+                false,
+                Some(fleet.ago(60))
+            ),
+            (canonical_or_raw(&fleet.gone), true, None),
+        ]
+    );
+}
+
+/// `canonicalize`, or the path itself when it is gone.
+fn canonical_or_raw(path: &Path) -> PathBuf {
+    path.canonicalize().unwrap_or_else(|_| {
+        let parent = path.parent().unwrap().canonicalize().unwrap();
+        parent.join(path.file_name().unwrap())
+    })
+}
+
+#[test]
+fn dated_worktrees_from_a_linked_worktree_include_the_main_one() {
+    let fleet = Fleet::new();
+    let dated = open(&fleet.ahead).dated_worktrees().unwrap();
+    // from `ahead`: main, dirty, detached and gone; main is dated by its git files
+    let main = dated
+        .iter()
+        .find(|d| canonical(&d.worktree.path) == canonical(&fleet.main))
+        .expect("the main worktree");
+    assert_eq!(main.modified, Some(fleet.ago(80)));
+    assert_eq!(dated.len(), 4);
+    assert!(dated.last().unwrap().worktree.missing);
+    assert!(dated
+        .windows(2)
+        .all(|pair| pair[0].modified >= pair[1].modified));
+}
+
+#[test]
+fn missing_worktrees_are_flagged() {
+    let fleet = Fleet::new();
+    let worktrees = open(&fleet.main).worktrees().unwrap();
+    assert_eq!(worktrees.len(), 4);
+    for worktree in &worktrees {
+        let is_gone = canonical_or_raw(&worktree.path) == canonical_or_raw(&fleet.gone);
+        assert_eq!(worktree.missing, is_gone, "{:?}", worktree.path);
+        // a git dir inside the repository's `.git/worktrees`
+        assert!(worktree
+            .git_dir
+            .starts_with(canonical(&fleet.main).join(".git").join("worktrees")));
+    }
+    // the main worktree seen from a linked one is not missing, and its git dir is `.git`
+    let from_linked = open(&fleet.ahead).worktrees().unwrap();
+    let main = from_linked
+        .iter()
+        .find(|w| canonical(&w.path) == canonical(&fleet.main))
+        .unwrap();
+    assert!(!main.missing);
+    assert_eq!(
+        canonical(&main.git_dir),
+        canonical(&fleet.main).join(".git")
+    );
+}
+
+#[test]
+fn sort_by_modified_orders_newest_first_and_the_undated_by_path() {
+    let at = |hours: u64| SystemTime::UNIX_EPOCH + HOUR * hours as u32;
+    let entry = |path: &str, modified: Option<SystemTime>, missing: bool| Dated {
+        worktree: Worktree {
+            path: path.into(),
+            branch: None,
+            short_id: None,
+            git_dir: PathBuf::new(),
+            missing,
+        },
+        modified,
+    };
+    let mut all = vec![
+        entry("/z", None, true),
+        entry("/b", Some(at(1)), false),
+        entry("/a", None, false),
+        entry("/c", Some(at(5)), false),
+        entry("/d", Some(at(1)), false),
+    ];
+    sort_by_modified(&mut all);
+    let paths: Vec<_> = all
+        .iter()
+        .map(|d| d.worktree.path.to_str().unwrap())
+        .collect();
+    assert_eq!(paths, ["/c", "/b", "/d", "/a", "/z"]);
+}
+
+#[test]
+fn details_of_each_worktree() {
+    let fleet = Fleet::new();
+    let worktrees = open(&fleet.main).worktrees().unwrap();
+    let details_of = |dir: &Path| {
+        worktrees
+            .iter()
+            .find(|w| canonical_or_raw(&w.path) == canonical_or_raw(dir))
+            .unwrap()
+            .details(true)
+    };
+
+    let dirty = details_of(&fleet.dirty).unwrap();
+    assert_eq!(
+        dirty.changes,
+        Changes {
+            staged: 1,
+            unstaged: 1,
+            untracked: 1
+        }
+    );
+    // `dirty` was branched from `main` without an upstream of its own
+    assert_eq!(dirty.upstream, None);
+    assert_eq!(dirty.modified, Some(fleet.ago(10)));
+
+    let ahead = details_of(&fleet.ahead).unwrap();
+    assert!(ahead.changes.is_clean());
+    let upstream = ahead.upstream.expect("an upstream");
+    assert_eq!(upstream.ahead, 2);
+    assert_eq!(ahead.modified, Some(fleet.ago(35)));
+
+    let detached = details_of(&fleet.detached).unwrap();
+    assert!(detached.changes.is_clean());
+    assert_eq!(detached.upstream, None);
+    assert_eq!(detached.modified, Some(fleet.ago(60)));
+
+    // the main worktree, seen from a linked one, pushed to its remote
+    let from_linked = open(&fleet.ahead).worktrees().unwrap();
+    let main = from_linked
+        .iter()
+        .find(|w| canonical(&w.path) == canonical(&fleet.main))
+        .unwrap()
+        .details(true)
+        .unwrap();
+    assert!(main.changes.is_clean());
+    assert_eq!(main.upstream.unwrap().ahead, 0);
+    assert_eq!(main.modified, Some(fleet.ago(80)));
+}
+
+#[test]
+fn details_of_a_missing_worktree_fail() {
+    let fleet = Fleet::new();
+    let worktrees = open(&fleet.main).worktrees().unwrap();
+    let gone = worktrees.iter().find(|w| w.missing).unwrap();
+    assert!(gone.details(true).is_err());
+    assert_eq!(gone.quick_modified(), None);
+    assert_eq!(gone.modified(true), None);
+}
+
+#[test]
+fn quick_modified_reads_the_git_dir_only() {
+    let fleet = Fleet::new();
+    let worktrees = open(&fleet.main).worktrees().unwrap();
+    let quick = |dir: &Path| {
+        worktrees
+            .iter()
+            .find(|w| canonical_or_raw(&w.path) == canonical_or_raw(dir))
+            .unwrap()
+            .quick_modified()
+    };
+    // dirty files don't show: only its index, HEAD and logs/HEAD do
+    assert_eq!(quick(&fleet.dirty), Some(fleet.ago(50)));
+    assert_eq!(quick(&fleet.ahead), Some(fleet.ago(35)));
+    assert_eq!(quick(&fleet.detached), Some(fleet.ago(60)));
+    // the full time is the newer one for the dirty worktree
+    let dirty = worktrees
+        .iter()
+        .find(|w| canonical_or_raw(&w.path) == canonical_or_raw(&fleet.dirty))
+        .unwrap();
+    assert_eq!(dirty.modified(true), Some(fleet.ago(10)));
+}
+
+#[test]
+fn current_worktree_of_the_main_and_linked_worktrees() {
+    let fleet = Fleet::new();
+    let main = open(&fleet.main).current_worktree().unwrap();
+    assert_eq!(canonical(&main.path), canonical(&fleet.main));
+    assert_eq!(main.branch.as_deref(), Some("main"));
+    assert!(!main.missing);
+    assert_eq!(
+        canonical(&main.git_dir),
+        canonical(&fleet.main).join(".git")
+    );
+
+    let ahead = open(&fleet.ahead).current_worktree().unwrap();
+    assert_eq!(canonical(&ahead.path), canonical(&fleet.ahead));
+    assert_eq!(ahead.branch.as_deref(), Some("ahead"));
+    assert!(ahead.short_id.is_some());
+    assert!(!ahead.missing);
+    assert_eq!(
+        canonical(&ahead.git_dir),
+        canonical(&fleet.main)
+            .join(".git")
+            .join("worktrees")
+            .join("ahead")
+    );
+
+    let detached = open(&fleet.detached).current_worktree().unwrap();
+    assert_eq!(detached.branch, None);
+    assert!(detached.short_id.is_some());
+}
+
+#[test]
+fn a_worktree_with_a_broken_git_file_is_not_its_parent_repository() {
+    let fleet = Fleet::new();
+    // a linked worktree nested in the main one, whose `.git` file is garbage
+    let nested = fleet.main.join("nested");
+    git(
+        &fleet.main,
+        &["worktree", "add", "--detach", nested.to_str().unwrap()],
+    );
+    let worktrees = open(&fleet.main).worktrees().unwrap();
+    let entry = worktrees
+        .iter()
+        .find(|w| canonical_or_raw(&w.path) == canonical_or_raw(&nested))
+        .expect("the nested worktree");
+    assert!(entry.details(true).is_ok());
+    assert!(entry.modified(true).is_some());
+
+    fs::write(nested.join(".git"), "garbage\n").unwrap();
+    // the folder is still there, but it would open as the main worktree around it
+    assert!(entry.details(true).is_err());
+    assert_eq!(entry.modified(true), None);
 }
