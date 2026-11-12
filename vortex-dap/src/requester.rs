@@ -22,6 +22,17 @@ use vortex_dap_types::*;
 /// How long a request waits for its response.
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(20);
 
+/// Which stepping request to send.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum StepKind {
+    /// `next`
+    Over,
+    /// `stepIn`
+    In,
+    /// `stepOut`
+    Out,
+}
+
 /// A cheap handle to send requests to a debug adapter.
 ///
 /// It shares the connection and the request counter with its [`Client`](crate::Client) but
@@ -222,7 +233,10 @@ impl Requester {
         &self,
         thread_id: ThreadId,
     ) -> impl Future<Output = Result<()>> + Send + 'static {
-        let call = self.call::<requests::Continue>(requests::ContinueArguments { thread_id });
+        let call = self.call::<requests::Continue>(requests::ContinueArguments {
+            thread_id,
+            single_thread: None,
+        });
         async move { call.await.map(drop) }
     }
 
@@ -230,6 +244,7 @@ impl Requester {
         let call = self.call::<requests::Next>(requests::NextArguments {
             thread_id,
             granularity: None,
+            single_thread: None,
         });
         async move { call.await.map(drop) }
     }
@@ -242,6 +257,7 @@ impl Requester {
             thread_id,
             target_id: None,
             granularity: None,
+            single_thread: None,
         });
         async move { call.await.map(drop) }
     }
@@ -253,8 +269,70 @@ impl Requester {
         let call = self.call::<requests::StepOut>(requests::StepOutArguments {
             thread_id,
             granularity: None,
+            single_thread: None,
         });
         async move { call.await.map(drop) }
+    }
+
+    /// Sends next / stepIn / stepOut for `thread_id`. `single_thread` is sent only when true.
+    pub fn step(
+        &self,
+        kind: StepKind,
+        thread_id: ThreadId,
+        granularity: Option<SteppingGranularity>,
+        single_thread: bool,
+    ) -> impl Future<Output = Result<()>> + Send + 'static {
+        let single_thread = single_thread.then_some(true);
+        let call: std::pin::Pin<Box<dyn Future<Output = Result<Value>> + Send>> = match kind {
+            StepKind::Over => Box::pin(self.call::<requests::Next>(requests::NextArguments {
+                thread_id,
+                granularity,
+                single_thread,
+            })),
+            StepKind::In => Box::pin(self.call::<requests::StepIn>(requests::StepInArguments {
+                thread_id,
+                target_id: None,
+                granularity,
+                single_thread,
+            })),
+            StepKind::Out => Box::pin(self.call::<requests::StepOut>(requests::StepOutArguments {
+                thread_id,
+                granularity,
+                single_thread,
+            })),
+        };
+        async move { call.await.map(drop) }
+    }
+
+    /// `continue` for one thread; returns the response's allThreadsContinued (None when the
+    /// adapter didn't say).
+    pub fn continue_with(
+        &self,
+        thread_id: ThreadId,
+        single_thread: bool,
+    ) -> impl Future<Output = Result<Option<bool>>> + Send + 'static {
+        let request = self.request::<requests::Continue>(requests::ContinueArguments {
+            thread_id,
+            single_thread: single_thread.then_some(true),
+        });
+        async move { Ok(request.await?.all_threads_continued) }
+    }
+
+    /// `variables` with paging: at most `count` children starting at `start` (both None: all).
+    pub fn variables_page(
+        &self,
+        reference: usize,
+        start: Option<usize>,
+        count: Option<usize>,
+    ) -> impl Future<Output = Result<Vec<Variable>>> + Send + 'static {
+        let request = self.request::<requests::Variables>(requests::VariablesArguments {
+            variables_reference: reference,
+            filter: None,
+            start,
+            count,
+            format: None,
+        });
+        async move { Ok(request.await?.variables) }
     }
 
     pub fn pause(&self, thread_id: ThreadId) -> impl Future<Output = Result<()>> + Send + 'static {
@@ -382,6 +460,100 @@ mod tests {
         let response: requests::SetExceptionBreakpointsResponse =
             parse_body(json!({"breakpoints": [{"verified": true}]})).unwrap();
         assert_eq!(response.breakpoints.unwrap().len(), 1);
+    }
+
+    fn tid(n: i64) -> ThreadId {
+        serde_json::from_value(json!(n)).unwrap()
+    }
+
+    fn capturing_requester() -> (Requester, tokio::sync::mpsc::UnboundedReceiver<Payload>) {
+        let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
+        let requester = Requester::new(
+            DebugAdapterId::default(),
+            tx,
+            Arc::new(AtomicU64::new(0)),
+            true,
+        );
+        (requester, rx)
+    }
+
+    /// Answers the next request with `body` and returns its command and arguments.
+    async fn answer(
+        rx: &mut tokio::sync::mpsc::UnboundedReceiver<Payload>,
+        body: Value,
+    ) -> (String, Value) {
+        let Some(Payload::Request(req)) = rx.recv().await else {
+            panic!("no request")
+        };
+        let response = Response {
+            request_seq: req.seq,
+            success: true,
+            message: None,
+            command: req.command.clone(),
+            body: Some(body),
+        };
+        req.back_ch.unwrap().send(Ok(response)).await.unwrap();
+        (req.command, req.arguments.unwrap_or_default())
+    }
+
+    #[tokio::test]
+    async fn step_continue_and_variables_page_send_their_arguments() {
+        let (requester, mut rx) = capturing_requester();
+
+        let fut = tokio::spawn(requester.step(
+            StepKind::In,
+            tid(4),
+            Some(SteppingGranularity::Line),
+            true,
+        ));
+        let (command, args) = answer(&mut rx, json!({})).await;
+        fut.await.unwrap().unwrap();
+        assert_eq!(command, "stepIn");
+        assert_eq!(
+            args,
+            json!({"threadId": 4, "granularity": "line", "singleThread": true})
+        );
+
+        let fut = tokio::spawn(requester.step(StepKind::Over, tid(4), None, false));
+        let (command, args) = answer(&mut rx, json!({})).await;
+        fut.await.unwrap().unwrap();
+        assert_eq!(command, "next");
+        assert_eq!(args, json!({"threadId": 4}));
+
+        let fut = tokio::spawn(requester.step(StepKind::Out, tid(4), None, true));
+        let (command, args) = answer(&mut rx, json!({})).await;
+        fut.await.unwrap().unwrap();
+        assert_eq!(command, "stepOut");
+        assert_eq!(args, json!({"threadId": 4, "singleThread": true}));
+
+        let fut = tokio::spawn(requester.continue_with(tid(2), true));
+        let (command, args) = answer(&mut rx, json!({"allThreadsContinued": false})).await;
+        assert_eq!(fut.await.unwrap().unwrap(), Some(false));
+        assert_eq!(command, "continue");
+        assert_eq!(args, json!({"threadId": 2, "singleThread": true}));
+
+        let fut = tokio::spawn(requester.continue_with(tid(2), false));
+        let (_, args) = answer(&mut rx, json!({})).await;
+        assert_eq!(fut.await.unwrap().unwrap(), None);
+        assert_eq!(args, json!({"threadId": 2}));
+
+        let fut = tokio::spawn(requester.variables_page(9, Some(10), Some(5)));
+        let (command, args) = answer(
+            &mut rx,
+            json!({"variables": [{"name": "a", "value": "1", "variablesReference": 0}]}),
+        )
+        .await;
+        assert_eq!(fut.await.unwrap().unwrap().len(), 1);
+        assert_eq!(command, "variables");
+        assert_eq!(
+            args,
+            json!({"variablesReference": 9, "start": 10, "count": 5})
+        );
+
+        let fut = tokio::spawn(requester.variables_page(9, None, None));
+        let (_, args) = answer(&mut rx, json!({"variables": []})).await;
+        fut.await.unwrap().unwrap();
+        assert_eq!(args, json!({"variablesReference": 9}));
     }
 
     fn scripted_client() -> (Client, DuplexStream, DuplexStream) {

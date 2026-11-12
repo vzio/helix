@@ -386,13 +386,56 @@
 
  In the panel, j and k move, Tab or 1 to 5 change section, Enter
  opens a value (or jumps to a frame or breakpoint), c changes it,
- a watches it, s searches, and space G still steps. Esc goes back
- to the editor; Esc again in normal mode hides the panel.
+ a watches it, s searches. Space there plays the program (next
+ chapter): there is no space menu while the panel has the keys.
+ Esc goes back to the editor, where space is the menu again; Esc
+ again in normal mode hides the panel.
 
 
 
 =================================================================
-=                     16 THE TERMINAL PANEL                     =
+=                       16 SPECTATOR MODE                       =
+=================================================================
+
+ Watch the program like a video: it plays line by line at a
+ speed you choose, following one thread, and every stop is kept
+ so you can scrub back to what you missed. In the panel (C-g):
+
+  space          play or pause; n makes one step
+  + -            faster, slower: 0.5 to 25 lines a second
+  e              what it steps into: own code (the default),
+                 lib (libraries too), std (the runtime too)
+  f              fast forward until a watch (or a variable you
+                 marked with *) changes, and show old -> new
+  r              run, or play, to the cursor's line
+  < >            follow the previous, the next thread
+  z              freeze the thread under the cursor: it never
+                 runs until z again; o: only the followed thread
+                 runs; p: continue or pause the thread
+  [ ]            back and forward through the recorded stops,
+                 read-only, under REWIND; L comes back to live
+  R              what each stop records: depth, size, history
+  x              clear the time labels
+
+ A step that doesn't come back shows "blocked in" and a timer;
+ space pauses it where it waits. After each step the line it
+ left shows how long it took, greyed at its end, so slow lines
+ stand out. From the editor:
+
+  space G space  play or pause; space G . makes one step
+  space G + -    faster, slower
+  space G f      fast forward; space G g runs to the cursor
+  space G < >    follow the previous, the next thread
+  space G m      what playback steps into
+  space G z      freeze the followed thread; space G a: only
+                 it runs
+  space G [ ]    rewind back, forward; space G L: live
+  space G R      the capture settings; space G X clears times
+
+
+
+=================================================================
+=                     17 THE TERMINAL PANEL                     =
 =================================================================
 
  A shell runs in a panel below your splits. It keeps running
@@ -418,7 +461,7 @@
 
 
 =================================================================
-=                       17 THE HEX VIEW                         =
+=                        18 THE HEX VIEW                        =
 =================================================================
 
  A binary file (an image, an executable...) opens in the hex
@@ -445,7 +488,7 @@
 
 
 =================================================================
-=                     18 MORE EDITING KEYS                      =
+=                      19 MORE EDITING KEYS                     =
 =================================================================
 
  These keys change text or selections too, but :practice has no

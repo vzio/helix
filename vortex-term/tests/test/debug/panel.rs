@@ -82,6 +82,9 @@ fn adapter_config() -> DebugAdapterConfig {
         port_arg: None,
         templates: Vec::new(),
         quirks: Default::default(),
+        std_paths: None,
+        lib_paths: None,
+        capabilities: None,
     }
 }
 
@@ -252,7 +255,7 @@ async fn a_breakpoint_set_before_the_launch_is_configured_and_the_stop_fills_the
 
     // threads and frames
     assert_eq!(app.editor.debug.threads.len(), 1);
-    assert_eq!(app.editor.debug.threads[0].name, "main");
+    assert_eq!(app.editor.debug.threads[0].threads[0].name, "main");
     let client = app.editor.debug_adapters.get_active_client().unwrap();
     let frames = &client.stack_frames[&client.thread_id.unwrap()];
     assert_eq!(frames.len(), 1);
@@ -440,8 +443,15 @@ async fn a_watch_is_evaluated_now_and_at_the_next_stop() -> anyhow::Result<()> {
         .into_iter()
         .filter(|(_, args)| args["context"] == "watch")
         .collect();
-    assert_eq!(watch_evaluations.len(), 2, "{watch_evaluations:?}");
-    assert_eq!(watch_evaluations[1].1["frameId"], new_frame);
+    // once per stop for the panel (the recording for rewind evaluates it again in the same
+    // frame)
+    let mut frames: Vec<_> = watch_evaluations
+        .iter()
+        .map(|(_, args)| args["frameId"].clone())
+        .collect();
+    frames.dedup();
+    assert_eq!(frames.len(), 2, "{watch_evaluations:?}");
+    assert_eq!(frames[1], new_frame);
     assert!(e.h.errors.is_empty(), "{:?}", e.h.errors);
     e.h.finish().await
 }
@@ -796,9 +806,8 @@ async fn focus_and_keys_of_the_panel() -> anyhow::Result<()> {
     e.h.keys("k").await?;
     assert_eq!(e.h.app.editor.debug.cursor(Section::Variables).row, 0);
 
-    // Space G n steps from the focused panel; the panel stays focused after the menu's Esc
-    e.h.keys("<space>Gn").await?;
-    e.h.keys("<esc>").await?;
+    // n steps from the focused panel (Space plays there: no space menu)
+    e.h.keys("n").await?;
     e.h.until("the step", |app| {
         texts(app, Section::Variables)
             .iter()

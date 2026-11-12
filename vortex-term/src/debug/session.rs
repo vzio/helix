@@ -11,7 +11,7 @@ use serde_json::{json, Value};
 use vortex_core::syntax::config::DebugAdapterConfig;
 use vortex_dap::{
     self as dap, events, registry::DebugAdapterId, requests::DisconnectArguments, ConnectionType,
-    Event, Payload, Request, ThreadId,
+    Event, Payload, Request,
 };
 use vortex_view::{
     debug::{LineKind, Status},
@@ -19,7 +19,7 @@ use vortex_view::{
     Editor,
 };
 
-use super::{breakpoints, load, panel};
+use super::{breakpoints, load, panel, playback, threads};
 use crate::job;
 
 /// Starts a debug session with `config`'s adapter (or the one listening on `socket`), and sends
@@ -134,8 +134,57 @@ fn handle_event(editor: &mut Editor, id: DebugAdapterId, event: Event) -> bool {
             text,
             reason,
             all_threads_stopped,
+            preserve_focus_hint,
             ..
         }) => {
+            // An adapter that stops every thread may report each of them, hinting that only one
+            // caused the stop (lldb-dap: the others keep the reason of their last stop). Those
+            // only update their thread's state, unless no other stop comes soon after.
+            if preserve_focus_hint == Some(true) {
+                let client = editor.debug_adapters.get_client_mut(id).unwrap();
+                if let Some(thread) = thread_id {
+                    client.thread_states.insert(thread, reason.clone());
+                }
+                let generation = editor.debug.generation;
+                let body = events::StoppedBody {
+                    reason,
+                    description,
+                    thread_id,
+                    preserve_focus_hint: Some(false),
+                    text,
+                    all_threads_stopped,
+                    hit_breakpoint_ids: None,
+                };
+                tokio::spawn(async move {
+                    tokio::time::sleep(std::time::Duration::from_millis(150)).await;
+                    job::dispatch(move |editor, _| {
+                        if editor.debug.generation == generation
+                            && editor.debug_adapters.get_client(id).is_some()
+                        {
+                            handle_event(editor, id, Event::Stopped(body));
+                        }
+                    })
+                    .await;
+                });
+                return true;
+            }
+            let reason_for_playback = reason.clone();
+            editor.debug.spectator.stop_arrived = Some(
+                editor
+                    .debug_adapters
+                    .get_client(id)
+                    .and_then(|client| client.last_stop_received())
+                    .unwrap_or_else(std::time::Instant::now),
+            );
+            match all_threads_stopped {
+                Some(false) => {
+                    editor.debug.spectator.non_stop.insert(id);
+                }
+                Some(true) => {
+                    editor.debug.spectator.non_stop.remove(&id);
+                }
+                None => {}
+            }
             let client = editor.debug_adapters.get_client_mut(id).unwrap();
             let all = all_threads_stopped.unwrap_or_default();
             if let Some(thread) = thread_id {
@@ -155,7 +204,7 @@ fn handle_event(editor: &mut Editor, id: DebugAdapterId, event: Event) -> bool {
             };
             editor.debug.session_name = session_name;
             editor.debug.generation += 1;
-            load::after_stop(editor, id, thread_id);
+            load::after_stop(editor, id, thread_id, reason_for_playback);
         }
         Event::Continued(events::ContinuedBody {
             thread_id,
@@ -186,7 +235,7 @@ fn handle_event(editor: &mut Editor, id: DebugAdapterId, event: Event) -> bool {
         }
         Event::Terminated(body) => terminated(editor, id, body.and_then(|body| body.restart)),
         Event::Thread(events::ThreadBody { reason, thread_id }) => {
-            thread_event(editor, id, &reason, thread_id)
+            threads::event(editor, id, &reason, thread_id)
         }
         Event::Output(_) => {}
         Event::Breakpoint(events::BreakpointBody { reason, breakpoint }) => {
@@ -217,7 +266,18 @@ fn handle_event(editor: &mut Editor, id: DebugAdapterId, event: Event) -> bool {
             client.caps = Some(capabilities);
             return false;
         }
-        Event::Process(_) | Event::Module(_) | Event::LoadedSource(_) | Event::Memory(_) => {
+        Event::Process(events::ProcessBody {
+            system_process_id,
+            is_local_process,
+            ..
+        }) => {
+            // a local debuggee: its CPU time can be read
+            if is_local_process != Some(false) {
+                editor.debug.spectator.pid = system_process_id.map(|pid| pid as u32);
+            }
+            return false;
+        }
+        Event::Module(_) | Event::LoadedSource(_) | Event::Memory(_) => {
             return false;
         }
     }
@@ -277,30 +337,6 @@ fn configure(editor: &mut Editor, id: DebugAdapterId) {
     });
 }
 
-fn thread_event(editor: &mut Editor, id: DebugAdapterId, reason: &str, thread: ThreadId) {
-    if editor.debug_adapters.get_active_client().map(|c| c.id()) != Some(id) {
-        return;
-    }
-    match reason {
-        "exited" => {
-            editor.debug.threads.retain(|t| t.id != thread);
-            if let Some(client) = editor.debug_adapters.get_client_mut(id) {
-                client.thread_states.remove(&thread);
-                client.stack_frames.remove(&thread);
-            }
-        }
-        "started" => {
-            if !editor.debug.threads.iter().any(|t| t.id == thread) {
-                editor.debug.threads.push(dap::Thread {
-                    id: thread,
-                    name: format!("Thread {thread}"),
-                });
-            }
-        }
-        _ => {}
-    }
-}
-
 /// A session ended. A child's end gives the panel back to its parent; the root's ends it all,
 /// unless the adapter asks for a restart.
 fn terminated(editor: &mut Editor, id: DebugAdapterId, restart: Option<Value>) {
@@ -313,7 +349,6 @@ fn terminated(editor: &mut Editor, id: DebugAdapterId, restart: Option<Value>) {
             // the panel followed the child: back to its parent, which runs
             editor.debug_adapters.set_active_client(parent);
             editor.debug.resumed();
-            editor.debug.threads.clear();
             editor.debug.scopes.clear();
         }
         return;
@@ -364,6 +399,7 @@ pub fn end(editor: &mut Editor, id: DebugAdapterId) {
 /// [`end`], without disconnecting when that was done already (`space G t` on an attached
 /// program).
 pub fn end_with(editor: &mut Editor, id: DebugAdapterId, disconnect: bool) {
+    playback::session_ended(editor);
     let root = editor.debug_adapters.root(id);
     remove_tree_with(editor, root, disconnect);
     // anything left (a session started beside the root) goes too
@@ -423,6 +459,20 @@ fn remove_tree_with(editor: &mut Editor, id: DebugAdapterId, disconnect: bool) {
         });
     }
     editor.debug_adapters.remove_client(id);
+    editor.debug.threads.retain(|entry| entry.session != id);
+    let spectator = &mut editor.debug.spectator;
+    spectator.frozen.retain(|key| key.session != id);
+    if spectator.spectated.is_some_and(|key| key.session == id) {
+        spectator.spectated = None;
+    }
+    if spectator
+        .step
+        .as_ref()
+        .is_some_and(|step| step.key.session == id)
+    {
+        spectator.finish_step();
+        spectator.pause();
+    }
     for list in editor.breakpoints.values_mut() {
         for breakpoint in list {
             breakpoint

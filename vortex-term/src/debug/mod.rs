@@ -4,10 +4,15 @@
 //! module talks to the adapters, loads that state, draws it and routes keys to it.
 
 pub mod breakpoints;
+pub mod cpu;
 pub mod load;
 pub mod panel;
+pub mod playback;
+pub mod record;
 mod render;
+pub mod rewind;
 mod session;
+pub mod threads;
 
 pub use panel::{
     focus_section, handle_key, handle_mouse, show, toggle, toggle_focus, Handled, FOCUS_KEY,
@@ -15,7 +20,15 @@ pub use panel::{
 pub use render::render;
 pub use session::{end, end_with, handle_message, start};
 
-use vortex_view::{graphics::Rect, Editor};
+use vortex_view::{debug::ThreadKey, graphics::Rect, Editor};
+
+/// The key of thread `thread` of `session`.
+pub fn spectator_key(
+    session: vortex_dap::registry::DebugAdapterId,
+    thread: vortex_dap::ThreadId,
+) -> ThreadKey {
+    ThreadKey { session, thread }
+}
 
 /// The panel's area below the splits, when it is shown: the splits get `area` without it. It
 /// has the terminal panel's height (`[editor.terminal] height`), and its place.

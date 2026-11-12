@@ -206,6 +206,9 @@ mod tests {
             port_arg: None,
             templates: vec![],
             quirks: Default::default(),
+            std_paths: None,
+            lib_paths: None,
+            capabilities: None,
         }
     }
 

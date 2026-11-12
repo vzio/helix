@@ -113,7 +113,7 @@ Each feature lives in its own modules, to keep rebasing on upstream cheap:
 | `x` on an empty line | `vortex-term/src/handlers/line_select.rs` |
 | Move lines | `vortex-term/src/commands/move_lines.rs` |
 | Terminal panel | `vortex-terminal/` (the shell: pty, emulator, OSC 133, bash/zsh integration), `vortex-view/src/terminal.rs` (panel state, `[editor.terminal]`), `vortex-term/src/terminal/` (drawing, focus, input encoding, the `vx` shim), `vortex-term/tests/test/terminal.rs` |
-| The debugger | `vortex-term/src/debug/` (`session.rs` the sessions, the adapter's events and reverse requests, `load.rs` what the panel loads at a stop, `breakpoints.rs` breakpoints per session, `panel.rs` the keys and the mouse, `render.rs` the drawing), `vortex-view/src/debug.rs` (the panel's state and rows), `vortex-dap/src/requester.rs` (requests that borrow nothing, for background tasks), child sessions in `vortex-dap/src/registry.rs`, `vortex-term/src/commands/dap.rs` (the `space G` commands, the templates), `vortex-term/tests/test/debug/` (a scripted fake adapter and the tests) |
+| The debugger | `vortex-term/src/debug/` (`session.rs` the sessions, the adapter's events and reverse requests, `load.rs` what the panel loads at a stop, `breakpoints.rs` breakpoints per session, `panel.rs` the keys and the mouse, `render.rs` the drawing; spectator mode: `playback.rs` automatic stepping, fast forward and run to cursor, `threads.rs` spectating, freezing and running threads alone, `record.rs` what each stop records, `rewind.rs` scrubbing, `cpu.rs` a thread's CPU time from the OS), `vortex-view/src/debug/` (`mod.rs` the panel's state and rows; `spectator.rs`, `history.rs`, `timing.rs`, `config.rs` spectator mode's state, `[editor.debugger]`), `vortex-term/src/ui/text_decorations/step_times.rs` (the time per line), `vortex-dap/src/requester.rs` (requests that borrow nothing, for background tasks), child sessions in `vortex-dap/src/registry.rs`, `vortex-term/src/commands/dap.rs` (the `space G` commands, the templates), `vortex-term/tests/test/debug/` (a scripted fake adapter and the tests) |
 | Hex view | `vortex-view/src/hex.rs` (the bytes: windowed reads, the overwritten bytes, undo, cursors, search, the row layout), `vortex-term/src/ui/hex_view.rs` (drawing, the statusline texts), `vortex-term/src/commands/hex.rs` (keys, mouse, prompts, `:hex`), `vortex-term/tests/test/hex_view.rs` |
 | Dashboard | `vortex-term/src/dashboard.rs` (when it is up, its keys), `vortex-term/src/dashboard/` (`stats.rs` the background reading, `languages.rs` the line counts, `render.rs` the layout and the panels, `timeline.rs` when things move, `title.rs` the title, `vortex.rs` the vortex, `wrap.rs` long values on two rows, `snapshots/` the drawings the tests compare with), `vortex-vcs/src/git/summary.rs` (the git summary), `vortex-term/tests/test/dashboard.rs` |
 | The vortex theme | `theme.toml` (the theme), `helix_theme.toml` (upstream's default theme), the built-in themes in `vortex-view/src/theme.rs` |
@@ -173,6 +173,13 @@ statusline element; `:debug-eval` (raw input) in `typed.rs`; the `space G` addit
 `keymap/default.rs`; the terminal panel hiding the debug panel in `terminal/panel.rs`; in
 `vortex-dap`, the client's `Requester`, child sessions, bodyless responses, the TCP connect retry,
 and `supportsStartDebuggingRequest`; `SetVariable`/`SetExpression` and signed exit codes in
+`vortex-dap-types`. Spectator mode adds: `Editor::current_stack_frame` showing the recorded frame in
+rewind (and the last one while a step runs) and `[editor.debugger]` in `vortex-view/src/editor.rs`;
+not opening a frame's missing file in `handlers/dap.rs`; the time-per-line decoration in
+`ui/editor.rs`; playback and REWIND in the `debug` statusline element; `std-paths`, `lib-paths` and
+`capabilities` in `DebugAdapterConfig` (`vortex-core`); the step requests' `singleThread` and
+granularity, paged `variables`, the configured capabilities and the arrival time of `stopped`
+events in `vortex-dap`; `supportsSingleThreadExecutionRequests` and `SteppingGranularity` in
 `vortex-dap-types`.
 
 The hex view changes core files: the `hex` field of `Document` and what it changes there
@@ -1142,6 +1149,14 @@ says how to start them (see [Adapters](#adapters)).
 | `space G s t`, `space G s f` | Pick a thread, a stack frame |
 | `space G e`, `E` | Stop on exceptions (the adapter's filters), or don't |
 | `space G r`, `t` | Restart; end the session |
+| `space G space`, `.` | Play or pause (spectator mode); one playback step |
+| `space G +`, `-` | Play faster, slower |
+| `space G f`, `g` | Fast forward to the first change of a watched value; run (or play) to the cursor's line |
+| `space G <`, `>` | Spectate the previous, next thread |
+| `space G m` | What playback steps into: std, lib, own |
+| `space G z`, `a` | Freeze or thaw the spectated thread; only it runs during steps (or all do) |
+| `space G [`, `]`, `L` | Rewind to the stop before, forward, back to live |
+| `space G R`, `X` | The capture settings; clear the time labels |
 | `Ctrl-g` | Focus the panel, or go back to the editor |
 
 The panel opens when a session starts (the editor keeps the keys) and hides when it ends; `space G
@@ -1172,9 +1187,20 @@ Its keys, when focused, are modal like the fork's pickers:
 | `t` | Turn a breakpoint off or on (off: kept in the list and the gutter as `○`, not sent to the adapter) |
 | `y` | Yank the value (the line, in the console) |
 | `i` | Evaluate an expression (history in the `=` register) |
-| `space` | The editor's space menu: `space G n` steps from the panel |
+| `space` | Play or pause ([spectator mode](#spectator-mode)): while the panel has the keys there is no space menu; `Esc`, `q` or `Ctrl-g` first, then `space` is the menu again |
+| `n`, `+` `-` | One playback step; faster, slower |
+| `f`, `r` | Fast forward to a change (`f` again cancels); run (or play) to the cursor's line |
+| `<` `>` | Spectate the previous, next thread |
+| `z`, `o`, `p` | Freeze or thaw the thread under the cursor (the spectated one outside the call stack); only the spectated thread runs; continue or pause the thread under the cursor |
+| `e`, `u` | What playback steps into (std, lib, own); the step's unit (line, statement, instruction), when the adapter offers it |
+| `*` | Mark a variable: fast forward stops when it changes |
+| `[` `]`, `{` `}`, `L` | Rewind one stop back or forward, ten, back to live |
+| `R`, `x` | The capture settings; clear the time labels |
 | `:`, `Ctrl-t` | The command line; the terminal panel |
 | `q`, `Esc`, `Ctrl-g` | Back to the editor |
+
+The last row of a panel of 6 lines or more shows the keys for what it shows (playing, rewinding,
+the capture settings).
 
 The mouse: a click focuses the panel and puts the cursor on the row (a second click acts like
 `Enter`, a click on a tab switches to it), the wheel moves, a click elsewhere gives the keys back.
@@ -1195,6 +1221,146 @@ adapter, `◯` not yet (or not at all: the console or the breakpoint's row says 
 The statusline element `debug` (in the default layout, before `shell`) shows `DBG running`, `DBG
 stopped: breakpoint`, then `DBG exited 3` (or `DBG ended`, when the adapter gave no exit code) until
 the next session.
+
+### Spectator mode
+
+Watch the program like a video, or a game's spectator mode: it plays line by line at the speed you
+choose, you follow one thread and cut to others as they come, pause anywhere to look or change a
+value, and scrub back through what you already watched.
+
+**Playback** is automatic stepping: step, wait for the stop, draw it, wait out the speed's
+interval, repeat. Speeds go from 0.5 to 25 lines per second (0.5, 1, 2, 3, 5, 8, 12, 18, 25; 2 by
+default). Breakpoints, exceptions, a pause and the program's end pause it; so does a stop on
+another thread, and the camera cuts to that thread. Values load at every stop like at any stop
+(only the open nodes), changes marked; while playing the view scrolls only when the line leaves
+it, instead of centering at every step. With `supportsSteppingGranularity` the step's unit can be
+a statement or an instruction (`u`); line by default.
+
+**What playback follows**, cycled with `e` (shown in the panel's status): `own` (the default)
+stays in your code, `lib` also steps into libraries, `std` into everything, the language's runtime
+included. A playback step is a `stepIn`; when the frame it lands in isn't one the mode follows,
+`stepOut`s until it is, all counted as one step. Frames are classified by their source path:
+**std** when they have no source, or their path (or source name) contains one of the runtime's
+pieces: `/rustc/` and `/lib/rustlib/src/` (Rust's sysroot as rustc records it, and as rustup
+installs it), `/usr/include/`, `/usr/lib/`, `/usr/src/` (C headers and system sources), `node:` and
+`<node_internals>` (Node's internals); **lib** when it contains a library's piece
+(`/.cargo/registry/`, `/.cargo/git/`, `/node_modules/`, `/vendor/`) or is outside your folders;
+**own** inside the workspace, or the launch's `cwd` or program's folder when they are elsewhere.
+Both lists can be set per language, in its debugger:
+
+```toml
+[language.debugger]
+std-paths = ["/rustc/", "/lib/rustlib/src/"]
+lib-paths = ["/.cargo/registry/", "/third_party/"]
+```
+
+A step that doesn't stop (blocking I/O, a lock, a sleep) shows `blocked in <function>` and a
+running timer after half a second, in the panel and the statusline; `space` pauses it there (DAP
+`pause`), so you see where it waits.
+
+**Fast forward** (`f`) plays as fast as the adapter goes, without moving the view, and compares at
+each stop the watch expressions and the variables you marked (`*`, `◆` in the tree) with their
+values when it started; it stops at the first change and says `old -> new` (status line and
+console). Breakpoints and the program's end stop it too; `f` or `space` cancels it.
+
+**Run to cursor** (`r`): paused, the program continues to the cursor's line through a temporary
+breakpoint, removed at the next stop, whatever it is; playing, playback goes on until that line.
+
+**Threads.** Playback follows one thread, `◉ spectating` in the call stack (where every thread of
+every session is, under its session's name when there are several: js-debug runs each worker in a
+session of its own) and `T2 name` in the statusline. `<` and `>` cut to the previous and next
+thread; `Enter` on a thread spectates it. A thread starting or exiting says so in the status line
+(`Thread 4 joined · < / > to spectate`). To force a suspected race by hand, schedule the threads
+yourself: `z` freezes a thread (`❄ frozen`: it never runs during steps, continues or playback
+until thawed, and a running thread is paused as it freezes), `o` makes steps and continues run only
+the spectated thread, and `p` continues or pauses the thread under the cursor. For example: step
+A to the check, freeze A, run B through, thaw A and continue it. This is DAP `singleThread`: the
+adapter must say it supports it (`supportsSingleThreadExecutionRequests`); without it `z` and `o`
+say that the adapter runs every thread on each step, and aren't offered (except between sessions,
+which never run each other's threads). Adapters that stop every thread at a stop (lldb's
+all-stop) can run one thread or all of them: with a thread frozen, steps of the others run them
+alone. Adapters whose threads stop one by one (`allThreadsStopped: false`) also get a continue for
+each thread that isn't frozen.
+
+An adapter that honours `singleThread` without saying so can be told in its debugger config,
+which assumes capabilities over the adapter's `initialize` answer:
+
+```toml
+[language.debugger]
+capabilities = { supportsSingleThreadExecutionRequests = true }
+```
+
+lldb-dap (18 and 20) doesn't advertise it: lldb-dap 18 ignores `singleThread`; lldb-dap 20
+honours it for `next` and `stepIn` but not for `stepOut`, which runs every thread (so with it,
+playback's step outs of library code let frozen threads run: force interleavings with
+`space G n`). An adapter that stops every thread may also report each of them in a `stopped` event
+of its own (lldb-dap does, with the reason of their last stop); those marked `preserveFocusHint`
+only update their thread's state, so they don't move the camera or pause playback.
+
+**Time per line.** After each playback step, the line the program left gets a greyed label at its
+end, like inline blame (`ui.virtual.step-time`): how long the step took, minus the cost of stepping
+itself, e.g. `12 ms`, or `12 ms (3 cpu)` when the CPU time can be read, and `×4` when several steps
+counted. Labels stay on the lines visited this session, adding up, so the code turns into a rough
+flame graph; `x` clears them. The method:
+
+- each request of a step (the step in, then any step out of library code) is timed from when it is
+  sent to when the adapter's `stopped` event arrives, stamped as it comes off the connection, not
+  when the editor gets to it (the editor may be drawing or loading values): that includes the round
+  trip to the adapter and the debugger's own work;
+- that overhead is measured continuously, per kind of request: for a step in, the median of the
+  faster half of the last 32 plain steps (one request, the same function before and after); for a
+  step out, the same over the last 32 step outs (most leave a cheap library call; lldb's step out
+  costs several times its step in). A step's time is the time of its requests minus their
+  overheads;
+- a step under 1 ms after that (`[editor.debugger] time-threshold`), or under its own overhead (the
+  overhead varies about as much as it is), counts as nothing, so cheap lines stay clean and the
+  correction's noise doesn't pile up on them; nothing is labelled until 5 plain steps calibrated it;
+- when the adapter says the debuggee is a local process (the DAP `process` event, its
+  `systemProcessId`), on Linux the CPU time is the thread's (`/proc/<pid>/task/<tid>/stat`, when
+  the adapter's thread ids are the OS's, as lldb's are), else the process's (`/proc/<pid>/stat`);
+  on macOS the process's (`proc_pidinfo`); elsewhere wall time only. Busy is the CPU part, the rest
+  waited.
+
+It is a debugger's stopwatch, not a profiler: a step runs the line under the debugger (single
+stepping and breakpoints cost far more than the code), so only times well above the overhead mean
+something, and the CPU time of the process includes the threads that run during the step. Measured
+with lldb-dap 20 on a debug build: plain steps cost 2-5 ms and step outs 2-25 ms; a line that sleeps
+300 ms read `314 ms (0 cpu)`, a line summing 20 million numbers through an iterator `472 ms (260
+cpu)`; a line calling a trivial library function (`total += n` through `AddAssign`) mostly stays
+clean, with an occasional 5-10 ms of the debugger's jitter.
+
+**Rewind.** Every stop is recorded whole, because a value missed at a stop can never be fetched
+later: the thread, where it is, its call stack, and the variables of every frame of the thread (not
+only what was open), and the watches. Caps keep it affordable: 3 levels of variables below each
+scope, the first 100 children of a variable (and how many more there were), 2,000 stops (the oldest
+go). Where a level costs much and says little, less is recorded: frames playback doesn't follow
+(the runtime's, in `own` mode: a Rust stack has a dozen of them under `main`) keep their own
+variables, not what is inside them; registers keep their groups; an expensive scope (js-debug's
+global object) and a scope without a hint that every frame repeats (lldb's globals) are recorded in
+the top frame only. With lldb-dap and rustc's formatters a stop of the example program costs about
+70 requests and 50 KB. Recording runs in the background, so the screen never waits on it; playback waits for it before
+its next step (a stop's references are only valid until the program moves), which may lower the top
+speed. `R` opens the capture settings in the panel: depth, collection size and history length
+(`unlimited` allowed, with a warning), with the cost measured over the last stops (requests per stop,
+memory per stop and in all) or estimated before any. `[` and `]` (`{` `}` by ten) scrub back and
+forward: the editor and the panel show that stop, read-only, under an unmissable marker,
+`REWIND · step 132/480 · nothing is executing` in the panel and `REWIND 132/480` in the statusline
+(`ui.debug.rewind`), values greyed; `Enter` on a frame shows that frame's variables. Changing values
+and evaluating are refused in rewind. `L`, `]` past the last stop, playing or stepping go back to
+live.
+
+The defaults are settings:
+
+```toml
+[editor.debugger]
+speed = 2                  # lines per second (the nearest of the speeds)
+follow = "own"             # std, lib or own
+capture-depth = 3          # or "unlimited"
+capture-collection = 100   # or "unlimited"
+history = 2000             # stops; 0 records nothing; or "unlimited"
+time-labels = true
+time-threshold = 1         # milliseconds
+```
 
 ### Sessions
 
@@ -1281,7 +1447,11 @@ default `outFiles`, and breakpoints in TypeScript sources land only after the co
 | `ui.debug.name`, `ui.debug.value`, `ui.debug.heading` | names, values, scopes | `variable`, `ui.text`, bold `ui.text` |
 | `ui.debug.value.changed` | a value that changed since the last stop | bold `warning` |
 | `ui.debug.console.input`, `.info`, `.error` | evaluated expressions, the adapter's messages, stderr and errors | `ui.text.focus`, `ui.text.info`, `error` |
-| `ui.statusline.debug.running`, `.stopped`, `.exited`, `.failed` | `DBG ...` | yellow, red, green, red |
+| `ui.statusline.debug.running`, `.stopped`, `.exited`, `.failed`, `.playing` | `DBG ...` | yellow, red, green, red, cyan |
+| `ui.debug.rewind` | the REWIND marker, in the panel and the statusline | bold reversed `warning`; black on yellow |
+| `ui.debug.frozen` | `❄ frozen` | `info` |
+| `ui.debug.hint` | the keys at the bottom of the panel | `ui.text.inactive` |
+| `ui.virtual.step-time` | the time per line | `ui.virtual.inline-blame`, then `ui.virtual.inlay-hint` |
 
 The vortex theme sets them all.
 
@@ -1303,6 +1473,10 @@ DEBUGGER" section.
 - `runInTerminal` uses the external terminal (`[editor.terminal] command`), not the terminal
   panel.
 - No data breakpoints, function breakpoints, disassembly, memory view or modules list.
+- Spectator mode: rewind is history, never re-execution (no `stepBack`); it records the spectated
+  thread's frames, not the other threads'. Stepping out of library code skips any of your code it
+  calls back (a closure given to a library function). Fast forward compares values as text. An
+  expensive scope (registers, globals, as the adapter marks them) records only its own variables.
 
 ## Hex view
 

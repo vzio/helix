@@ -497,6 +497,19 @@ pub struct DebugAdapterConfig {
     pub templates: Vec<DebugTemplate>,
     #[serde(default)]
     pub quirks: DebuggerQuirks,
+    /// Spectator mode (fork feature): a frame whose source path contains one of these is the
+    /// language runtime's (playback's `std`). Unset: a default list for common runtimes.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub std_paths: Option<Vec<String>>,
+    /// A frame whose source path contains one of these is a library's (`lib`), even inside the
+    /// workspace. Unset: a default list (registries, `node_modules`, `vendor`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub lib_paths: Option<Vec<String>>,
+    /// DAP capabilities to assume over what the adapter says in its `initialize` response
+    /// (`supportsSingleThreadExecutionRequests = true` for an adapter that honours `singleThread`
+    /// without saying so).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub capabilities: Option<serde_json::Map<String, serde_json::Value>>,
 }
 
 // Different workarounds for adapters' differences
