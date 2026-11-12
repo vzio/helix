@@ -269,17 +269,17 @@ fn apply(editor: &mut Editor, id: u64, updates: Vec<FileUpdate>) {
     if !following {
         return;
     }
-    if let Some(target) = applied.newest {
-        // a buffer with unsaved edits of its own is never overwritten: its file is skipped (the
-        // statusline warns that it changed on disk)
-        let unsaved = editor
+    // the newest file, but a buffer with unsaved edits of its own is never overwritten: its file
+    // is skipped (the statusline warns that it changed on disk)
+    let target = applied.to_follow.into_iter().rev().find(|target| {
+        !editor
             .document_by_path(&target.path)
-            .is_some_and(|doc| doc.is_modified());
-        if !unsaved {
-            go_to(editor, &target, Action::Replace);
-            if let Some(session) = editor.watch.session.as_mut() {
-                session.followed(&target);
-            }
+            .is_some_and(|doc| doc.is_modified())
+    });
+    if let Some(target) = target {
+        go_to(editor, &target, Action::Replace);
+        if let Some(session) = editor.watch.session.as_mut() {
+            session.followed(&target);
         }
     }
     if let Some(session) = editor.watch.session.as_mut() {

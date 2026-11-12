@@ -220,8 +220,9 @@ pub struct Session {
 /// What a batch of updates brought.
 #[derive(Debug, Default, PartialEq, Eq)]
 pub struct Applied {
-    /// The first new hunk of the newest file that has new hunks, to follow.
-    pub newest: Option<Target>,
+    /// The first new hunk of each file that has new hunks, oldest file first: following goes to
+    /// the last one whose buffer has no unsaved edits.
+    pub to_follow: Vec<Target>,
     /// The files whose state changed (to set their buffers' baselines).
     pub changed: Vec<PathBuf>,
 }
@@ -318,8 +319,7 @@ impl Session {
             }
             if file.navigable() {
                 if let Some((seq, lines)) = first_new {
-                    // the files are in order, oldest first: the last one wins
-                    applied.newest = Some(Target {
+                    applied.to_follow.push(Target {
                         path: path.clone(),
                         seq,
                         lines,
@@ -528,14 +528,14 @@ mod tests {
     fn hunks_keep_their_number_and_new_ones_come_last() {
         let mut session = Session::new(1, baseline());
         let applied = session.apply(vec![update("/repo/a", vec![hunk(1..2, 10)], 1)]);
-        assert_eq!(applied.newest.unwrap().lines, 1..2);
+        assert_eq!(applied.to_follow.last().cloned().unwrap().lines, 1..2);
         // a new hunk above the first one moves it: it keeps its number
         let applied = session.apply(vec![update(
             "/repo/a",
             vec![hunk(0..1, 20), hunk(2..3, 10)],
             2,
         )]);
-        assert_eq!(applied.newest.unwrap().lines, 0..1);
+        assert_eq!(applied.to_follow.last().cloned().unwrap().lines, 0..1);
         assert_eq!(
             order(&session),
             [("/repo/a".into(), 2), ("/repo/a".into(), 0)]
@@ -549,7 +549,10 @@ mod tests {
             update("/repo/b", vec![hunk(5..6, 1)], 9),
             update("/repo/a", vec![hunk(1..2, 2)], 3),
         ]);
-        assert_eq!(applied.newest.unwrap().path, PathBuf::from("/repo/b"));
+        assert_eq!(
+            applied.to_follow.last().cloned().unwrap().path,
+            PathBuf::from("/repo/b")
+        );
         assert_eq!(
             order(&session),
             [("/repo/a".into(), 1), ("/repo/b".into(), 5)]
@@ -565,7 +568,7 @@ mod tests {
         let mut gone = update("/repo/old.rs", vec![], 2);
         gone.kind = FileKind::Deleted;
         let applied = session.apply(vec![lock, gone]);
-        assert_eq!(applied.newest, None);
+        assert_eq!(applied.to_follow, []);
         assert_eq!(applied.changed.len(), 2);
         assert_eq!(session.new_count(), 0);
         assert!(session.step(None, true).is_none());
@@ -591,7 +594,7 @@ mod tests {
     fn paused_changes_are_counted_and_n_to_the_newest_follows_again() {
         let mut session = Session::new(1, baseline());
         let applied = session.apply(vec![update("/repo/a", vec![hunk(1..2, 1)], 1)]);
-        session.followed(&applied.newest.unwrap());
+        session.followed(&applied.to_follow.last().cloned().unwrap());
         session.pause();
         session.apply(vec![update(
             "/repo/a",
