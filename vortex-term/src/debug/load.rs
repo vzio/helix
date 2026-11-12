@@ -369,6 +369,10 @@ pub fn load_thread(editor: &mut Editor, key: ThreadKey) {
 
 /// Loads the children of the node at `path`, which the user just opened.
 pub fn expand(editor: &mut Editor, path: VarPath) {
+    // in rewind the tree is the recorded one: what wasn't recorded can't be fetched any more
+    if editor.debug.is_rewinding() {
+        return;
+    }
     let Some(node) = editor.debug.node(&path) else {
         return;
     };

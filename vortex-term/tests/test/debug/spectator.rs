@@ -620,13 +620,13 @@ async fn a_blocking_step_shows_blocked_and_space_pauses_the_thread() -> anyhow::
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn a_slow_step_labels_the_line_it_left_and_x_clears_the_labels() -> anyhow::Result<()> {
-    // lines 2..: 8 quick steps, then the step off line 10 takes 60 ms
+    // lines 2..: 8 quick steps, then the step off line 10 takes 250 ms
     let mut e = env(|p| {
         let script = run(p, 9);
-        script
-            .stop(Stop::new(11, "entry").delay(250))
-            .stop(Stop::new(12, "entry"))
-            .stop(Stop::new(13, "entry"))
+        // a long tail, so the program is still there when playback is paused
+        (12..80).fold(script.stop(Stop::new(11, "entry").delay(250)), |s, l| {
+            s.stop(Stop::new(l, "entry"))
+        })
     })
     .await?;
     e.launch()?;
@@ -834,7 +834,6 @@ fn rewind_active(app: &Application) -> bool {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-#[ignore = "bug: expanding a node beyond the capture depth in rewind sends a stale variables request (load::expand)"]
 async fn expanding_beyond_the_capture_depth_in_rewind_sends_nothing() -> anyhow::Result<()> {
     let mut e = env(|p| Script::new(p).stop(deep_stop(p, 2)).stop(deep_stop(p, 3))).await?;
     e.launch()?;
