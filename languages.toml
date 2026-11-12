@@ -374,6 +374,13 @@ request = "launch"
 completion = [ { name = "binary", completion = "filename" } ]
 args = { program = "{0}" }
 
+# "{1}" alone in a list takes the words of a command line: `--port 8080 "a b"`
+[[language.debugger.templates]]
+name = "binary with arguments"
+request = "launch"
+completion = [ { name = "binary", completion = "filename" }, { name = "arguments", default = "" } ]
+args = { program = "{0}", args = [ "{1}" ] }
+
 [[language.debugger.templates]]
 name = "binary (terminal)"
 request = "launch"
@@ -718,6 +725,12 @@ completion = [ { name = "binary", completion = "filename" } ]
 args = { console = "internalConsole", program = "{0}" }
 
 [[language.debugger.templates]]
+name = "binary with arguments"
+request = "launch"
+completion = [ { name = "binary", completion = "filename" }, { name = "arguments", default = "" } ]
+args = { console = "internalConsole", program = "{0}", args = [ "{1}" ] }
+
+[[language.debugger.templates]]
 name = "attach"
 request = "attach"
 completion = [ "pid" ]
@@ -754,6 +767,12 @@ name = "binary"
 request = "launch"
 completion = [ { name = "binary", completion = "filename" } ]
 args = { console = "internalConsole", program = "{0}" }
+
+[[language.debugger.templates]]
+name = "binary with arguments"
+request = "launch"
+completion = [ { name = "binary", completion = "filename" }, { name = "arguments", default = "" } ]
+args = { console = "internalConsole", program = "{0}", args = [ "{1}" ] }
 
 [[language.debugger.templates]]
 name = "attach"
@@ -843,6 +862,12 @@ name = "binary"
 request = "launch"
 completion = [ { name = "binary", completion = "filename" } ]
 args = { console = "internalConsole", program = "{0}" }
+
+[[language.debugger.templates]]
+name = "binary with arguments"
+request = "launch"
+completion = [ { name = "binary", completion = "filename" }, { name = "arguments", default = "" } ]
+args = { console = "internalConsole", program = "{0}", args = [ "{1}" ] }
 
 [[language.debugger.templates]]
 name = "attach"
@@ -1007,15 +1032,25 @@ indent = { tab-width = 2, unit = "  " }
 [language.debugger]
 name = "js-debug-dap"
 transport = "tcp"
+# js-debug's dapDebugServer.js, run by node: FORK.md ("The debugger") says how to install it
+command = "js-debug-dap"
 port-arg = "{} 127.0.0.1"
-# args consisting of cmd (node) and path to adapter should be added to user's configuration
 quirks = { absolute-paths = true }
 
+# js-debug runs the program in a child session it asks the editor for (`startDebugging`).
+# `__workspaceFolder` gives its defaults their root (`outFiles`: the compiled files whose source
+# maps place breakpoints in the sources before the code loads).
 [[language.debugger.templates]]
 name = "source"
 request = "launch"
 completion = [ { name = "main", completion = "filename", default = "index.js" } ]
-args = { program = "{0}", skipFiles = [ "<node_internals>/**" ] }
+args = { type = "pwa-node", program = "{0}", skipFiles = [ "<node_internals>/**" ], __workspaceFolder = "${workspaceFolder}" }
+
+[[language.debugger.templates]]
+name = "attach"
+request = "attach"
+completion = [ { name = "port of node --inspect", default = "9229" } ]
+args = { type = "pwa-node", port = "{0}", address = "127.0.0.1", skipFiles = [ "<node_internals>/**" ], __workspaceFolder = "${workspaceFolder}" }
 
 [[grammar]]
 name = "javascript"
@@ -1046,6 +1081,28 @@ comment-token = "//"
 block-comment-tokens = { start = "/*", end = "*/" }
 language-servers = [ "typescript-language-server" ]
 indent = { tab-width = 2, unit = "  " }
+
+[language.debugger]
+name = "js-debug-dap"
+transport = "tcp"
+# js-debug's dapDebugServer.js, run by node: FORK.md ("The debugger") says how to install it
+command = "js-debug-dap"
+port-arg = "{} 127.0.0.1"
+quirks = { absolute-paths = true }
+
+# The .ts file: js-debug runs the compiled file it finds for it in the workspace, through its
+# source map (`sourceMap` in tsconfig.json); without one, node runs the .ts (node 22.18 or later).
+[[language.debugger.templates]]
+name = "source"
+request = "launch"
+completion = [ { name = "main", completion = "filename", default = "index.ts" } ]
+args = { type = "pwa-node", program = "{0}", skipFiles = [ "<node_internals>/**" ], __workspaceFolder = "${workspaceFolder}" }
+
+[[language.debugger.templates]]
+name = "attach"
+request = "attach"
+completion = [ { name = "port of node --inspect", default = "9229" } ]
+args = { type = "pwa-node", port = "{0}", address = "127.0.0.1", skipFiles = [ "<node_internals>/**" ], __workspaceFolder = "${workspaceFolder}" }
 
 [[grammar]]
 name = "typescript"
@@ -1812,6 +1869,12 @@ name = "binary"
 request = "launch"
 completion = [ { name = "binary", completion = "filename" } ]
 args = { console = "internalConsole", program = "{0}" }
+
+[[language.debugger.templates]]
+name = "binary with arguments"
+request = "launch"
+completion = [ { name = "binary", completion = "filename" }, { name = "arguments", default = "" } ]
+args = { console = "internalConsole", program = "{0}", args = [ "{1}" ] }
 
 [[language.debugger.templates]]
 name = "attach"
@@ -2775,6 +2838,12 @@ name = "binary"
 request = "launch"
 completion = [ { name = "binary", completion = "filename" } ]
 args = { console = "internalConsole", program = "{0}" }
+
+[[language.debugger.templates]]
+name = "binary with arguments"
+request = "launch"
+completion = [ { name = "binary", completion = "filename" }, { name = "arguments", default = "" } ]
+args = { console = "internalConsole", program = "{0}", args = [ "{1}" ] }
 
 [[language.debugger.templates]]
 name = "attach"

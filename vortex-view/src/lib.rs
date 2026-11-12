@@ -5,6 +5,7 @@ pub mod action;
 pub mod annotations;
 pub mod blame;
 pub mod clipboard;
+pub mod debug;
 pub mod document;
 pub mod editor;
 pub mod events;

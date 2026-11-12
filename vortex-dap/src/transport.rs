@@ -1,6 +1,6 @@
 use crate::{registry::DebugAdapterId, Error, Result};
 use anyhow::Context;
-use log::{error, info, warn};
+use log::{debug, error, info, warn};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::sync::Arc;
@@ -196,7 +196,11 @@ impl Transport {
                 self.id, res.message, res.body, res.request_seq, res.command
             );
 
-            Err(Error::Other(anyhow::format_err!("{:?}", res.body)))
+            let message = res
+                .message
+                .clone()
+                .unwrap_or_else(|| format!("{} failed", res.command));
+            Err(Error::Other(anyhow::format_err!("{message}")))
         }
     }
 
@@ -220,7 +224,8 @@ impl Transport {
                     }
                     None => {
                         warn!("Response to nonexistent request #{}", res.request_seq);
-                        client_tx.send(Payload::Response(res)).expect("Failed to send");
+                        // The client is gone: nothing to tell.
+                        let _ = client_tx.send(Payload::Response(res));
                     }
                 }
 
@@ -232,12 +237,12 @@ impl Transport {
                 ..
             }) => {
                 info!("[{}] <- DAP request {} #{}", self.id, command, seq);
-                client_tx.send(msg).expect("Failed to send");
+                client_tx.send(msg).map_err(|_| Error::StreamClosed)?;
                 Ok(())
             }
             Payload::Event(ref event) => {
                 info!("[{}] <- DAP event {:?}", self.id, event);
-                client_tx.send(msg).expect("Failed to send");
+                client_tx.send(msg).map_err(|_| Error::StreamClosed)?;
                 Ok(())
             }
         }
@@ -262,13 +267,21 @@ impl Transport {
             {
                 Ok(msg) => match transport.process_server_message(&client_tx, msg).await {
                     Ok(_) => (),
+                    Err(Error::StreamClosed) => {
+                        // The client was removed: the session is over.
+                        debug!("[{id}] the client closed, stopping the transport");
+                        break;
+                    }
                     Err(err) => {
                         error!(" [{id}] err: <- {err:?}");
                         break;
                     }
                 },
                 Err(err) => {
-                    if !matches!(err, Error::StreamClosed) {
+                    if matches!(err, Error::StreamClosed) {
+                        // Normal at the end of a session.
+                        debug!("[{id}] the adapter closed the stream");
+                    } else {
                         error!("Exiting after unexpected error: {err:?}");
                     }
 
@@ -277,7 +290,7 @@ impl Transport {
                         match tx.send(Err(Error::StreamClosed)).await {
                             Ok(_) => (),
                             Err(_) => {
-                                error!("Could not close request on a closed channel (id={id})");
+                                debug!("Could not close request on a closed channel (id={id})");
                             }
                         }
                     }
@@ -315,6 +328,10 @@ impl Transport {
         loop {
             match Self::recv_server_error(&mut server_stderr, &mut recv_buffer).await {
                 Ok(_) => {}
+                Err(Error::StreamClosed) => {
+                    debug!("the adapter closed its stderr");
+                    break;
+                }
                 Err(err) => {
                     error!("err: <- {:?}", err);
                     break;

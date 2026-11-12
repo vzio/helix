@@ -180,6 +180,25 @@ hint = { fg = "n_8", bg = "n_1" }
 "ui.statusline.shell.success" = { fg = "background", bg = "purple_light", modifiers = ["bold"] }
 "ui.statusline.shell.failure" = { fg = "n_11", bg = "red", modifiers = ["bold"] }
 
+# Debugger: the line the program stopped at, breakpoints, the panel, and its statusline item
+"ui.highlight.frameline" = { bg = "plum" }
+"ui.debug.breakpoint.unverified" = "red_dusty"
+"ui.debug.breakpoint.disabled" = "n_5"
+"ui.debug.panel" = { fg = "text", bg = "background" }
+"ui.debug.tab" = { fg = "n_7", bg = "n_1" }
+"ui.debug.tab.active" = { fg = "n_11", bg = "purple", modifiers = ["bold"] }
+"ui.debug.name" = "n_10"
+"ui.debug.value" = "n_9"
+"ui.debug.value.changed" = { fg = "red_light", modifiers = ["bold"] }
+"ui.debug.heading" = { fg = "n_11", modifiers = ["bold"] }
+"ui.debug.console.error" = "red"
+"ui.debug.console.info" = "n_7"
+"ui.debug.console.input" = "purple_light"
+"ui.statusline.debug.running" = { fg = "n_11", bg = "purple", modifiers = ["bold"] }
+"ui.statusline.debug.stopped" = { fg = "n_11", bg = "red", modifiers = ["bold"] }
+"ui.statusline.debug.exited" = { fg = "background", bg = "purple_light", modifiers = ["bold"] }
+"ui.statusline.debug.failed" = { fg = "n_11", bg = "crimson", modifiers = ["bold"] }
+
 # Hex view
 "ui.hex.null" = "n_4"
 "ui.hex.printable" = "n_10"

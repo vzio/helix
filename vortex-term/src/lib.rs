@@ -7,6 +7,7 @@ pub mod commands;
 pub mod compositor;
 pub mod config;
 pub mod dashboard;
+pub mod debug;
 pub mod events;
 pub mod health;
 pub mod job;

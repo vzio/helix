@@ -88,6 +88,7 @@ git blame FILE
 - [`x` on an empty line](#x-on-an-empty-line)
 - [Move lines](#move-lines)
 - [Terminal panel](#terminal-panel)
+- [The debugger](#the-debugger)
 - [Hex view](#hex-view)
 - [Dashboard](#dashboard)
 - [The vortex theme](#the-vortex-theme)
@@ -112,6 +113,7 @@ Each feature lives in its own modules, to keep rebasing on upstream cheap:
 | `x` on an empty line | `vortex-term/src/handlers/line_select.rs` |
 | Move lines | `vortex-term/src/commands/move_lines.rs` |
 | Terminal panel | `vortex-terminal/` (the shell: pty, emulator, OSC 133, bash/zsh integration), `vortex-view/src/terminal.rs` (panel state, `[editor.terminal]`), `vortex-term/src/terminal/` (drawing, focus, input encoding, the `vx` shim), `vortex-term/tests/test/terminal.rs` |
+| The debugger | `vortex-term/src/debug/` (`session.rs` the sessions, the adapter's events and reverse requests, `load.rs` what the panel loads at a stop, `breakpoints.rs` breakpoints per session, `panel.rs` the keys and the mouse, `render.rs` the drawing), `vortex-view/src/debug.rs` (the panel's state and rows), `vortex-dap/src/requester.rs` (requests that borrow nothing, for background tasks), child sessions in `vortex-dap/src/registry.rs`, `vortex-term/src/commands/dap.rs` (the `space G` commands, the templates), `vortex-term/tests/test/debug/` (a scripted fake adapter and the tests) |
 | Hex view | `vortex-view/src/hex.rs` (the bytes: windowed reads, the overwritten bytes, undo, cursors, search, the row layout), `vortex-term/src/ui/hex_view.rs` (drawing, the statusline texts), `vortex-term/src/commands/hex.rs` (keys, mouse, prompts, `:hex`), `vortex-term/tests/test/hex_view.rs` |
 | Dashboard | `vortex-term/src/dashboard.rs` (when it is up, its keys), `vortex-term/src/dashboard/` (`stats.rs` the background reading, `languages.rs` the line counts, `render.rs` the layout and the panels, `timeline.rs` when things move, `title.rs` the title, `vortex.rs` the vortex, `wrap.rs` long values on two rows, `snapshots/` the drawings the tests compare with), `vortex-vcs/src/git/summary.rs` (the git summary), `vortex-term/tests/test/dashboard.rs` |
 | The vortex theme | `theme.toml` (the theme), `helix_theme.toml` (upstream's default theme), the built-in themes in `vortex-view/src/theme.rs` |
@@ -159,6 +161,19 @@ diagnostics in `ui/editor.rs` and `ui/text_decorations/diagnostics.rs`, the pick
 diagnostics, in `vortex-view/src/document.rs`; `Editor::conflicts` and `workspace_conflict_count` in
 `vortex-view/src/editor.rs`; `Theme::get_or`; refresh calls in `disk::check_all`, `live.rs` and
 `Application::new`.
+
+The debugger changes core files directly: the `Editor::debug` field and the per-session state of
+`Breakpoint` (`disabled`, `sessions`) in `vortex-view/src/editor.rs`, where the old event handler
+of `vortex-view/src/handlers/dap.rs` moved to `vortex-term/src/debug/session.rs` (the module keeps
+its small helpers); the gutter's breakpoint and `▶` markers in `vortex-view/src/gutter.rs`; the
+layout (the panel takes the terminal panel's place), its keys first in `handle_event`, `Esc`, the
+cursor, the frame line limited to its file, and a gutter click in `ui/editor.rs`; the mouse in
+`Application::handle_terminal_events` and the adapters' messages in `Application`; the `debug`
+statusline element; `:debug-eval` (raw input) in `typed.rs`; the `space G` additions and `C-g` in
+`keymap/default.rs`; the terminal panel hiding the debug panel in `terminal/panel.rs`; in
+`vortex-dap`, the client's `Requester`, child sessions, bodyless responses, the TCP connect retry,
+and `supportsStartDebuggingRequest`; `SetVariable`/`SetExpression` and signed exit codes in
+`vortex-dap-types`.
 
 The hex view changes core files: the `hex` field of `Document` and what it changes there
 (`open_hex`, `enter_hex`/`leave_hex`, `apply` refusing transactions, `is_modified`, `save_impl`
@@ -1099,6 +1114,195 @@ with the POSIX tools the exercises may use no short text makes them beat typing 
 - The debugger's `runInTerminal` still uses the external terminal, not the panel.
 - `vx` in a shell started inside the panel over `ssh` or in a container doesn't reach this editor.
 - A command typed with `:sh` while a full screen program runs goes to that program.
+
+## The debugger
+
+Upstream's experimental debugger (DAP) with a real panel: variables, watch expressions, the call
+stack, the breakpoints and a console below the splits, the line the program stopped at, and its
+state in the statusline. Tested against `lldb-dap` (Rust, C) and `js-debug` (JavaScript,
+TypeScript).
+
+Vortex ships no debug adapter: like language servers, you install them, and `languages.toml`
+says how to start them (see [Adapters](#adapters)).
+
+### Usage
+
+| Key or command | What it does |
+| --- | --- |
+| `space G` | The debug menu; it stays until `Esc`, so one key steps at a time |
+| `space G l` | Launch (or attach): pick a template of the language, answer its prompts |
+| `space G b` | Add or remove a breakpoint on the cursor's line (also a click in the gutter) |
+| `space G C-c`, `space G C-l` | The condition, or the log message (a logpoint), of the breakpoint on the line |
+| `space G c`, `h` | Continue; pause |
+| `space G n`, `i`, `o` | Step over, into, out |
+| `space G p` | Show or hide the panel |
+| `space G v` | The panel's variables, focused |
+| `space G w` | Add a watch expression |
+| `space G x`, `:debug-eval expr` | Evaluate an expression in the selected frame; the console shows it and its value |
+| `space G s t`, `space G s f` | Pick a thread, a stack frame |
+| `space G e`, `E` | Stop on exceptions (the adapter's filters), or don't |
+| `space G r`, `t` | Restart; end the session |
+| `Ctrl-g` | Focus the panel, or go back to the editor |
+
+The panel opens when a session starts (the editor keeps the keys) and hides when it ends; `space G
+p` shows it again with the last console. `Esc` in normal mode hides it, like the terminal panel,
+with which it shares its place: showing one hides the other.
+
+### The panel
+
+Five sections: **Variables** (the scopes of the selected frame, a tree), **Watch** (your
+expressions), **Call stack** (the threads; the current one open on its frames), **Breakpoints**
+(all of them, by file) and **Console** (the program's output, the adapter's messages, and what you
+evaluated). From 120 columns the console shows beside the data section; narrower, it is the fifth
+tab. The tab bar shows the session's status and name, and the search of the section.
+
+Its keys, when focused, are modal like the fork's pickers:
+
+| Key | What it does |
+| --- | --- |
+| `j` `k`, arrows, `gg` `G`, `Ctrl-d` `Ctrl-u` | Move |
+| `Tab` `Shift-Tab`, `w` `b`, `1`-`5` | The next, previous, or a given section |
+| `Enter` | Open or close a node; select a frame (or a thread: its top frame), which jumps to its code and shows its variables; go to a breakpoint; in the console, evaluate |
+| `l` `h` | Open, close (on a closed node: to its parent) |
+| `s` | Search the section as you type (`Esc` in the panel clears it) |
+| `c` | Change: a variable's value (DAP `setVariable`, or `setExpression`), a watch expression, a breakpoint's condition |
+| `m` | A breakpoint's log message |
+| `a` | Add a watch expression; on a variable, watch it |
+| `d` | Delete the watch or the breakpoint; in the console, clear it |
+| `t` | Turn a breakpoint off or on (off: kept in the list and the gutter as `○`, not sent to the adapter) |
+| `y` | Yank the value (the line, in the console) |
+| `i` | Evaluate an expression (history in the `=` register) |
+| `space` | The editor's space menu: `space G n` steps from the panel |
+| `:`, `Ctrl-t` | The command line; the terminal panel |
+| `q`, `Esc`, `Ctrl-g` | Back to the editor |
+
+The mouse: a click focuses the panel and puts the cursor on the row (a second click acts like
+`Enter`, a click on a tab switches to it), the wheel moves, a click elsewhere gives the keys back.
+
+### At a stop
+
+At every stop the panel loads, in the background: the threads, the stack of the thread that
+stopped (and the editor jumps to its top frame), the scopes of that frame with the first cheap
+scope open, every node you had opened (by its path of names: the adapter's references change at
+each stop), and the watches. A value that differs from the previous stop in the same function is
+marked. A node loads its children when you open it. A load that a newer stop or resume overtook is
+dropped, so stepping fast never shows old values.
+
+While debugging the editor marks the line the program stopped at (`ui.highlight.frameline`, and `▶`
+in the gutter) in every split of its file, and the breakpoints in the gutter: `●` verified by the
+adapter, `◯` not yet (or not at all: the console or the breakpoint's row says why), `○` turned off.
+
+The statusline element `debug` (in the default layout, before `shell`) shows `DBG running`, `DBG
+stopped: breakpoint`, then `DBG exited 3` (or `DBG ended`, when the adapter gave no exit code) until
+the next session.
+
+### Sessions
+
+Apart from starting the adapter (and its `initialize` handshake), nothing waits on it: launches,
+configuration, loads and edits run in the background and come back through the job queue. The
+configuration (breakpoints, exception filters, `configurationDone`) is sent once per session, when
+the adapter says it is ready, even if it says so twice. Every session gets every file's
+breakpoints, and keeps its own ids and verification.
+
+An adapter can ask for a child session (`startDebugging`), as js-debug does for the program it
+runs: the child connects to the same socket (or starts the adapter again, for one on stdio), its
+launch goes in the background, and the panel follows the session that last stopped. A child's end
+gives the panel back to its parent; the root's end ends it all. `space G t` ends a launched
+program (`terminate`, else `disconnect` with it) and detaches from an attached one, which keeps
+running. When a session ends, the adapter process Vortex started is stopped if it doesn't exit by
+itself (js-debug's server doesn't).
+
+Templates fill `{0}`, `{1}`... with the answers to their prompts and `${workspaceFolder}` with the
+workspace's root; in a list, an item that is exactly `{N}` becomes the answer's words (quotes group
+words), so `args = ["{1}"]` takes a command line of arguments. A template's `cwd` wins over the
+editor's working directory. As in a launch configuration of VS Code, the arguments also carry the
+template's `request` and `name` (js-debug attaches only when `request` says so).
+
+### Adapters
+
+Install them from their official sources; Vortex finds them on `PATH` (`vx --health rust` says
+whether it does).
+
+**lldb-dap** (Rust, C, C++, Zig...): part of LLVM 18 and later (`lldb-dap`, called `lldb-vscode`
+before 18). Linux: your distribution's `lldb` package (Debian and Ubuntu name it `lldb-dap-18`:
+link it as `lldb-dap`, or set `command` in your `languages.toml`); macOS: `xcrun -f lldb-dap` with
+the Xcode command line tools, or Homebrew's `llvm`; Windows: the LLVM installer. Templates:
+`binary`, `binary with arguments`, `binary (terminal)` (`runInTerminal`, in the external terminal),
+`attach` (a pid; on Linux, attaching to a process that isn't your child needs
+`/proc/sys/kernel/yama/ptrace_scope` at 0, or root), `gdbserver attach`. Environment variables:
+`env = ["NAME=value"]` in a template of your own.
+
+For readable Rust values (`String`, `Vec`, `Option`...), load rustc's lldb formatters, which
+`rust-lldb` loads, from `~/.lldbinit` (lldb-dap reads it):
+
+```
+command script import <sysroot>/lib/rustlib/etc/lldb_lookup.py
+command source <sysroot>/lib/rustlib/etc/lldb_commands
+```
+
+with `<sysroot>` what `rustc --print sysroot` prints. Without them a `String` shows as a struct
+you can open, down to its bytes.
+
+**js-debug** (JavaScript, TypeScript, Node): VS Code's JavaScript debugger, as a standalone DAP
+server: download `js-debug-dap-v<version>.tar.gz` from
+[its releases](https://github.com/microsoft/vscode-js-debug/releases), extract it, and either put
+a `js-debug-dap` script on your `PATH` that runs `node /path/to/js-debug/src/dapDebugServer.js "$@"`,
+or set the command in your `languages.toml`:
+
+```toml
+[[language]]
+name = "javascript"
+[language.debugger]
+name = "js-debug-dap"
+transport = "tcp"
+command = "node"
+args = ["/path/to/js-debug/src/dapDebugServer.js"]
+port-arg = "{} 127.0.0.1"
+```
+
+(the same for `typescript`; your `[language.debugger]` replaces the default one, templates
+included, so copy them from the default `languages.toml`). Templates: `source` (a `.js` file; for
+TypeScript the `.ts` file, which js-debug runs from the compiled file it finds for it, through its
+source map, so `tsconfig.json` needs `"sourceMap": true`; without compiled files node 22.18 and
+later runs the `.ts` itself) and `attach` (to `node --inspect`, port 9229 by default). The templates
+set js-debug's `type = "pwa-node"` and its `__workspaceFolder` (without it js-debug drops its
+default `outFiles`, and breakpoints in TypeScript sources land only after the code ran).
+
+### Theme
+
+| Scope | What | Fallback |
+| --- | --- | --- |
+| `ui.highlight.frameline` | the line the program stopped at | none |
+| `ui.debug.active` | `▶` in the gutter, the current frame and thread in the panel | `ui.text.focus` |
+| `ui.debug.breakpoint` | `●` | `error` |
+| `ui.debug.breakpoint.unverified`, `.disabled` | `◯`, `○` | `ui.text.inactive` |
+| `ui.debug.panel` | the panel | `ui.terminal`, then `ui.background` |
+| `ui.debug.tab`, `ui.debug.tab.active` | the tab bar, the focused section's tab | `ui.statusline.inactive`, `ui.menu.selected` |
+| `ui.debug.name`, `ui.debug.value`, `ui.debug.heading` | names, values, scopes | `variable`, `ui.text`, bold `ui.text` |
+| `ui.debug.value.changed` | a value that changed since the last stop | bold `warning` |
+| `ui.debug.console.input`, `.info`, `.error` | evaluated expressions, the adapter's messages, stderr and errors | `ui.text.focus`, `ui.text.info`, `error` |
+| `ui.statusline.debug.running`, `.stopped`, `.exited`, `.failed` | `DBG ...` | yellow, red, green, red |
+
+The vortex theme sets them all.
+
+### Practice
+
+The debugger doesn't change text, so it has no `:practice` exercise; it is in the tutor's "THE
+DEBUGGER" section.
+
+### Limitations
+
+- No source without a path: frames whose code the adapter only has by `sourceReference` (js-debug's
+  internal and evaluated code) show `no source` and don't open.
+- js-debug reports no exit code (only a `Process exited with code N` line in the console), so the
+  statusline says `ended`.
+- One session (and its children) at a time.
+- Breakpoints don't follow edits made while debugging (upstream's behaviour).
+- The console's results are text: an object evaluated there doesn't open (watch it to open it).
+- Long values are cut at the panel's width (`y` yanks the whole value).
+- `runInTerminal` uses the external terminal (`[editor.terminal] command`), not the terminal
+  panel.
+- No data breakpoints, function breakpoints, disassembly, memory view or modules list.
 
 ## Hex view
 

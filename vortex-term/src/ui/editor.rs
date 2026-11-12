@@ -137,8 +137,11 @@ impl EditorView {
             Self::highlight_cursorcolumn(doc, view, surface, theme, inner, &text_annotations);
         }
 
-        // Set DAP highlights, if needed.
-        if let Some(frame) = editor.current_stack_frame() {
+        // Set DAP highlights, if needed: the line the program stopped at, in its file only.
+        if let Some(frame) = editor.current_stack_frame().filter(|frame| {
+            let source = frame.source.as_ref().and_then(|s| s.path.as_deref());
+            source.is_some() && source == doc.path()
+        }) {
             let dap_line = frame.line.saturating_sub(1);
             let style = theme.get("ui.highlight.frameline");
             let line_decoration = move |renderer: &mut TextRenderer, pos: LinePos| {
@@ -1353,7 +1356,7 @@ impl EditorView {
                         view.pos_at_visual_coords(doc, coords.row as u16, coords.col as u16, true)
                     {
                         let line = doc.text().char_to_line(char_idx);
-                        commands::dap_toggle_breakpoint_impl(cxt, path, line);
+                        crate::debug::breakpoints::toggle(cxt.editor, path, line);
                         return EventResult::Consumed(None);
                     }
                 }
@@ -1568,14 +1571,41 @@ impl Component for EditorView {
                 // which are above, take it first)
                 if key == key!(Esc)
                     && mode == Mode::Normal
-                    && cx.editor.terminal.is_visible()
+                    && (cx.editor.terminal.is_visible() || cx.editor.debug.visible)
+                    // the focused debug panel takes Esc itself: back to the editor
+                    && !cx.editor.debug.is_focused()
                     && cx.editor.count.is_none()
                     && self.keymaps.pending().is_empty()
+                    && self.keymaps.sticky().is_none()
                     && self.pseudo_pending.is_empty()
                     && self.on_next_key.is_none()
                 {
                     cx.editor.terminal.hide();
+                    cx.editor.debug.hide();
                     return EventResult::Consumed(None);
+                }
+
+                // the debug panel (this fork), while focused, takes its keys first; Space and
+                // what follows go to the keymap
+                if cx.editor.debug.is_focused()
+                    && self.keymaps.pending().is_empty()
+                    && self.keymaps.sticky().is_none()
+                    && self.pseudo_pending.is_empty()
+                    && self.on_next_key.is_none()
+                    && cx.editor.count.is_none()
+                    && mode == Mode::Normal
+                {
+                    match crate::debug::handle_key(cx.editor, key) {
+                        crate::debug::Handled::No => {}
+                        crate::debug::Handled::Yes => return EventResult::Consumed(None),
+                        crate::debug::Handled::Prompt(prompt) => {
+                            return EventResult::Consumed(Some(Box::new(
+                                move |compositor: &mut crate::compositor::Compositor, _| {
+                                    compositor.push(prompt)
+                                },
+                            )))
+                        }
+                    }
                 }
 
                 // the dashboard (this fork) takes its own keys first
@@ -1758,8 +1788,13 @@ impl Component for EditorView {
             editor_area = editor_area.clip_top(1);
         }
 
-        // the terminal panel goes below all the splits
-        let (editor_area, panel_area) = crate::terminal::split_area(cx.editor, editor_area);
+        // the debug panel or the terminal panel goes below all the splits
+        let (editor_area, debug_area) = crate::debug::split_area(cx.editor, editor_area);
+        let (editor_area, panel_area) = if debug_area.is_some() {
+            (editor_area, None)
+        } else {
+            crate::terminal::split_area(cx.editor, editor_area)
+        };
 
         // if the terminal size suddenly changed, we need to trigger a resize
         cx.editor.resize(editor_area);
@@ -1769,7 +1804,7 @@ impl Component for EditorView {
         }
 
         // with the panel focused, no split is
-        let panel_focused = cx.editor.terminal.is_focused();
+        let panel_focused = cx.editor.terminal.is_focused() || cx.editor.debug.is_focused();
         for (view, is_focused) in cx.editor.tree.views() {
             let doc = cx.editor.document(view.doc).unwrap();
             self.render_view(
@@ -1784,6 +1819,9 @@ impl Component for EditorView {
 
         if let Some(panel_area) = panel_area {
             crate::terminal::render(cx.editor, panel_area, surface);
+        }
+        if let Some(debug_area) = debug_area {
+            crate::debug::render(cx.editor, debug_area, surface);
         }
 
         // the dashboard (this fork) over the views, under the infobox and the command line
@@ -1885,8 +1923,9 @@ impl Component for EditorView {
         if let Some((pos, kind)) = crate::terminal::cursor(editor) {
             return (Some(pos), kind);
         }
-        // the hex view draws its own cursor, and the dashboard has none
-        if doc!(editor).is_hex()
+        // the hex view draws its own cursor, and the dashboard and the debug panel have none
+        if editor.debug.is_focused()
+            || doc!(editor).is_hex()
             || self
                 .dashboard
                 .as_ref()

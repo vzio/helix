@@ -257,6 +257,7 @@ pub struct Scope {
     pub named_variables: Option<usize>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub indexed_variables: Option<usize>,
+    #[serde(default)]
     pub expensive: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub source: Option<Source>,
@@ -299,12 +300,13 @@ pub struct Variable {
     pub presentation_hint: Option<VariablePresentationHint>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub evaluate_name: Option<String>,
+    #[serde(default)]
     pub variables_reference: usize,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub named_variables: Option<usize>,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub indexed_variables: Option<usize>,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub memory_reference: Option<String>,
 }
 
@@ -380,6 +382,8 @@ pub mod requests {
         pub supports_progress_reporting: Option<bool>,
         #[serde(skip_serializing_if = "Option::is_none")]
         pub supports_invalidated_event: Option<bool>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        pub supports_start_debugging_request: Option<bool>,
     }
 
     #[derive(Debug)]
@@ -699,12 +703,13 @@ pub mod requests {
         pub ty: Option<String>,
         #[serde(skip_serializing_if = "Option::is_none")]
         pub presentation_hint: Option<VariablePresentationHint>,
+        #[serde(default)]
         pub variables_reference: usize,
-        #[serde(skip_serializing_if = "Option::is_none")]
+        #[serde(default, skip_serializing_if = "Option::is_none")]
         pub named_variables: Option<usize>,
-        #[serde(skip_serializing_if = "Option::is_none")]
+        #[serde(default, skip_serializing_if = "Option::is_none")]
         pub indexed_variables: Option<usize>,
-        #[serde(skip_serializing_if = "Option::is_none")]
+        #[serde(default, skip_serializing_if = "Option::is_none")]
         pub memory_reference: Option<String>,
     }
 
@@ -715,6 +720,79 @@ pub mod requests {
         type Arguments = EvaluateArguments;
         type Result = EvaluateResponse;
         const COMMAND: &'static str = "evaluate";
+    }
+
+    #[derive(Debug, PartialEq, Eq, Clone, Deserialize, Serialize)]
+    #[serde(rename_all = "camelCase")]
+    pub struct SetVariableArguments {
+        pub variables_reference: usize,
+        pub name: String,
+        pub value: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        pub format: Option<ValueFormat>,
+    }
+
+    #[derive(Debug, PartialEq, Eq, Clone, Deserialize, Serialize)]
+    #[serde(rename_all = "camelCase")]
+    pub struct SetVariableResponse {
+        /// Some adapters (lldb-dap 18) name it `result`, as in `evaluate`'s answer.
+        #[serde(default, alias = "result")]
+        pub value: String,
+        #[serde(default, rename = "type", skip_serializing_if = "Option::is_none")]
+        pub ty: Option<String>,
+        #[serde(default)]
+        pub variables_reference: usize,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub named_variables: Option<usize>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub indexed_variables: Option<usize>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub memory_reference: Option<String>,
+    }
+
+    #[derive(Debug)]
+    pub enum SetVariable {}
+
+    impl Request for SetVariable {
+        type Arguments = SetVariableArguments;
+        type Result = SetVariableResponse;
+        const COMMAND: &'static str = "setVariable";
+    }
+
+    #[derive(Debug, PartialEq, Eq, Clone, Deserialize, Serialize)]
+    #[serde(rename_all = "camelCase")]
+    pub struct SetExpressionArguments {
+        pub expression: String,
+        pub value: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        pub frame_id: Option<usize>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        pub format: Option<ValueFormat>,
+    }
+
+    #[derive(Debug, PartialEq, Eq, Clone, Deserialize, Serialize)]
+    #[serde(rename_all = "camelCase")]
+    pub struct SetExpressionResponse {
+        pub value: String,
+        #[serde(default, rename = "type", skip_serializing_if = "Option::is_none")]
+        pub ty: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub presentation_hint: Option<VariablePresentationHint>,
+        #[serde(default)]
+        pub variables_reference: usize,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub named_variables: Option<usize>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub indexed_variables: Option<usize>,
+    }
+
+    #[derive(Debug)]
+    pub enum SetExpression {}
+
+    impl Request for SetExpression {
+        type Arguments = SetExpressionArguments;
+        type Result = SetExpressionResponse;
+        const COMMAND: &'static str = "setExpression";
     }
 
     #[derive(Debug, PartialEq, Eq, Clone, Deserialize, Serialize)]
@@ -861,7 +939,7 @@ pub mod events {
     #[derive(Debug, PartialEq, Eq, Clone, Deserialize, Serialize)]
     #[serde(rename_all = "camelCase")]
     pub struct ExitedBody {
-        pub exit_code: usize,
+        pub exit_code: i64,
     }
 
     #[derive(Debug)]
@@ -1093,6 +1171,24 @@ pub enum ConnectionType {
 }
 
 #[test]
+fn test_variable_without_reference() {
+    let raw = r#"{"name": "x", "value": "1"}"#;
+    let var: Variable = serde_json::from_str(raw).unwrap();
+    assert_eq!(var.variables_reference, 0);
+    let raw = r#"{"result": "1"}"#;
+    let eval: requests::EvaluateResponse = serde_json::from_str(raw).unwrap();
+    assert_eq!(eval.variables_reference, 0);
+}
+
+#[test]
+fn test_start_debugging_arguments() {
+    let raw = r#"{"request": "attach", "configuration": {"name": "child", "port": 1}}"#;
+    let args: requests::StartDebuggingArguments = serde_json::from_str(raw).unwrap();
+    assert_eq!(args.request, ConnectionType::Attach);
+    assert_eq!(args.configuration["name"], "child");
+}
+
+#[test]
 fn test_deserialize_module_id_from_number() {
     let raw = r#"{"id": 0, "name": "Name"}"#;
     let module: Module = serde_json::from_str(raw).expect("Error!");
@@ -1104,4 +1200,22 @@ fn test_deserialize_module_id_from_string() {
     let raw = r#"{"id": "0", "name": "Name"}"#;
     let module: Module = serde_json::from_str(raw).expect("Error!");
     assert_eq!(module.id, "0");
+}
+
+#[test]
+fn test_set_variable_response_named_result() {
+    // lldb-dap 18 answers `setVariable` like `evaluate`
+    let raw = r#"{"result": "100", "type": "int", "variablesReference": 0}"#;
+    let response: requests::SetVariableResponse = serde_json::from_str(raw).unwrap();
+    assert_eq!(response.value, "100");
+    let raw = r#"{"value": "7"}"#;
+    let response: requests::SetVariableResponse = serde_json::from_str(raw).unwrap();
+    assert_eq!(response.value, "7");
+}
+
+#[test]
+fn test_negative_exit_code() {
+    let raw = r#"{"exitCode": -1}"#;
+    let body: events::ExitedBody = serde_json::from_str(raw).unwrap();
+    assert_eq!(body.exit_code, -1);
 }

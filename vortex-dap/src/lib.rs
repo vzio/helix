@@ -1,8 +1,10 @@
 mod client;
 pub mod registry;
+mod requester;
 mod transport;
 
 pub use client::Client;
+pub use requester::Requester;
 pub use transport::{Payload, Response, Transport};
 pub use vortex_dap_types::*;
 

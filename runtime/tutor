@@ -360,9 +360,12 @@
 =                        15 THE DEBUGGER                        =
 =================================================================
 
- With a debug adapter for the language (see vx --health), space G
- is a mode that stays until Esc, so one key steps at a time. It
- is experimental.
+ With a debug adapter for the language (see vx --health; Vortex
+ installs none), space G is a mode that stays until Esc, so one
+ key steps at a time. A panel opens below your splits while the
+ program runs: its variables, your watches, the call stack, the
+ breakpoints and a console. The statusline says DBG and what the
+ program does.
 
   space G l      launch the program (space G r: restart it)
   space G b      add or remove a breakpoint on this line
@@ -371,10 +374,19 @@
   space G c      continue; space G h pauses
   space G n      step to the next line
   space G i  o   step into the call, out of the function
-  space G v      the variables
+  space G p      show or hide the panel
+  space G v      the panel's variables
+  space G w      watch an expression
+  space G x      evaluate an expression; the console shows it
   space G s t    switch thread; space G s f, stack frame
   space G e  E   stop on exceptions, or don't
   space G t      end the session
+  C-g            give the keys to the panel, or back
+
+ In the panel, j and k move, Tab or 1 to 5 change section, Enter
+ opens a value (or jumps to a frame or breakpoint), c changes it,
+ a watches it, s searches, and space G still steps. Esc goes back
+ to the editor; Esc again in normal mode hides the panel.
 
 
 
