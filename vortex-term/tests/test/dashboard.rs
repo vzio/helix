@@ -571,3 +571,307 @@ async fn close(mut session: Session) {
     session.keys("<esc>").await;
     let _ = session.app.close().await;
 }
+
+// ---- worktrees ----
+
+mod worktree_rows {
+    use super::super::worktrees::{
+        flat, fleet, fleet_alive, one_and_a_missing, only_a_missing, plain, shown, Fleet,
+    };
+    use super::*;
+
+    const ACTION: &str = "Worktrees";
+
+    /// The flat text of the screen, its rows joined (the dashboard wraps a long worktree row).
+    fn text(session: &Session) -> String {
+        session
+            .rows()
+            .iter()
+            .map(|row| flat(row))
+            .collect::<Vec<_>>()
+            .join(" ")
+    }
+
+    /// Waits for the stats of a repository to be in, with a bit more time for the rest.
+    async fn settled(session: &mut Session) {
+        session
+            .wait_for_screen("the branch", |rows| {
+                rows.iter()
+                    .any(|row| row.contains("branch") && row.contains("main"))
+                    && on_screen(rows, "all pushed")
+            })
+            .await;
+        session.run_for(Duration::from_millis(700)).await;
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn the_rows_are_newest_first_with_their_times() {
+        let Some(main) = Repo::enter_with(
+            module_path!(),
+            "the_rows_are_newest_first_with_their_times",
+            fleet_alive,
+        ) else {
+            return;
+        };
+        let fleet = Fleet::at(main.parent().unwrap());
+        let mut session = session().await;
+        session
+            .wait_for_screen("the worktrees", |rows| {
+                rows.iter().filter(|row| row.contains(" ago")).count() >= 3
+            })
+            .await;
+        let id = super::super::git_log::git(&fleet.detached, "", &["rev-parse", "--short", "HEAD"]);
+        let text = text(&session);
+        let expected = [
+            format!("{} dirty 2h ago", shown(&fleet.dirty)),
+            format!("{} ahead 3d ago", shown(&fleet.ahead)),
+            format!(
+                "{} detached at {} 1mo ago",
+                shown(&fleet.detached),
+                id.trim()
+            ),
+        ];
+        let mut last = 0;
+        for expected in &expected {
+            let at = text
+                .find(expected)
+                .unwrap_or_else(|| panic!("{expected:?} not in {text:?}"));
+            assert!(at > last, "{expected:?} is out of order in {text:?}");
+            last = at;
+        }
+        // the first row carries the label, and there is no "and more" for three
+        assert!(
+            text.contains(&format!("worktrees {}", shown(&fleet.dirty))),
+            "{text:?}"
+        );
+        assert!(!text.contains("more"), "{text:?}");
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn a_missing_worktree_shows_missing_instead_of_branch_and_time() {
+        let Some(main) = Repo::enter_with(
+            module_path!(),
+            "a_missing_worktree_shows_missing_instead_of_branch_and_time",
+            one_and_a_missing,
+        ) else {
+            return;
+        };
+        let fleet = Fleet::at(main.parent().unwrap());
+        let mut session = session().await;
+        session
+            .wait_for_screen("the worktrees", |rows| on_screen(rows, "3d ago"))
+            .await;
+        let text = text(&session);
+        assert!(
+            text.contains(&format!("{} alive 3d ago", shown(&fleet.ahead))),
+            "{text:?}"
+        );
+        // the missing one is last, with `missing` instead of its branch and time
+        let gone = format!("{} missing", shown(&fleet.gone));
+        let at = text
+            .find(&gone)
+            .unwrap_or_else(|| panic!("{gone:?} not in {text:?}"));
+        assert!(at > text.find("alive").unwrap());
+        assert!(
+            !text.contains("gone gone") && !text.contains(&format!("{} gone", shown(&fleet.gone)))
+        );
+        assert!(!text[at..].contains("ago"), "{text:?}");
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn t_is_shown_with_other_worktrees_and_opens_the_picker() {
+        let Some(_) = Repo::enter_with(
+            module_path!(),
+            "t_is_shown_with_other_worktrees_and_opens_the_picker",
+            fleet,
+        ) else {
+            return;
+        };
+        let mut session = session().await;
+        session
+            .wait_for_screen("the action", |rows| on_screen(rows, ACTION))
+            .await;
+        assert!(on_screen(&session.rows(), ":wt"), "{:#?}", session.rows());
+        assert!(!picker(&session));
+
+        session.keys("t").await;
+        session
+            .wait_for_screen("the picker", |rows| on_screen(rows, "others/dirty"))
+            .await;
+        assert!(picker(&session), "{:#?}", session.rows());
+        // the same picker as the command's
+        assert!(on_screen(&session.rows(), "unpushed"));
+        session.keys("<esc>").await;
+        assert!(!picker(&session));
+        assert!(up(&session), "{:#?}", session.rows());
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn t_is_shown_when_one_of_the_worktrees_is_missing() {
+        let Some(_) = Repo::enter_with(
+            module_path!(),
+            "t_is_shown_when_one_of_the_worktrees_is_missing",
+            one_and_a_missing,
+        ) else {
+            return;
+        };
+        let mut session = session().await;
+        session
+            .wait_for_screen("the action", |rows| on_screen(rows, ACTION))
+            .await;
+    }
+
+    /// `t` is not an action here: no label, and the key is the keymap's (`t` waits for a
+    /// character to move to).
+    async fn no_t(session: &mut Session) {
+        settled_without_worktrees(session).await;
+        assert!(!on_screen(&session.rows(), ACTION), "{:#?}", session.rows());
+        session.keys("t").await;
+        assert!(!picker(session), "{:#?}", session.rows());
+        session.keys("<esc>").await;
+        assert!(!picker(session));
+    }
+
+    async fn settled_without_worktrees(session: &mut Session) {
+        session
+            .wait_for_screen("the history action", |rows| on_screen(rows, HISTORY))
+            .await;
+        // (the worktrees are read after the head and the others)
+        session.run_for(Duration::from_millis(1000)).await;
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn t_is_not_shown_without_other_worktrees() {
+        let Some(_) = Repo::enter_in(module_path!(), "t_is_not_shown_without_other_worktrees")
+        else {
+            return;
+        };
+        let mut session = session().await;
+        no_t(&mut session).await;
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn t_is_not_shown_with_only_a_missing_worktree() {
+        let Some(_) = Repo::enter_with(
+            module_path!(),
+            "t_is_not_shown_with_only_a_missing_worktree",
+            only_a_missing,
+        ) else {
+            return;
+        };
+        let mut session = session().await;
+        no_t(&mut session).await;
+        // the missing worktree is still listed
+        assert!(
+            on_screen(&session.rows(), "missing"),
+            "{:#?}",
+            session.rows()
+        );
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn t_is_not_shown_outside_of_a_repository() {
+        let Some(_) = Repo::enter_with(
+            module_path!(),
+            "t_is_not_shown_outside_of_a_repository",
+            plain,
+        ) else {
+            return;
+        };
+        let mut session = session().await;
+        session.run_for(Duration::from_millis(500)).await;
+        assert!(up(&session));
+        assert!(!on_screen(&session.rows(), ACTION), "{:#?}", session.rows());
+        session.keys("t<esc>").await;
+        assert!(!picker(&session));
+    }
+
+    /// The text of the row of the dashboard labelled `label`.
+    fn row_of(session: &Session, label: &str) -> String {
+        session
+            .rows()
+            .iter()
+            .map(|row| flat(row))
+            .find(|row| row.starts_with(label) || row.contains(&format!(" {label} ")))
+            .unwrap_or_default()
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn the_dashboard_follows_cd() {
+        let Some(main) = Repo::enter_with(module_path!(), "the_dashboard_follows_cd", fleet) else {
+            return;
+        };
+        let fleet = Fleet::at(main.parent().unwrap());
+        let mut session = session().await;
+        settled(&mut session).await;
+        assert!(row_of(&session, "branch").contains("main"));
+        assert!(row_of(&session, "changes").contains("clean"));
+
+        session
+            .keys(&format!(":cd {}<ret>", fleet.dirty.display()))
+            .await;
+        session
+            .wait_for_screen("the stats of dirty", |rows| {
+                on_screen(rows, "1 staged · 1 unstaged · 1 untracked")
+            })
+            .await;
+        assert!(up(&session), "{:#?}", session.rows());
+        let branch = row_of(&session, "branch");
+        assert!(
+            branch.contains("dirty") && !branch.contains("main"),
+            "{branch:?}"
+        );
+        // and back
+        session
+            .keys(&format!(":cd {}<ret>", fleet.main.display()))
+            .await;
+        session
+            .wait_for_screen("the stats of main", |rows| {
+                !on_screen(rows, "1 staged") && on_screen(rows, "all pushed")
+            })
+            .await;
+        assert!(row_of(&session, "branch").contains("main"));
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn the_dashboard_follows_a_pick_in_the_picker() {
+        let Some(_) = Repo::enter_with(
+            module_path!(),
+            "the_dashboard_follows_a_pick_in_the_picker",
+            fleet,
+        ) else {
+            return;
+        };
+        let mut session = session().await;
+        settled(&mut session).await;
+        session.keys("t").await;
+        session
+            .wait_for_screen("every time", |rows| {
+                rows.iter().filter(|row| row.contains(" ago")).count() >= 4
+            })
+            .await;
+        // the second row: `dirty`
+        session.keys("j<ret>").await;
+        assert!(!picker(&session));
+        session
+            .wait_for_screen("the stats of dirty", |rows| {
+                on_screen(rows, "1 staged · 1 unstaged · 1 untracked")
+            })
+            .await;
+        assert!(up(&session), "{:#?}", session.rows());
+        let branch = row_of(&session, "branch");
+        assert!(
+            branch.contains("dirty") && !branch.contains("main"),
+            "{branch:?}"
+        );
+        // the worktrees it lists are the other ones now: from `dirty` there are four (main,
+        // ahead, detached, gone), of which it has room for two
+        session
+            .wait_for_screen("the other worktrees", |rows| on_screen(rows, "and 2 more"))
+            .await;
+        let text = text(&session);
+        let parent = vortex_stdx::env::current_working_dir();
+        let listed_dirty = format!("{} dirty", shown(&parent));
+        assert!(!text.contains(&listed_dirty), "{text:?}");
+    }
+}

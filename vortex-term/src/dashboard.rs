@@ -89,19 +89,8 @@ impl Dashboard {
         let (view, doc) = current_ref!(editor);
         let (view, doc_id, version) = (view.id, doc.id(), doc.version());
 
-        let timeline = Timeline::new(Instant::now(), editor.config().dashboard_background);
         let dir = vortex_stdx::env::current_working_dir();
-        let trust_full = editor
-            .workspace_trust
-            .query(&vortex_loader::find_workspace_in(&dir).0, TrustQuery::Git)
-            .is_trusted();
-        let stats = stats::load(
-            dir.clone(),
-            trust_full,
-            editor.syn_loader.load_full(),
-            editor.config().changes.clone(),
-            timeline,
-        );
+        let (stats, timeline) = load(editor, dir.clone());
         Self {
             stats,
             timeline,
@@ -140,6 +129,22 @@ impl Dashboard {
         }
     }
 
+    /// Reads the stats again, its animations from the start, when the working directory is no
+    /// longer the one they were read in (`:cd`, a pick in `:worktrees`): the dashboard always
+    /// shows the working directory.
+    pub fn follow_cwd(&mut self, editor: &Editor) {
+        let dir = vortex_stdx::env::current_working_dir();
+        // `:vortex` shows no stats
+        if dir == self.dir || self.vortex_only {
+            return;
+        }
+        let (stats, timeline) = load(editor, dir.clone());
+        self.stats.closed.store(true, Ordering::Relaxed);
+        self.stats = stats;
+        self.timeline = timeline;
+        self.dir = dir;
+    }
+
     pub fn stats(&self) -> &Arc<Stats> {
         &self.stats
     }
@@ -159,7 +164,8 @@ impl Dashboard {
                 .is_some_and(|doc| doc.version() == self.version && !doc.is_modified())
     }
 
-    /// Handles `key`, one of its own (`i`, `Esc`, `f`, `e`, `l` in a git repository, `q`).
+    /// Handles `key`, one of its own (`i`, `Esc`, `f`, `e`, `l` in a git repository, `t` with other
+    /// worktrees, `q`).
     pub fn handle_key(&self, key: KeyEvent, cx: &mut commands::Context) -> KeyResult {
         if !key.modifiers.is_empty() {
             return KeyResult::Ignored;
@@ -173,6 +179,12 @@ impl Dashboard {
             KeyCode::Char('f') => MappableCommand::file_picker,
             KeyCode::Char('e') => MappableCommand::toggle_explorer_root,
             KeyCode::Char('l') if self.stats.shows_git() => MappableCommand::commit_picker,
+            KeyCode::Char('t') if self.stats.shows_worktrees() => {
+                match ":worktrees".parse::<MappableCommand>() {
+                    Ok(worktrees) => worktrees,
+                    Err(_) => return KeyResult::Ignored,
+                }
+            }
             KeyCode::Char('q') => match ":quit".parse::<MappableCommand>() {
                 Ok(quit) => quit,
                 Err(_) => return KeyResult::Ignored,
@@ -201,6 +213,23 @@ impl Dashboard {
     }
 }
 
+/// Starts reading the stats of `dir`, on a new timeline.
+fn load(editor: &Editor, dir: PathBuf) -> (Arc<Stats>, Timeline) {
+    let timeline = Timeline::new(Instant::now(), editor.config().dashboard_background);
+    let trust_full = editor
+        .workspace_trust
+        .query(&vortex_loader::find_workspace_in(&dir).0, TrustQuery::Git)
+        .is_trusted();
+    let stats = stats::load(
+        dir,
+        trust_full,
+        editor.syn_loader.load_full(),
+        editor.config().changes.clone(),
+        timeline,
+    );
+    (stats, timeline)
+}
+
 /// The shortest keys of the normal mode keymap for the actions.
 pub fn hints(keymaps: &Keymaps) -> Hints {
     let map = keymaps.map();
@@ -223,6 +252,7 @@ pub fn hints(keymaps: &Keymaps) -> Hints {
         files: keys("file_picker"),
         tree: keys("toggle_explorer_root"),
         history: keys("commit_picker"),
+        worktrees: keys("worktrees").or_else(|| Some(":wt".to_string())),
         quit: Some(":q".to_string()),
     }
 }

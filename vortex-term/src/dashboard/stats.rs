@@ -8,7 +8,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
-use vortex_vcs::summary::{Changes, Head, InProgress, Remote, Repo, Upstream, Worktree};
+use vortex_vcs::summary::{Changes, Dated, Head, InProgress, Remote, Repo, Upstream};
 
 use super::languages::{self, Counts};
 use super::timeline::{Timeline, FRAME};
@@ -62,7 +62,12 @@ pub struct Stats {
     pub upstream: Slot<Option<Upstream>>,
     pub changes: Slot<Changes>,
     pub in_progress: Slot<Option<InProgress>>,
-    pub worktrees: Slot<Vec<Worktree>>,
+    /// The other worktrees, newest first (see `Repo::status` for what "modified" means).
+    pub worktrees: Slot<Vec<Dated>>,
+    /// Whether the repository has other worktrees (missing ones don't count): known as soon as
+    /// they are listed, before they are dated, for the `t` action. Not a stat: nothing waits
+    /// for it.
+    pub other_worktrees: Slot<bool>,
     pub languages: Mutex<Counts>,
     /// When the language counts finished.
     pub languages_done: Slot<()>,
@@ -80,6 +85,12 @@ impl Stats {
     /// Whether the git stats are shown.
     pub fn shows_git(&self) -> bool {
         self.git && !self.gone.load(Ordering::Relaxed)
+    }
+
+    /// Whether the `t` action (the `:worktrees` picker) is shown: the repository has other
+    /// worktrees that aren't missing.
+    pub fn shows_worktrees(&self) -> bool {
+        self.shows_git() && matches!(self.other_worktrees.get(), Some((Ok(true), _)))
     }
 
     /// When the last stat arrived, once they all did; `None` while one is loading.
@@ -178,7 +189,21 @@ pub fn load(
         stat!(remote, remote);
         stat!(upstream, upstream);
         stat!(in_progress, in_progress);
-        stat!(worktrees, worktrees);
+        {
+            let stats = stats.clone();
+            let repo = repo.clone();
+            spawner.spawn_blocking(move || {
+                if stats.closed.load(Ordering::Relaxed) {
+                    return;
+                }
+                // listed first, so `t` shows before their statuses are read
+                if let Ok(worktrees) = repo.worktrees() {
+                    let others = worktrees.iter().any(|worktree| !worktree.missing);
+                    stats.other_worktrees.set(Ok(others));
+                }
+                stats.worktrees.set(read(repo.dated_worktrees()));
+            });
+        }
         stat!(changes, changes);
 
         let files = match repo.tracked_files() {

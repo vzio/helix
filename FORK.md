@@ -91,6 +91,7 @@ git blame FILE
 - [The debugger](#the-debugger)
 - [Hex view](#hex-view)
 - [Dashboard](#dashboard)
+- [Worktrees](#worktrees)
 - [The vortex theme](#the-vortex-theme)
 - [Practice](#practice)
 - [Tutor](#tutor)
@@ -116,6 +117,7 @@ Each feature lives in its own modules, to keep rebasing on upstream cheap:
 | The debugger | `vortex-term/src/debug/` (`session.rs` the sessions, the adapter's events and reverse requests, `load.rs` what the panel loads at a stop, `breakpoints.rs` breakpoints per session, `panel.rs` the keys and the mouse, `render.rs` the drawing; spectator mode: `playback.rs` automatic stepping, fast forward and run to cursor, `threads.rs` spectating, freezing and running threads alone, `record.rs` what each stop records, `rewind.rs` scrubbing, `cpu.rs` a thread's CPU time from the OS; `memory.rs` a debugged program's memory in the hex view: opening, reading, refreshing, writing, recording for rewind), `vortex-view/src/debug/` (`mod.rs` the panel's state and rows; `spectator.rs`, `history.rs`, `timing.rs`, `config.rs` spectator mode's state, `[editor.debugger]`), `vortex-term/src/ui/text_decorations/step_times.rs` (the time per line), `vortex-dap/src/requester.rs` (requests that borrow nothing, for background tasks), child sessions in `vortex-dap/src/registry.rs`, `vortex-term/src/commands/dap.rs` (the `space G` commands, the templates), `vortex-term/tests/test/debug/` (a scripted fake adapter and the tests) |
 | Hex view | `vortex-view/src/hex/mod.rs` (the bytes: windowed reads, the overwritten bytes, undo, cursors, search, the row layout), `vortex-view/src/hex/memory.rs` (a debugged program's memory as the bytes: the page cache, what each byte is as drawn), `vortex-term/src/ui/hex_view.rs` (drawing, the statusline texts), `vortex-term/src/commands/hex.rs` (keys, mouse, prompts, `:hex`), `vortex-term/tests/test/hex_view.rs` |
 | Dashboard | `vortex-term/src/dashboard.rs` (when it is up, its keys), `vortex-term/src/dashboard/` (`stats.rs` the background reading, `languages.rs` the line counts, `render.rs` the layout and the panels, `timeline.rs` when things move, `title.rs` the title, `vortex.rs` the vortex, `wrap.rs` long values on two rows, `snapshots/` the drawings the tests compare with), `vortex-vcs/src/git/summary.rs` (the git summary), `vortex-term/tests/test/dashboard.rs` |
+| Worktrees | `vortex-term/src/commands/worktrees.rs` (the `:worktrees` picker: its rows, columns, background jobs and `Enter`), `vortex-vcs/src/git/summary.rs` (the worktrees, missing ones flagged; `Repo::status`, the last modified time; `Repo::dated_worktrees`; `Worktree::details`), `vortex-stdx/src/time.rs` (`format_ago`), the dashboard's worktree rows and `t` in `vortex-term/src/dashboard/`, `vortex-term/tests/test/worktrees.rs` |
 | The vortex theme | `theme.toml` (the theme), `helix_theme.toml` (upstream's default theme), the built-in themes in `vortex-view/src/theme.rs` |
 | Practice | `vortex-term/src/practice.rs`, `vortex-term/src/practice/`, `runtime/practice/`, `vortex-term/tests/test/practice.rs` |
 
@@ -206,6 +208,11 @@ The dashboard changes core files: the `dashboard` field of `EditorView`, its key
 and no cursor in `cursor`, in `ui/editor.rs`; the startup decision in `Application::new` (and
 no file picker for `vx <folder>` when it shows); `:dashboard` and `:vortex` in `typed.rs`; `dashboard` and
 `dashboard-background` (`DashboardBackground`) in `vortex-view/src/editor.rs`; `Args::initial_working_dir` in `args.rs`, used by `main.rs`.
+
+Worktrees change core files: `:worktrees` (`:wt`) in `typed.rs`, where `apply_directory_change`
+(what `:cd` does) is now `pub(crate)` for the picker's `Enter`; `EditorView::live_dashboard` in
+`ui/editor.rs` calls `Dashboard::follow_cwd`, so the dashboard reloads when the working directory
+changes.
 
 The vortex theme changes `vortex-view/src/theme.rs` (the built-in themes and their names, the
 `default` alias), the `:theme` completion in `vortex-term/src/ui/mod.rs` and the theme check in
@@ -1757,6 +1764,7 @@ the dashboard.
 | `f` | The file picker (`space f`) |
 | `e` | The file tree (`space e`) |
 | `l` | The commit log (`space l`), in a git repository |
+| `t` | The [worktrees](#worktrees) (`:wt`), when the repository has other worktrees |
 | `q` | Quit (`:q`) |
 | `:dashboard` | Show the dashboard again, over a new empty buffer (or over the current one when it is an empty scratch buffer), its animations from the start |
 | `:vortex` | Only the vortex, without the title and the blocks, moving as `dashboard-background` says (`off` shows it still); it goes like the dashboard. Handy for a screenshot |
@@ -1768,7 +1776,9 @@ dashboard; closing a picker or the tree with `Esc` comes back to it. The keys on
 the shortest ones the keymap has for the same commands, so a remapped key shows as remapped.
 Nothing waits for the animations: every key works from the first frame.
 
-`vx <folder>` also makes the folder the working directory, as before.
+`vx <folder>` also makes the folder the working directory, as before. The dashboard always shows
+the working directory: after `:cd` (or a pick in `:worktrees`) it reads its stats again for the
+new folder, its animations from the start.
 
 ### Configuration
 
@@ -1858,7 +1868,11 @@ without `l`):
   conflicted files, when there is one (unmerged files without an operation, after a conflicting
   `git stash pop`, show as **conflicts**);
 - **worktrees**: the other worktrees of the repository (the main one from a linked one), with
-  their branch, at most three rows;
+  their branch and, dimmed, when they were last modified (`2h ago`, see
+  [Worktrees](#worktrees) for what counts), the most recently modified first, at most three rows.
+  A worktree whose folder is gone says `missing`, last. `t` (`Worktrees`) opens the
+  `:worktrees` picker; it is in the actions only when there are other worktrees (missing ones
+  don't count), as soon as they are listed, before they are dated;
 - **languages**: a thin bar of each language's share of the lines, the five largest named in a
   grid under it with their lines, and the total. Lines are newlines, counted in the files git
   tracks, skipping binary files (the hex view's check) and lockfiles (`[editor.changes]
@@ -1940,6 +1954,76 @@ one; with named colors each band takes the nearest stop.
   under a picker too; over a slow connection (ssh) prefer `load` or `static`.
 - The vortex's center is the window's, mostly under the panels; the eye shows only in windows
   much larger than the text.
+
+## Worktrees
+
+`:worktrees` (alias `:wt`, no key by default) opens a picker of the repository's worktrees:
+the current one first, marked `●`, then the others by when they were last modified, the
+most recently modified first. `Enter` goes to one the way `:cd <its path>` does. The dashboard
+lists them in the same order and opens the picker with `t`.
+
+```text
+│     path       branch              changes                             unpushed    modified   │
+│ > ● ~/main     main                clean                               all pushed  just now   │
+│     ~/dirty    dirty               1 staged · 1 unstaged · 1 untracked no upstream just now   │
+│     ~/ahead    ahead               clean                               2 unpushed  5h ago     │
+│     ~/detached detached at fe847c0 clean                               no upstream 3d ago     │
+│     ~/gone     missing                                                                        │
+```
+
+### Usage
+
+| Key or command | What it does |
+| --- | --- |
+| `:worktrees`, `:wt` | Open the picker, in normal mode. Outside a git repository, or without other worktrees, there is no picker, only `no other worktrees` in the status line |
+| `t` on the dashboard | The same, when the repository has other worktrees |
+| `j`/`k`, `s`, `Esc`, `q` | The keys of the fork's other pickers: move, filter (by path and branch), back to normal mode or close |
+| `Enter` | Exactly what `:cd <worktree>` does: the working directory changes, nothing else (no buffer is closed or opened). On the current worktree it only closes the picker; on a missing one the picker stays and the status line says it is missing |
+
+The columns:
+
+- **path**, from the home directory (`~/...`);
+- **branch**, or `detached at <hash>`, or `missing`;
+- **changes**: staged, unstaged and untracked files, like `git status`, or `clean`;
+- **unpushed**: the commits the branch has that its upstream doesn't (`2 unpushed`, `all
+  pushed`), or `no upstream` (also while detached). There is no "behind": it would need a fetch;
+- **modified**: when it was last modified, `just now`, `5m ago`, `2h ago`, `3d ago`, `4mo ago`,
+  `2y ago`.
+
+### Last modified
+
+A worktree was last modified at the newest of:
+
+- the modification times of the files its status lists (changed, staged or untracked; a deleted
+  file has none), from the same status that gives its counts;
+- its index file (`git add`, `git reset`);
+- its `HEAD` and `logs/HEAD` in its git dir (commits, checkouts, resets).
+
+Every tracked file is never looked at: a file touched without being changed doesn't count, and a
+worktree costs one status, like the dashboard's `changes`.
+
+### Loading
+
+The picker opens at once with the paths and branches (a few files read in `.git`), ordered by
+the time of the git dir's files alone. The counts, upstreams and times fill in from a background
+job per worktree, each row shimmering like the dashboard's while it loads; once they are all in,
+the rows are ordered by their full times once (keeping the cursor on its row, and not while
+filtering, so nothing moves under a query). The dashboard reads the statuses of the worktrees at
+once, a thread each, and lists them when all are in. Only local git is read, never the network,
+and nothing is written.
+
+A worktree whose folder is gone (deleted without `git worktree remove`, what git calls prunable),
+or that git lost track of (its `gitdir` file is gone, shown by its directory in `.git`), shows
+`missing`, calmly, last, and can't be picked. `git worktree prune` forgets them.
+
+### Limitations
+
+- The list is read when the picker opens; it doesn't follow worktrees added or removed while it
+  is open.
+- A large repository with many worktrees costs one status per worktree, on the dashboard as in the
+  picker.
+- The current worktree is the one the working directory is in: picking it from a subfolder of
+  it doesn't go to its root.
 
 ## The vortex theme
 
