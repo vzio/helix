@@ -353,7 +353,7 @@ pub enum DashboardBackground {
     /// A vortex that spins while the dashboard is up.
     #[default]
     On,
-    /// A vortex that spins fast while the dashboard loads, then slows down to a stop.
+    /// A vortex that spins like `On` while the dashboard loads, then slows down to a stop.
     Load,
     /// A vortex that doesn't move.
     Static,

@@ -1534,7 +1534,7 @@ dashboard-background = "on"     # "on", "load", "static" or "off"
 | `dashboard-background` | The vortex |
 | --- | --- |
 | `on` (default) | spins while the dashboard is up, at about 20 frames a second |
-| `load` | spins fast while the dashboard loads, then slows down to a stop over about three seconds once the title is open; no more frames after that |
+| `load` | spins like `on` while the dashboard loads, then slows down to a stop over about three seconds once the title is open; no more frames after that |
 | `static` | one still frame, never animated |
 | `off` | no vortex and no panels: the title, the stats and the actions on the background |
 
