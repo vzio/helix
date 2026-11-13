@@ -3,8 +3,8 @@
 //!
 //! Each size is six letters drawn from plain text. The large one is a theme's choice
 //! (`dashboard-logo` in its `[effects]`): the runic wordmark ([`RUNES`], the default: a diamond
-//! O, an up-arrow T, Σ for E, a sharp R, its diagonals in half blocks so every stroke is as
-//! thick as the R's) or the classic block letters ([`LARGE`]), whose box-drawing characters are
+//! O, an up-arrow T, Σ for E, a sharp R, its diagonals and bars in half blocks so every stroke
+//! is as thick as the R's) or the classic block letters ([`LARGE`]), whose box-drawing characters are
 //! their shadow, with its own theme scope. The opening ([`Title::cells`]): `V` and `X` slide
 //! apart from the center, and `O`, `R`, `T` and `E` appear in the room they leave, through three
 //! shades (`░▒▓`, or ASCII ones), the inner letters first.
@@ -41,13 +41,13 @@ pub const RUNES: Title = Title {
         ],
         &["██▀▀▄▄  ", "██   ▄█▀", "██▄█▀▀  ", "██  ▀█▄ ", "██    ▀█"],
         &[
-            "    ██    ",
-            "  ██████  ",
-            "██  ██  ██",
+            "   ▄██▄   ",
+            " ▄█▀██▀█▄ ",
+            "▀▀  ██  ▀▀",
             "    ██    ",
             "    ██    ",
         ],
-        &["████████", " ▀█▄    ", "   ██   ", " ▄█▀    ", "████████"],
+        &["██▀▀▀▀▀▀", " ▀█▄    ", "   ██   ", " ▄█▀    ", "██▄▄▄▄▄▄"],
         &[
             "▀█▄    ▄█▀",
             "  ▀█▄▄█▀  ",

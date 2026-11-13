@@ -268,3 +268,336 @@ impl Slot {
         self.0.as_ref()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use vortex_core::unicode::width::UnicodeWidthChar;
+    use vortex_view::graphics::{Color, Rect, Style};
+
+    const FRAME: Duration = Duration::from_millis(16);
+
+    /// Frames every 16 ms for `seconds` simulated seconds over `cells` cells.
+    fn run_frames(glitch: &mut Glitch, start: Instant, cells: usize, seconds: u64) -> Instant {
+        let end = start + Duration::from_secs(seconds);
+        let mut now = start;
+        while now < end {
+            glitch.advance(now, cells);
+            now += FRAME;
+        }
+        now
+    }
+
+    /// Drives the glitch only at the times it asks for, from one first frame, until `end`.
+    /// Returns the number of frames drawn.
+    fn run_on_demand(glitch: &mut Glitch, start: Instant, cells: usize, seconds: u64) -> usize {
+        let end = start + Duration::from_secs(seconds);
+        let mut now = start;
+        let mut frames = 1;
+        glitch.advance(now, cells);
+        glitch.schedule(now);
+        while let Some(at) = glitch.next_change() {
+            if at > end {
+                break;
+            }
+            assert!(at > now, "a frame asked for at or before the last one");
+            assert_eq!(glitch.wake_at(), Some(at));
+            now = at;
+            glitch.advance(now, cells);
+            glitch.schedule(now);
+            frames += 1;
+        }
+        frames
+    }
+
+    fn assert_near(value: f64, mean: f64, sds: f64, what: &str) {
+        let sd = mean.sqrt();
+        assert!(
+            (value - mean).abs() <= sds * sd,
+            "{what}: {value} is not within {sds} sd ({sd:.1}) of {mean}"
+        );
+    }
+
+    #[test]
+    fn a_high_rate_starts_rate_times_cells_times_seconds_glitches() {
+        for seed in 1..=5 {
+            let mut glitch = Glitch::seeded(0.6, seed);
+            run_frames(&mut glitch, Instant::now(), 150, 60);
+            assert_near(
+                glitch.started() as f64,
+                0.6 * 150.0 * 60.0,
+                5.0,
+                "high rate",
+            );
+        }
+    }
+
+    #[test]
+    fn a_low_rate_starts_rate_times_cells_times_seconds_glitches() {
+        for seed in 1..=5 {
+            let mut glitch = Glitch::seeded(0.01, seed);
+            run_on_demand(&mut glitch, Instant::now(), 40, 2000);
+            assert_near(
+                glitch.started() as f64,
+                0.01 * 40.0 * 2000.0,
+                5.0,
+                "low rate",
+            );
+        }
+    }
+
+    #[test]
+    fn a_glitch_shows_for_its_duration() {
+        for (duration, custom) in [(DURATION, false), (Duration::from_millis(350), true)] {
+            let mut checked = 0;
+            for seed in 1..=50 {
+                let mut glitch = Glitch::seeded(0.5, seed);
+                if custom {
+                    glitch = glitch.with_duration(duration);
+                }
+                let t0 = Instant::now();
+                glitch.advance(t0, 1);
+                assert_eq!(glitch.glitched().count(), 0);
+                let start = glitch.next_change().unwrap();
+                glitch.advance(start, 1);
+                assert_eq!(glitch.glitched().count(), 1);
+                // a second glitch before this one ends would replace it: skip those seeds
+                if glitch.next.unwrap() < start + duration + Duration::from_millis(5) {
+                    continue;
+                }
+                checked += 1;
+                let (cell, c) = glitch.glitched().next().unwrap();
+                assert_eq!(cell, 0);
+                let one = Duration::from_millis(1);
+                for at in [one, duration / 2, duration - one] {
+                    glitch.advance(start + at, 1);
+                    assert_eq!(glitch.glitched().collect::<Vec<_>>(), [(0, c)], "{at:?}");
+                }
+                assert_eq!(glitch.next_change(), Some(start + duration));
+                glitch.advance(start + duration, 1);
+                assert_eq!(glitch.glitched().count(), 0);
+                glitch.advance(start + duration + one, 1);
+                assert_eq!(glitch.glitched().count(), 0);
+            }
+            assert!(checked > 20, "{checked}");
+        }
+    }
+
+    #[test]
+    fn the_share_of_glitched_cells_is_rate_times_duration() {
+        for (rate, duration) in [(0.2, DURATION), (0.1, Duration::from_millis(250))] {
+            let mut glitch = Glitch::seeded(rate, 42).with_duration(duration);
+            let cells = 100;
+            let mut now = Instant::now();
+            glitch.advance(now, cells);
+            let samples = 5000;
+            let mut glitched = 0;
+            for _ in 0..samples {
+                now += Duration::from_secs(1);
+                glitch.advance(now, cells);
+                glitched += glitch.glitched().count();
+            }
+            let share = glitched as f64 / (samples * cells) as f64;
+            let expected = rate * duration.as_secs_f64();
+            assert!(
+                (share - expected).abs() < expected * 0.1,
+                "{share} vs {expected}"
+            );
+        }
+    }
+
+    #[test]
+    fn glitched_characters_are_ascii_of_one_column() {
+        let mut glitch = Glitch::seeded(0.6, 7);
+        let mut now = Instant::now();
+        let mut seen = std::collections::HashSet::new();
+        for _ in 0..4000 {
+            glitch.advance(now, 150);
+            for (_, c) in glitch.glitched() {
+                assert!(CHARS.contains(&(c as u8)), "{c:?}");
+                assert!(c.is_ascii(), "{c:?}");
+                assert_eq!(UnicodeWidthChar::width(c), Some(1), "{c:?}");
+                seen.insert(c);
+            }
+            now += FRAME;
+        }
+        // all of them come up in the long run
+        assert!(seen.len() > CHARS.len() * 9 / 10, "{}", seen.len());
+        assert!(CHARS.iter().all(|c| c.is_ascii() && !c.is_ascii_control()));
+    }
+
+    #[test]
+    fn it_only_asks_for_frames_at_changes() {
+        let mut glitch = Glitch::seeded(0.01, 3);
+        let seconds = 1000;
+        let frames = run_on_demand(&mut glitch, Instant::now(), 40, seconds);
+        let started = glitch.started() as usize;
+        assert!(started > 300, "{started}");
+        // one frame to start each glitch, one to end it, and the first
+        assert!(
+            frames + 5 >= 2 * started && frames <= 2 * started + 5,
+            "{frames} frames for {started} glitches"
+        );
+        assert!(frames < seconds as usize * 30 / 10, "{frames}");
+    }
+
+    #[test]
+    fn nothing_is_asked_for_without_cells_or_rate() {
+        let now = Instant::now();
+        for (rate, cells) in [(0.5, 0), (0.0, 40), (0.0, 0)] {
+            let mut glitch = Glitch::seeded(rate, 1);
+            glitch.advance(now, cells);
+            assert_eq!(glitch.next_change(), None);
+            glitch.schedule(now);
+            assert_eq!(glitch.wake_at(), None);
+            glitch.advance(now + Duration::from_secs(100), cells);
+            glitch.schedule(now + Duration::from_secs(100));
+            assert_eq!(glitch.next_change(), None);
+            assert_eq!(glitch.wake_at(), None);
+            assert_eq!(glitch.started(), 0);
+        }
+        // and a negative rate is no rate
+        assert_eq!(Glitch::seeded(-1.0, 1).rate(), 0.0);
+        // a glitch that had cells and loses them stops asking
+        let mut glitch = Glitch::seeded(0.5, 1);
+        glitch.advance(now, 10);
+        glitch.schedule(now);
+        assert!(glitch.wake_at().is_some());
+        glitch.advance(now, 0);
+        assert_eq!(glitch.next_change(), None);
+        glitch.schedule(now);
+        assert_eq!(glitch.wake_at(), None);
+    }
+
+    #[test]
+    fn the_next_wake_up_comes_from_the_rate() {
+        for (rate, cells) in [(0.5, 10), (0.02, 100), (3.0, 1)] {
+            let now = Instant::now();
+            let seeds = 4000;
+            let total: f64 = (0..seeds)
+                .map(|seed| {
+                    let mut glitch = Glitch::seeded(rate, seed * 7919 + 1);
+                    glitch.advance(now, cells);
+                    assert_eq!(glitch.glitched().count(), 0);
+                    (glitch.next_change().unwrap() - now).as_secs_f64()
+                })
+                .sum();
+            let mean = total / seeds as f64;
+            let expected = 1.0 / (rate * cells as f64);
+            // the sd of the mean of an exponential is its mean over sqrt(n)
+            assert!(
+                (mean - expected).abs() < 5.0 * expected / (seeds as f64).sqrt(),
+                "{mean} vs {expected}"
+            );
+        }
+    }
+
+    #[test]
+    fn only_visible_cells_glitch() {
+        let mut glitch = Glitch::seeded(2.0, 11);
+        let mut now = Instant::now();
+        for frame in 0..3000 {
+            let cells = [1, 5, 40, 3, 0, 17][frame / 7 % 6];
+            glitch.advance(now, cells);
+            assert!(glitch.glitched().all(|(cell, _)| cell < cells));
+            now += FRAME;
+        }
+        // glitches on cells beyond the new count are dropped at once
+        let mut glitch = Glitch::seeded(5.0, 2);
+        let now = Instant::now();
+        glitch.advance(now, 200);
+        let mut now = now;
+        while glitch.glitched().filter(|&(cell, _)| cell >= 5).count() < 3 {
+            now += FRAME;
+            glitch.advance(now, 200);
+        }
+        glitch.advance(now, 5);
+        assert!(glitch.glitched().all(|(cell, _)| cell < 5));
+        assert!(glitch.next_change().is_some());
+    }
+
+    #[test]
+    fn draw_changes_only_the_listed_cells_and_keeps_their_style() {
+        let area = Rect::new(0, 0, 20, 3);
+        let style = Style::default().fg(Color::Red).bg(Color::Blue);
+        let mut base = Surface::empty(area);
+        for y in 0..3 {
+            for x in 0..20 {
+                base.set_string(x, y, ".", style);
+            }
+        }
+        let listed: Vec<(u16, u16)> = (2..12).map(|x| (x, 1)).collect();
+        let mut glitch = Glitch::seeded(50.0, 5);
+        let t0 = Instant::now();
+        let mut changed = std::collections::HashSet::new();
+        for frame in 0..40 {
+            let mut surface = base.clone();
+            glitch.draw(t0 + FRAME * frame, &mut surface, &listed);
+            for y in 0..3 {
+                for x in 0..20 {
+                    let cell = &surface[(x, y)];
+                    assert_eq!((cell.fg, cell.bg), (Color::Red, Color::Blue));
+                    if cell.symbol.as_str() != "." {
+                        assert!(listed.contains(&(x, y)), "{x},{y} is not listed");
+                        let c = cell.symbol.chars().next().unwrap();
+                        assert!(CHARS.contains(&(c as u8)), "{c:?}");
+                        changed.insert((x, y));
+                    }
+                }
+            }
+        }
+        assert!(changed.len() > 5, "{changed:?}");
+        // a draw asks for the next frame
+        assert!(glitch.wake_at().is_some());
+        // no cells listed: nothing changes
+        let mut surface = base.clone();
+        glitch.draw(t0 + Duration::from_secs(5), &mut surface, &[]);
+        assert_eq!(surface, base);
+    }
+
+    #[test]
+    fn a_slot_follows_the_rate() {
+        let mut slot = Slot::default();
+        assert!(slot.get().is_none());
+        assert!(slot.at(0.0).is_none());
+        assert!(slot.at(-1.0).is_none());
+        let now = Instant::now();
+        {
+            let glitch = slot.at(10.0).unwrap();
+            assert_eq!(glitch.rate(), 10.0);
+            run_frames(glitch, now, 10, 2);
+            assert!(glitch.started() > 0);
+        }
+        // the same rate keeps the same glitch
+        let started = slot.at(10.0).unwrap().started();
+        assert!(started > 0);
+        assert_eq!(slot.get().unwrap().started(), started);
+        // another rate makes a new one
+        let glitch = slot.at(20.0).unwrap();
+        assert_eq!(glitch.rate(), 20.0);
+        assert_eq!(glitch.started(), 0);
+        run_frames(glitch, now, 10, 1);
+        assert!(slot.get().unwrap().started() > 0);
+        // a rate of 0 drops it
+        assert!(slot.at(0.0).is_none());
+        assert!(slot.get().is_none());
+        // and it starts again from nothing
+        assert_eq!(slot.at(20.0).unwrap().started(), 0);
+    }
+
+    #[test]
+    fn the_same_seed_and_frames_give_the_same_glitches() {
+        let now = Instant::now();
+        let record = |seed| {
+            let mut glitch = Glitch::seeded(0.8, seed);
+            let mut out = Vec::new();
+            for frame in 0..500 {
+                glitch.advance(now + FRAME * frame, 60);
+                out.push(glitch.glitched().collect::<Vec<_>>());
+            }
+            (out, glitch.started())
+        };
+        assert_eq!(record(9), record(9));
+        assert_ne!(record(9), record(10));
+    }
+}

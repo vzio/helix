@@ -946,6 +946,161 @@ mod tests {
         }
     }
 
+    fn themes_dir(files: &[(&str, &str)]) -> (tempfile::TempDir, Loader) {
+        let dir = tempfile::tempdir().unwrap();
+        let themes = dir.path().join("themes");
+        std::fs::create_dir(&themes).unwrap();
+        for (name, source) in files {
+            std::fs::write(themes.join(format!("{name}.toml")), source).unwrap();
+        }
+        let loader = Loader::new(&[dir.path().to_path_buf()]);
+        (dir, loader)
+    }
+
+    #[test]
+    fn a_theme_without_effects_has_none_and_no_effects_scope() {
+        let (_dir, loader) = themes_dir(&[("plain", "\"ui.text\" = \"#123456\"\n")]);
+        let (theme, warnings) = loader.load_with_warnings("plain").unwrap();
+        assert!(warnings.is_empty(), "{warnings:?}");
+        assert_eq!(*theme.effects(), Effects::default());
+        assert!(theme.try_get_exact("effects").is_none());
+        assert!(!theme.scopes().iter().any(|s| s == "effects"));
+        // the vortex theme has no table either
+        let vortex = loader.load(DEFAULT_THEME_NAME).unwrap();
+        assert_eq!(*vortex.effects(), Effects::default());
+        assert!(vortex.try_get_exact("effects").is_none());
+    }
+
+    #[test]
+    fn an_effects_table_is_not_a_style_scope() {
+        let (_dir, loader) = themes_dir(&[(
+            "fx",
+            "\"ui.text\" = \"#123456\"\n[effects]\nglitch-logo = 2\n",
+        )]);
+        let (theme, warnings) = loader.load_with_warnings("fx").unwrap();
+        assert!(warnings.is_empty(), "{warnings:?}");
+        assert_eq!(theme.effects().glitch_logo, 2.0);
+        assert!(theme.try_get_exact("effects").is_none());
+        assert!(!theme.scopes().iter().any(|s| s.starts_with("effects")));
+    }
+
+    #[test]
+    fn effects_are_inherited_key_by_key() {
+        let (_dir, loader) = themes_dir(&[
+            (
+                "parent",
+                "[effects]\nglitch-logo = 1\nglitch-background = 0.25\ndashboard-charset = \"ascii\"\n",
+            ),
+            (
+                "child",
+                "inherits = \"parent\"\n[effects]\nglitch-logo = 3\n",
+            ),
+            ("bare_child", "inherits = \"parent\"\n\"ui.text\" = \"#123456\"\n"),
+            (
+                "from_matrix",
+                "inherits = \"matrix\"\n[effects]\ndashboard-logo = \"runes\"\n",
+            ),
+            ("from_vortex", "inherits = \"vortex\"\n\"ui.text\" = \"#123456\"\n"),
+        ]);
+        let (child, warnings) = loader.load_with_warnings("child").unwrap();
+        assert!(warnings.is_empty(), "{warnings:?}");
+        assert_eq!(
+            *child.effects(),
+            Effects {
+                glitch_logo: 3.0,
+                glitch_background: 0.25,
+                dashboard_charset: DashboardCharset::Ascii,
+                ..Effects::default()
+            }
+        );
+        // a child without a table keeps the parent's whole table
+        let bare = loader.load("bare_child").unwrap();
+        assert_eq!(bare.effects().glitch_logo, 1.0);
+        assert_eq!(bare.effects().dashboard_charset, DashboardCharset::Ascii);
+
+        let matrix = loader.load(MATRIX_THEME_NAME).unwrap();
+        let (child, warnings) = loader.load_with_warnings("from_matrix").unwrap();
+        assert!(warnings.is_empty(), "{warnings:?}");
+        let effects = child.effects();
+        assert_eq!(effects.dashboard_logo, DashboardLogo::Runes);
+        assert_eq!(effects.dashboard_charset, DashboardCharset::Ascii);
+        assert_eq!(effects.glitch_logo, matrix.effects().glitch_logo);
+        assert_eq!(
+            effects.glitch_background,
+            matrix.effects().glitch_background
+        );
+        assert_eq!(
+            effects.glitch_diagnostics,
+            matrix.effects().glitch_diagnostics
+        );
+        assert_eq!(
+            effects.terminal_phosphor,
+            matrix.effects().terminal_phosphor
+        );
+        assert!(effects.terminal_phosphor.is_some());
+
+        let child = loader.load("from_vortex").unwrap();
+        assert_eq!(*child.effects(), Effects::default());
+    }
+
+    #[test]
+    fn the_terminal_phosphor_may_name_a_palette_color() {
+        let (_dir, loader) = themes_dir(&[(
+            "green",
+            "[effects]\nterminal-phosphor = \"green\"\n[palette]\ngreen = \"#00ff00\"\n",
+        )]);
+        let (theme, warnings) = loader.load_with_warnings("green").unwrap();
+        assert!(warnings.is_empty(), "{warnings:?}");
+        assert_eq!(
+            theme.effects().terminal_phosphor,
+            Some(Color::Rgb(0, 255, 0))
+        );
+        let (_dir, loader) = themes_dir(&[("hex", "[effects]\nterminal-phosphor = \"#102030\"\n")]);
+        let theme = loader.load("hex").unwrap();
+        assert_eq!(
+            theme.effects().terminal_phosphor,
+            Some(Color::Rgb(16, 32, 48))
+        );
+    }
+
+    #[test]
+    fn a_wrong_effect_warns_and_the_theme_still_loads() {
+        let (_dir, loader) = themes_dir(&[(
+            "wrong",
+            "\"ui.text\" = \"#123456\"\n[effects]\nglitch-logo = 99\nglitch-background = 0.5\n",
+        )]);
+        let (theme, warnings) = loader.load_with_warnings("wrong").unwrap();
+        assert_eq!(warnings.len(), 1, "{warnings:?}");
+        assert!(warnings[0].contains("glitch-logo"), "{warnings:?}");
+        assert_eq!(theme.get("ui.text").fg, Some(Color::Rgb(0x12, 0x34, 0x56)));
+        assert_eq!(theme.effects().glitch_logo, 0.0);
+        assert_eq!(theme.effects().glitch_background, 0.5);
+
+        let (_dir, loader) =
+            themes_dir(&[("not_a_table", "\"ui.text\" = \"#123456\"\neffects = 3\n")]);
+        let (theme, warnings) = loader.load_with_warnings("not_a_table").unwrap();
+        assert_eq!(warnings.len(), 1, "{warnings:?}");
+        assert_eq!(theme.get("ui.text").fg, Some(Color::Rgb(0x12, 0x34, 0x56)));
+        assert_eq!(*theme.effects(), Effects::default());
+    }
+
+    #[test]
+    fn the_matrix_theme_is_built_in_and_has_its_effects() {
+        assert!(BUILT_IN_THEMES.contains(&MATRIX_THEME_NAME));
+        let loader = Loader::new(&[]);
+        let (theme, warnings) = loader.load_with_warnings(MATRIX_THEME_NAME).unwrap();
+        assert!(warnings.is_empty(), "{warnings:?}");
+        assert_eq!(theme.name(), MATRIX_THEME_NAME);
+        let effects = theme.effects();
+        assert_eq!(effects.dashboard_charset, DashboardCharset::Ascii);
+        assert_eq!(effects.dashboard_logo, DashboardLogo::Classic);
+        assert!(effects.glitch_logo > effects.glitch_background);
+        assert!(effects.glitch_background > 0.0);
+        assert_eq!(effects.glitch_diagnostics, 0.01);
+        assert!(effects.terminal_phosphor.is_some());
+        assert!(theme.try_get_exact("effects").is_none());
+    }
+
     #[test]
     #[should_panic(expected = "index out of bounds: the len is 0 but the index is 4278190078")]
     fn out_of_bounds() {
@@ -953,3 +1108,7 @@ mod tests {
         Theme::default().highlight(highlight);
     }
 }
+
+#[cfg(test)]
+#[path = "contrast_tests.rs"]
+mod contrast_tests;

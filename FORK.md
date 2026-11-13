@@ -96,6 +96,8 @@ git blame FILE
 - [Watch mode](#watch-mode)
 - [History and bookmarks](#history-and-bookmarks)
 - [The vortex theme](#the-vortex-theme)
+- [Theme effects](#theme-effects)
+- [The Matrix theme](#the-matrix-theme)
 - [Practice](#practice)
 - [Tutor](#tutor)
 
@@ -120,11 +122,13 @@ Each feature lives in its own modules, to keep rebasing on upstream cheap:
 | Terminal panel | `vortex-terminal/` (the shell: pty, emulator, OSC 133, bash/zsh integration), `vortex-view/src/terminal.rs` (panel state, `[editor.terminal]`), `vortex-term/src/terminal/` (drawing, focus, input encoding, the `vx` shim), `vortex-term/tests/test/terminal.rs` |
 | The debugger | `vortex-term/src/debug/` (`session.rs` the sessions, the adapter's events and reverse requests, `load.rs` what the panel loads at a stop, `breakpoints.rs` breakpoints per session (yours and the engine's hidden ones in one request), `engine.rs` the per-line breakpoint engine: finding and installing hidden breakpoints, full-speed runs, the hit decision, `panel.rs` the keys and the mouse, `render.rs` the drawing; spectator mode: `playback.rs` automatic stepping, fast forward and run to cursor, `threads.rs` spectating, freezing and running threads alone, `record.rs` what each stop records, `rewind.rs` scrubbing, `cpu.rs` a thread's CPU time from the OS; `memory.rs` a debugged program's memory in the hex view: opening, reading, refreshing, writing, recording for rewind), `vortex-view/src/debug/` (`mod.rs` the panel's state and rows; `spectator.rs`, `history.rs`, `timing.rs`, `config.rs` spectator mode's state, `[editor.debugger]`; `engine.rs` the engine's state and decisions, `lineline.rs` the record of every hit), `vortex-dap/src/hits.rs` (the engine's fast path: hits of unwatched threads continued by the client), `vortex-term/src/ui/text_decorations/step_times.rs` (the time per line), `vortex-dap/src/requester.rs` (requests that borrow nothing, for background tasks), child sessions in `vortex-dap/src/registry.rs`, `vortex-term/src/commands/dap.rs` (the `space G` commands, the templates), `vortex-term/tests/test/debug/` (a scripted fake adapter and the tests) |
 | Hex view | `vortex-view/src/hex/mod.rs` (the bytes: windowed reads, the overwritten bytes, undo, cursors, search, the row layout), `vortex-view/src/hex/memory.rs` (a debugged program's memory as the bytes: the page cache, what each byte is as drawn), `vortex-term/src/ui/hex_view.rs` (drawing, the statusline texts), `vortex-term/src/commands/hex.rs` (keys, mouse, prompts, `:hex`), `vortex-term/tests/test/hex_view.rs` |
-| Dashboard | `vortex-term/src/dashboard.rs` (when it is up, its keys), `vortex-term/src/dashboard/` (`stats.rs` the background reading, `languages.rs` the line counts, `render.rs` the layout and the panels, `timeline.rs` when things move, `title.rs` the title, `vortex.rs` the vortex, `wrap.rs` long values on two rows, `snapshots/` the drawings the tests compare with), `vortex-vcs/src/git/summary.rs` (the git summary), `vortex-term/tests/test/dashboard.rs` |
+| Dashboard | `vortex-term/src/dashboard.rs` (when it is up, its keys), `vortex-term/src/dashboard/` (`stats.rs` the background reading, `languages.rs` the line counts, `render.rs` the layout and the panels, `timeline.rs` when things move, `title.rs` the title, `vortex.rs` the vortex, `charset.rs` blocks or ASCII, `wrap.rs` long values on two rows, `snapshots/` the drawings the tests compare with), `vortex-vcs/src/git/summary.rs` (the git summary), `vortex-term/tests/test/dashboard.rs` |
 | Worktrees | `vortex-term/src/commands/worktrees.rs` (the `:worktrees` picker: its rows, columns, background jobs and `Enter`), `vortex-vcs/src/git/summary.rs` (the worktrees, missing ones flagged; `Repo::status`, the last modified time; `Repo::dated_worktrees`; `Worktree::details`), `vortex-stdx/src/time.rs` (`format_ago`), the dashboard's worktree rows and `t` in `vortex-term/src/dashboard/`, `vortex-term/tests/test/worktrees.rs` |
 | Watch mode | `vortex-view/src/watch.rs` (the session: the baseline, the files and hunks numbered in the order they changed, following, `n`/`N`, the new count), `vortex-term/src/watch.rs` (`:watch` and the other commands, reading the changed files on the watcher's thread, following, the flash, which commands pause or end it, the statusline element, the `:watch-changes` picker), `RepoWatch::start_tapped` in `vortex-term/src/live.rs`, the session's gutter markers in `vortex-view/src/gutter.rs`, `vortex-term/tests/test/watch.rs` |
 | History and bookmarks | `vortex-view/src/history.rs` (what records a jump, `Editor::record_jump`, the places of a view, walking), `vortex-view/src/bookmarks.rs` (the bookmarks of a buffer, mapped through its changes; the closed files' bookmarks; the ring), `vortex-term/src/history.rs` (`ga`, `gA` and its sticky state, showing a screen again, the bookmark commands and picker), the `bookmarks` gutter in `vortex-view/src/gutter.rs`, `vortex-term/tests/test/history.rs` |
 | The vortex theme | `theme.toml` (the theme), `helix_theme.toml` (upstream's default theme), the built-in themes in `vortex-view/src/theme.rs` |
+| Theme effects | `vortex-view/src/effects.rs` (the `[effects]` table: parsing, validation, inheritance), `vortex-term/src/ui/glitch.rs` (the glitch and its wake-ups), `vortex-term/src/dashboard/charset.rs` (blocks or the measured ASCII ramp), `vortex-term/src/terminal/phosphor.rs` (the phosphor filter), the glitch over error diagnostics in `vortex-term/src/ui/text_decorations/diagnostics.rs` (where the ghost text of errors is) and `glitch_diagnostics` in `vortex-term/src/ui/editor.rs` |
+| The Matrix theme | `matrix_theme.toml` (the theme and its effects), built in by `vortex-view/src/theme.rs`, CONTRAST_TEST_FILE (the contrast test) |
 | Practice | `vortex-term/src/practice.rs`, `vortex-term/src/practice/`, `runtime/practice/`, `vortex-term/tests/test/practice.rs` |
 
 Hooks into core files: commands and keys in `vortex-term/src/commands.rs`,
@@ -249,7 +253,15 @@ session's hunks over git's; `MappableCommand::execute` in `commands.rs` and `exe
 
 The vortex theme changes `vortex-view/src/theme.rs` (the built-in themes and their names, the
 `default` alias), the `:theme` completion in `vortex-term/src/ui/mod.rs` and the theme check in
-`xtask`.
+`xtask`; the Matrix theme is one more built-in theme there.
+
+Theme effects change core files: the `effects` of `Theme` and `Theme::effects`, the `effects` key
+taken out of the styles in `build_theme_values` and merged key by key in `Loader::merge_themes`,
+in `vortex-view/src/theme.rs`; `InlineDiagnostics::new` taking the list of cells to keep, in
+`ui/text_decorations/diagnostics.rs`; the `diagnostic_glitch` and `diagnostic_cells` of
+`EditorView` and the glitch after the views in `render`, in `ui/editor.rs`; the panel's colors
+through the filter in `terminal/render.rs`; `DashboardBackground` (`settle` with its `load`
+alias, `drain`, `grow`, `grow-on` the default) in `vortex-view/src/editor.rs`.
 
 The hunk actions add `Editor::save_messages` (`vortex-view/src/editor.rs`), a message shown
 instead of `'file' written` when a document's save completes (`handle_document_write` in
@@ -1298,7 +1310,9 @@ right = ["diagnostics", "shell", "selections", "register", "position", "file-enc
 ```
 
 The panel's colors are `ui.terminal` (background and default text; falls back to
-`ui.background`).
+`ui.background`). A theme can draw the whole panel in one color at each color's own brightness,
+like an old monochrome monitor, with `terminal-phosphor` in its
+[effects](#the-phosphor-filter).
 
 `[editor.terminal]` was already the debugger's external terminal (`command`, `args`); those keys
 still work there.
@@ -1310,7 +1324,130 @@ still work there.
 - Typing in the panel scrolls the view back down to the prompt.
 - Quitting Vortex kills the shell (and what runs in it).
 
-### Practice
+### Theme effects
+
+Themes are data, and so are their effects: an optional `[effects]` table in a theme file says how
+the dashboard draws its background and title, what glitches, and whether the terminal panel goes
+phosphor. Every effect is off when a theme doesn't set it, and an effect that is off costs
+nothing: a theme without the table draws and idles exactly as one with no effects at all.
+
+```toml
+[effects]
+dashboard-charset = "ascii"     # "blocks" (default) or "ascii"
+dashboard-logo = "classic"      # "runes" (default) or "classic"
+glitch-logo = 0.6               # chances per cell per second, 0 (default, off) to 10
+glitch-background = 0.004
+glitch-diagnostics = 0.01
+terminal-phosphor = "phosphor"  # a color: a palette name, "#rrggbb" or 0-255; default off
+```
+
+| Key | Values | Default | What it does |
+| --- | --- | --- | --- |
+| `dashboard-charset` | `"blocks"`, `"ascii"` | `"blocks"` | The dashboard's vortex and the title's opening drawn with shaded blocks, `·░▒▓█`, or with an ASCII ramp, `.:=#&@` |
+| `dashboard-logo` | `"runes"`, `"classic"` | `"runes"` | The large title: the runic wordmark, or the block letters with a shadow the dashboard had first |
+| `glitch-logo` | 0 to 10 | 0 | The glitch rate of the title's letters (not their shadow) |
+| `glitch-background` | 0 to 10 | 0 | The glitch rate of the vortex's cells (never in a panel) |
+| `glitch-diagnostics` | 0 to 10 | 0 | The glitch rate of the ghost text of error diagnostics |
+| `terminal-phosphor` | a color | off | The terminal panel drawn through a phosphor filter of that color |
+
+The rates are chances per cell per second: `glitch-diagnostics = 0.01` gives each character of an
+error's ghost text a 1% chance a second to glitch.
+
+The table is read once, when the theme loads, and inherited through `inherits` key by key, like
+the palette: a theme that inherits from `matrix` and sets only `dashboard-logo = "runes"` keeps the
+Matrix's other effects. A wrong value (a name that isn't one of the choices, a rate that isn't a
+number from 0 to 10, something that isn't a color, a key that isn't an effect) is a warning like
+the theme's other ones (in the log, and in `cargo xtask themecheck`), and that effect keeps its
+default: the theme still loads.
+
+### The glitch
+
+A glitched cell shows a random character for 100 ms, then goes back to what it was. One
+component does it (`vortex-term/src/ui/glitch.rs`), for any set of cells on screen: the title,
+the vortex and error diagnostics use it now, each with its own rate and duration.
+
+- **When.** Glitches are a Poisson process over the cells on screen: with `n` cells at a rate `r`,
+  the time to the next glitch is drawn from an exponential distribution of rate `n × r`, and it
+  lands on one of the cells at random. At any moment about `r × 0.1 s` of the cells are glitched:
+  the Matrix's `glitch-logo = 0.6` keeps about 7 of the classic title's 126 letter cells changing
+  at once, its `glitch-background = 0.004` about 2 of a 160 × 50 vortex's 5,000 cells.
+- **What.** ASCII letters, digits and `@#$%&*+=-:;/\|<>?!`, one column each, in the cell's own
+  color: no other Unicode, nothing double-width, so every terminal and font shows it.
+- **No constant redraws.** After a frame, the glitch asks for one more frame at its next change,
+  a glitch starting or one ending, and nothing else: it schedules a single wake-up, kept until a
+  sooner one is needed. Only cells drawn in the frame count, so a vortex or a diagnostic that is
+  off screen (or under a panel) asks for nothing, and with no glitch to come the editor stays
+  idle. IDLE_NUMBERS
+- **Error diagnostics.** Only the ghost text Vortex draws for diagnostics of severity error, at
+  the end of the line and inline under it, over its characters (not the spaces between words);
+  never warnings, info or hints, never their `┘├─` connectors, never the buffer's own text.
+- The random source is seeded once per run; nothing is saved.
+
+### The ASCII charset
+
+`dashboard-charset = "ascii"` draws the vortex with `.:=#&@` and opens the title through `:=#`,
+with the same geometry, the same math and the same frame cost as the blocks. The ramp was
+measured rather than guessed: the ink of each character, the share of its cell it covers, averaged
+over DejaVu Sans Mono, JetBrains Mono and Liberation Mono:
+
+| | `.` | `:` | `=` | `#` | `&` | `@` |
+| --- | --- | --- | --- | --- | --- | --- |
+| ink | 2.6% | 5.0% | 10.1% | 19.8% | 22.2% | 27.0% |
+| relative to `@` | 9% | 18% | 37% | 74% | 82% | 100% |
+| light it needs | 0.10 | 0.22 | 0.41 | 0.76 | 0.89 | 1.15 |
+
+`.` takes the place of `·` and `@` that of `█`, at the same thresholds of light, so the same cells
+are lit. The others sit where the blocks' ink (a quarter for `░`, a half for `▒`, three quarters
+for `▓`) reaches their ink relative to `@`, so the gradient reads the same, one step finer. The
+other symbols the glitch uses are no denser than `@` or fall between these with nothing to add
+(`-` and `:`, `*`, `+` and `=`, `#` and `%` measure within a few tenths of a percent).
+
+### The phosphor filter
+
+With `terminal-phosphor` set, every color in the terminal panel is drawn as that color at the
+original's brightness: `ls`, `htop` and the prompt all turn phosphor and stay readable, since what
+was bright stays bright and what was dark stays dark. Indexed colors are resolved to RGB first
+(with xterm's default palette, as the outer terminal's own can't be read), RGB colors are taken as
+they are, and the default colors are the panel's (`ui.terminal`, else `ui.background`; xterm's
+light grey on black when the theme leaves them to the terminal). Brightness is the perceived one
+(HSP, the square root of the weighted squares of the channels), which ranks a pure blue as dim
+but visible rather than black. Up to the phosphor's own brightness the color is the phosphor
+scaled down; brighter colors go on from it towards white, so white stays white.
+
+The filter is off by default, and then costs one check per frame of the panel.
+
+## The Matrix theme
+
+`matrix`, built in like `vortex`: phosphor green on pure black. A bit of a joke, and genuinely
+usable: with one hue, contrast and style carry the meaning.
+
+```toml
+theme = "matrix"
+```
+
+- **Greens by brightness**: bright (`#7dff9b`) for keywords, functions and what matters, normal
+  (`#33dd66`) for text, dim (`#2fa84f`) for comments, line numbers and inactive things. The one
+  other hue is **red for errors** (`#ff3b3b`): error diagnostics, their gutter and statusline marks,
+  a failed shell or debug session.
+- **Style does the rest**: bold for keywords, definitions and what matters; italics for comments,
+  types, parameters and hints; tinted green backgrounds for strings, selections, search matches,
+  the current line, diagnostics and diff lines.
+- Warnings, info and hints differ by brightness and weight only (bold with a curly underline,
+  normal with a dotted one, dim italic). Diffs: additions bright, deletions dim, with the `+`/`-`
+  marks; conflicts bright on a tinted background.
+- Every scope the vortex theme sets is set too (selections and cursors, the dashboard, the debug
+  panel, the hex view, the commit log, watch mode's markers, bookmarks, line history,
+  `:practice`...), so nothing falls back to an unreadable default.
+- Its effects: the ASCII charset and the classic logo on the dashboard (runes and the Matrix
+  don't mix), a fast glitch on the logo (0.6), a slow one on the vortex (0.004), 0.01 on error
+  diagnostics, and the terminal panel through a phosphor filter of its text green.
+
+Its contrast is tested (WCAG ratios, CONTRAST_TEST_FILE): text on the background at least 7:1,
+comments and inactive text at least 4.5:1, text on the tinted backgrounds (the current line, the
+selections, strings) at least 4.5:1, the selection and the cursor distinguishable from the text
+and the background. CONTRAST_NUMBERS
+
+## Practice
 
 The panel, `:sh` and `:!` don't change text, so they have no `:practice` exercise; they are in
 the tutor's "THE TERMINAL PANEL" section. The keys that put shell output into the text are
@@ -2101,46 +2238,17 @@ each way to start, over a vortex that spins behind it. `vx <file>` opens the fil
 the dashboard.
 
 ```text
-░········░░░░░░░░░▒▒▓▓██▓▓▓▓▓█████▓▓▒▒▓▓▓▓███████▓▓▒░░░·········░░▒▓██▓▓▒░░░░▒░░░▓████▓▒░········░▒█
-········░░░░░▒▒▓▓▓▓█████▓▓▓▓▓▒▒░░░░░░░░░▒▒▒▓▓▓▓█████▓██▓▓░░········░▒▓███▓▒░░░░░░░▒█████▓░········░▒
-·····░░░▒▓▓▒▓███████▓▓▒▒▒▒░░░░░░░░░░░░░░░░░░░░▒▒▒▒▓▓▒▓▓▓▓▓█▓▒░·······░▓█████▓░░░░░░░▓▓███▓▒········░
-··░░░▒▓▓█▓▓█████▒▒░░░░░░·░░░░░░░░▒▒▒▒░░░░░░░░░░░░░░░░░░░▒▒▓▓▓█▓▓▒░·····░▓████▓░░░░▒░░▒▓███▓░·······░
-░░▒▒▓█████▓▓▒▒░░░·····                                                       █▓▒░░░·░░░▓██▓░░·······
-▒▓██████▓▒░░░·····░░░░  ██╗   ██╗ ██████╗ ██████╗ ████████╗███████╗██╗  ██╗  ▓▓█▒░▒░░░░░▒▒▓▒░·······
-████▓▓▓▒░░·····░░▒▓█▓▓  ██║   ██║██╔═══██╗██╔══██╗╚══██╔══╝██╔════╝╚██╗██╔╝  ▓█▓▓▒░▒▒░░░░▒▓▒░░······
-██▒▒▒░░······░▒▓▓███▒▒  ██║   ██║██║   ██║██████╔╝   ██║   █████╗   ╚███╔╝   ▒▓██▓▒░▒▒░░░░▓▓▒░░·····
-▒░░░······░▒▒▓███▓▒░··  ╚██╗ ██╔╝██║   ██║██╔══██╗   ██║   ██╔══╝   ██╔██╗   ░▓███▓▒░░··░░▒██▒░···░·
-░░······░░▓████▓▒·····   ╚████╔╝ ╚██████╔╝██║  ██║   ██║   ███████╗██╔╝ ██╗  ·░▓███▓░░···░░▓█▒░░···▒
-······░░▓██▓█▓▒▒·····░    ╚═══╝   ╚═════╝ ╚═╝  ╚═╝   ╚═╝   ╚══════╝╚═╝  ╚═╝  ··░▒███▓░░··░░▒██▒░···░
-·····░▒▓█▓▒▒░░░····░▓█                                                       ··░░▒█▓▓▒░···░░▓█▒░····
-···░░▓█▒▒░······░░▓▓██          fork of helix-editor/helix, by vzio          ░··░░▓█▓▒░░··░░▒█▒▒····
-·░░▒██▓░░·····░░▓████▒                                                       ▒░·░░▒██▒░░···░▒█▓▒░···
-░▒▓███░·····░░▒███▓▒░░░░▒▓▓▓▓▒░░▒▒██████▒░░░·░░░▒▒▒▓▓▓▒░░▓██░·░██▓░░▓██▓··░▓▓▒░░░░▒▓█▓░░···░▒██▓░···
-▒▓▓█▓░·····░                                                                            ···░▓██▓░··░
-▓▒▓█░····░░▒  PROJECT                                                      /src/vortex  ···░████▒░·░
-▒▒▓░····░░▒▓  branch    dashboard                                                       ···░███▓▒░··
-▒▒▒····░▒▓██  commit    3768ea4  feat: remove microslop support and fix CI (#27)        ···░█▓▒░░░░·
-░░····░▒████  upstream  origin/main  3 unpushed                                         ···░█▓▒░░░░·
-░····░░▓███▒  remote    origin  https://github.com/vzio/vortex                          ··░▒█▒░░░▒▒░
-····░░▒██▓▓░  changes   2 staged · 5 unstaged · 1 untracked                             ··░▓█▒░·▒▓░░
-·░··░▒▓█▓▒░░  rebase    in progress · 2 conflicted files                                ·░▓▓▒░░·▓▒▒░
-░▒·░░▒██▓▒░·  worktrees /src/vortex-review  review                                      ▒▒█▓░░··▒░░░
-░░·░▒▓██▓░░·                                                                            ███▒░···░░░▓
-░░░░▓▓▓▓▒░··                                                                            ██▒░░··░▒░▓█
-··░░▓▓▓█▒░··  LANGUAGES                                                   68,351 lines  ▓▒░░···░░▓██
-··░░▓▓▓█░░··  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━  ▒░░···░░▒▓██
-·░░▒▒██▓▒░··  ■ Rust          48,210   ■ Tree-sitter   12,650   ■ Markdown       3,377  ▒░░░░░░▒▓▓█▓
-·░░▓▒▓█▓▒░··  ■ TOML           1,904   ■ other          2,210                           ░░░░░▒▓██▓▓░
-·░░▓▓▓█▒░░··                                                                            ▒░░░▓███▓▒░░
-·░░▒▓██▓░░···░░██▓▒░··░▓██▒░░░▓██▓··░▓███▒░░▒▓███▓▓▒░░░·░·░░░░░▓█████▓░░░░·░▒▒▓▓▓▒▒░░░░░░░▒▓███▒░░··
-··░░▓███▒░···░░▒██▒▒░·░░▓█▓▒░░░▒█                                 ▒▒░···░▓████▓▒░░░▒░░░▒▒▓▓██▓▒░░···
-··░░▒███▓░·····░▒█▓░░░·░▒▓█▓▒░░░░   i    Start typing             ░░░░▒▓██▓▓▓▒░░░░░░░▒▓███▓▓▒░░···░░
-··░░░▓▓██▓░····░░▓█▒░░··░▒▓██▒░░·   f    Find a file     space f  ▓█████▓▒▒░░░░░░░▒▓████▓█▓░░····░▒░
-···░░▒▓███▓▒░···░███▒░···░▒▓██▓░░   e    File tree       space e  █▓▒▒▒░░░░░░░▒▓▓██████▓▒░······▒▒▒▓
-···░░▒▓████▒░░···░███▒░···░░▒▓██▒   l    Git history     space l  ▒▒▒░░░░░░░▓███████▒▒▒░···░░··░▒▓██
-░···░░▒▓██▓█▒░····░▓█▓▒░░·░░░▒▓▓▓   q    Quit                 :q  ░░░░░▒▒▓▓████▓▒▒▒░·····░░░·░▒▓▓█▓█
-░····░▒████▓▒░····░▓█▓▓▓▒░░▒░▒▒▒▓                                 ▓▓████████▓▒░░░░·······░░░▒▓▓▒▒▒▒▓
-░░···░░▒████▒▒░····░▓▓▓▓▓▒░░░░▒▒▒▓▓█████▓░······░░░▒▒▒▓▓▓▓▓▓▓▓▓▒██▓▓▓▒▓▓▒░░·░░░░······░░▒▒▒█▓▒▒░░▒░·
+░░······░░░░·░░░░▒▒▒▓▓▓▓▓▓▓▓▓████▓▒▒▒▒▓▓▓████████▓▒▒░░░·········░░▒▓███▓▒░░░·░░░░▒█▓▓█▓▒░········░▒█
+·······░░░░░░▒▒▒▓▓▓███▓▓▓▓▓▒▒▒▒░░░░░░░░░▒▒▒▓▒▓▒▓████▓▓▓▓▓░░········░▒▓████▓░░░░░░░▒▓▓████▒········░▒
+·····░░░▒▒▒▓███▓████▓▓▒▒▒░░░░░░░░░░░░░░░░░░░░░░░▒▒▒▓▒▓▓▓▓▓▓▓░░·······░▒█████▒░░░░░░░▒▓███▒░········░
+··░░░▒▓▓▓▓█████▓▓▒░░░░░░·░░░░░░░░░▒░▒▒▒░░░░░░░░░░░░░░░░░░▒▒▓▓▓▓▒░░·····░▒████▓░░░░·░░░▓▓█▓░░·······░
+░░▒▓█▓█▓▓▓▓▓▒░░░░·····░░░░░░▒▒▒▓▓███████▓█▓▓█████▓▓▒░░░░░░░▒▒▒▓██▓▒░····░░▓██▓▓▒░░░·░░░▒▒▒▒░░·······
+▒▓██▓█▓▓▒▒░░░··                                                                      ░░░▒▒▒▒░·······
+██▓▓██▒░░░·····  ▀█      █▀     ▄██▄     ██▀▀▄▄       ▄██▄     ██▀▀▀▀▀▀  ▀█▄    ▄█▀
+ ▀█    █▀    ▄█▀  ▀█▄   ██   ▄█▀   ▄█▀██▀█▄    ▀█▄        ▀█▄▄█▀
+  ██  ██    ██      ██  ██▄█▀▀    ▀▀  ██  ▀▀     ██         ██
+   █▄▄█      ▀█▄  ▄█▀   ██  ▀█▄       ██       ▄█▀        ▄█▀▀█▄
+    ██         ▀██▀     ██    ▀█      ██      ██▄▄▄▄▄▄  ▄█▀    ▀█▄
 ```
 
 ### Usage
@@ -2173,29 +2281,53 @@ new folder, its animations from the start.
 ```toml
 [editor]
 dashboard = false               # start as before: an empty buffer, or the file picker for vx <folder>
-dashboard-background = "on"     # "on", "load", "static" or "off"
+dashboard-background = "grow-on" # "grow-on", "grow", "drain", "settle", "on", "static" or "off"
 dashboard-title = false         # no title and no credit line: the stats and the actions only
 ```
 
 | `dashboard-background` | The vortex |
 | --- | --- |
-| `on` (default) | spins while the dashboard is up, at about 20 frames a second |
-| `load` | spins like `on` while the dashboard loads, then slows down to a stop over about three seconds once the title is open; no more frames after that |
+| `grow-on` (default) | starts empty; once loading ends, grows from the eye behind the panels until it reaches the corners, then keeps spinning like `on` |
+| `grow` | grows like `grow-on`, slowing down as it grows, and stops once it reaches the corners; no more frames after that |
+| `drain` | starts full and spinning; once loading ends, no new cells light at the rim: the edge falls into the eye, faster and faster like the flow, and the background ends empty; no more frames after that |
+| `settle` | spins like `on` while the dashboard loads, then slows down to a stop over about three seconds once the title is open; no more frames after that |
+| `on` | full from the first frame, spins while the dashboard is up, at about 20 frames a second |
 | `static` | one still frame, never animated |
 | `off` | no vortex and no panels: the title, the stats and the actions on the background |
+
+`load`, the name `settle` had before, still works. "Once loading ends" is when the title starts to
+open or a second after the dashboard opened, whichever is first (`MOTION_DELAY`): a big repository
+whose stats take seconds doesn't hold the vortex back. Since the title never opens sooner than a
+second, with fast stats both are the same instant. Growing and draining take 1.6 s from the eye to
+the corners or back (`REACH` in `timeline.rs`, the one constant for both), in any window.
 
 `:dashboard` works with `dashboard = false` too.
 
 ### The title
 
-The title is the loading indicator: it reads `VX` while the stats load, and opens to `VORTEX`
+The title is a runic, brush-stroke wordmark: a diamond O, an up-arrow T, Σ for E, a sharp R. Its
+diagonals and the Σ's bars are drawn with half blocks (`▀▄`), like the R's, so every stroke is as
+thick:
+
+```text
+▀█      █▀     ▄██▄     ██▀▀▄▄        ██      ████████  ▀█▄    ▄█▀
+ ▀█    █▀    ▄█▀  ▀█▄   ██   ▄█▀    ██████     ▀█▄        ▀█▄▄█▀
+  ██  ██    ██      ██  ██▄█▀▀    ██  ██  ██     ██         ██
+   █▄▄█      ▀█▄  ▄█▀   ██  ▀█▄       ██       ▄█▀        ▄█▀▀█▄
+    ██         ▀██▀     ██    ▀█      ██      ████████  ▄█▀    ▀█▄
+```
+
+A theme can bring back the block letters the dashboard had first with `dashboard-logo =
+"classic"` in its [effects](#theme-effects).
+
+The title is also the loading indicator: it reads `VX` while the stats load, and opens to `VORTEX`
 once they are all in, `V` and `X` sliding apart from the center while `O`, `R`, `T` and `E`
-condense in the room they leave through the shades `░▒▓` (the inner letters first), in about
-0.7 s. It never opens sooner than a second after the dashboard did: rows shimmer until their stat
+condense in the room they leave through three shades, `░▒▓` (or `:=#` with the ASCII charset; the
+inner letters first), in about 0.7 s. It never opens sooner than a second after the dashboard did: rows shimmer until their stat
 is in, then type themselves in, in a cascade from the top spread over that second, and the
 language bar fills in over it, so fast stats don't flash in and slow ones appear when they
-arrive. The title comes in three sizes for the room there is: large block letters, medium ones,
-and plain `v x` opening to `v o r t e x`. The credit line under it reads "fork of
+arrive. The title comes in three sizes for the room there is: the large wordmark (66 columns, or
+51 for the classic letters), medium box-drawing letters, and plain `v x` opening to `v o r t e x`. The credit line under it reads "fork of
 helix-editor/helix, by vzio".
 
 `dashboard-title = false` leaves out the title and its credit line, panel and all: the stats and
@@ -2204,7 +2336,8 @@ the rows, which shimmer and type in as before.
 
 ### The vortex
 
-A whirlpool fills the whole dashboard, every cell lit, from a faint `·` through `░▒▓` to `█`. It
+A whirlpool fills the whole dashboard, every cell lit, from a faint `·` through `░▒▓` to `█` (or
+from `.` through `:=#&` to `@` with the ASCII charset, see [Theme effects](#theme-effects)). It
 is a flow, not a turning picture, in two layers. The current: eight arms of logarithmic spirals
 with the golden pitch (the radius grows by φ every quarter turn), crossed by five finer ones of
 another pitch; a log spiral that turns looks the same as one that flows inwards, so the arms pour
@@ -2215,6 +2348,13 @@ color into the background; its distance to the eye picks the color, in two tones
 color at the eye, held through the middle, fading into the color of the text at the rim.
 `ui.dashboard.vortex` changes the eye's color, and `ui.dashboard.vortex.1`, `.2`, ... replace
 the two tones with a gradient of your own.
+
+Growing and draining are a reach over the same flow, not another simulation: cells farther from
+the eye than the reach (distances count a row as two columns, the corners are 1) aren't drawn,
+and the last 8% of it fades out. `grow` and `grow-on` widen the reach from 0 to the corners,
+fast first and gently at the end; `drain` narrows it from the corners to 0, slowly first and
+faster and faster. Cells and particles out of reach aren't computed at all, so an empty vortex
+costs nothing and a growing one less than a full one.
 
 The title, the stats and the actions each sit on a panel of the theme's background
 (`ui.dashboard.panel`) with a margin of a row and two columns around their text; the vortex is
@@ -2339,7 +2479,8 @@ one; with named colors each band takes the nearest stop.
 - `l` isn't offered when the repository couldn't be opened, even though the commit log might.
 - The actions are keys only, not clickable.
 - In the `on` mode the whole screen is redrawn about 20 times a second while the dashboard is up,
-  under a picker too; over a slow connection (ssh) prefer `load` or `static`.
+  under a picker too (and in `grow-on` once it has grown); over a slow connection (ssh) prefer
+  `grow`, `settle` or `static`.
 - The vortex's center is the window's, mostly under the panels; the eye shows only in windows
   much larger than the text.
 
