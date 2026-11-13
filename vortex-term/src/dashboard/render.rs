@@ -9,6 +9,7 @@
 //! smaller title, fewer worktrees, the actions on one row, the smallest title, and at last the
 //! stats.
 
+use std::cell::RefCell;
 use std::path::Path;
 use std::time::Instant;
 
@@ -26,6 +27,7 @@ use super::timeline::Timeline;
 use super::title::{self, Title};
 use super::vortex;
 use super::wrap::{self, Breaks, Span};
+use crate::ui::glitch;
 
 /// What the dashboard draws, apart from the time.
 pub struct Model<'a> {
@@ -39,6 +41,16 @@ pub struct Model<'a> {
     pub title: bool,
     /// Only the vortex, none of the blocks (`:vortex`).
     pub vortex_only: bool,
+    /// The glitches of the title and of the background, kept from frame to frame; `None`
+    /// draws none, whatever the theme says (the tests' frames are functions of the time).
+    pub glitches: Option<&'a RefCell<Glitches>>,
+}
+
+/// The glitches of the dashboard, at the rates of the theme's `[effects]`.
+#[derive(Debug, Default)]
+pub struct Glitches {
+    pub logo: glitch::Slot,
+    pub background: glitch::Slot,
 }
 
 /// The keys of the keymap that do what the actions do, so the dashboard teaches them.
@@ -485,9 +497,10 @@ struct Layout {
 }
 
 impl Layout {
-    fn all() -> Vec<Layout> {
+    /// The layouts from the roomiest, whose title is `large`.
+    fn all(large: Title) -> Vec<Layout> {
         let roomy = Layout {
-            title: title::LARGE,
+            title: large,
             gap: 2,
             wrap: true,
             legend: 3,
@@ -601,10 +614,25 @@ const MARGIN_Y: u16 = 1;
 pub fn render(model: &Model, theme: &Theme, area: Rect, surface: &mut Surface, now: Instant) {
     let styles = Styles::new(theme);
     let s = &styles;
+    let effects = theme.effects();
     surface.clear_with(area, theme.get("ui.background"));
+    let look = vortex::Look {
+        colors: &s.vortex,
+        charset: effects.dashboard_charset,
+        reach: model.timeline.reach(model.stats, now),
+    };
+    let mut glitches = model.glitches.map(|glitches| glitches.borrow_mut());
+    let mut background_glitch = glitches
+        .as_mut()
+        .and_then(|glitches| glitches.background.at(effects.glitch_background));
+    // the places of the vortex's cells, only for a glitch over them
+    let mut drawn = background_glitch.as_ref().map(|_| Vec::new());
     if model.vortex_only {
         if let Some(spin) = model.timeline.spin(model.stats, now) {
-            vortex::draw(surface, area, spin, &[], &s.vortex);
+            vortex::draw(surface, area, spin, &[], &look, drawn.as_mut());
+        }
+        if let (Some(glitch), Some(drawn)) = (background_glitch, &drawn) {
+            glitch.draw(now, surface, drawn);
         }
         return;
     }
@@ -644,7 +672,7 @@ pub fn render(model: &Model, theme: &Theme, area: Rect, surface: &mut Surface, n
         }
         total
     };
-    let layouts = Layout::all();
+    let layouts = Layout::all(title::large(effects.dashboard_logo));
     let row_width = actions_row_width(&actions);
     let fits = |layout: &&Layout| {
         height(layout) <= area.height
@@ -687,7 +715,7 @@ pub fn render(model: &Model, theme: &Theme, area: Rect, surface: &mut Surface, n
     // the title as it is now: its cells, and how wide they spread
     let opened = model.timeline.title(model.stats, now);
     let cells = if model.title {
-        layout.title.cells(opened)
+        layout.title.cells_in(opened, effects.dashboard_charset)
     } else {
         Vec::new()
     };
@@ -715,15 +743,28 @@ pub fn render(model: &Model, theme: &Theme, area: Rect, surface: &mut Surface, n
             .flatten()
             .map(|part| margin(part, area))
             .collect();
-        vortex::draw(surface, area, spin, &panels, &s.vortex);
+        vortex::draw(surface, area, spin, &panels, &look, drawn.as_mut());
+        if let (Some(glitch), Some(drawn)) = (background_glitch.take(), &drawn) {
+            glitch.draw(now, surface, drawn);
+        }
         for &panel in &panels {
             surface.clear_with(panel, s.panel);
         }
+    }
+    // with no vortex drawn (a small window, `off`), no glitch over it either
+    if let Some(glitch) = background_glitch {
+        glitch.draw(now, surface, &[]);
     }
 
     let mut canvas = Canvas { area, surface };
     if model.title {
         draw_title(&mut canvas, &cells, title_x, title_y, s);
+        let logo_glitch = glitches
+            .as_mut()
+            .and_then(|glitches| glitches.logo.at(effects.glitch_logo));
+        if let Some(glitch) = logo_glitch {
+            glitch_title(canvas.surface, glitch, &cells, title_x, title_y, area, now);
+        }
         canvas.text(
             center(area, credit_width),
             credit_y,
@@ -790,6 +831,25 @@ fn draw_title(canvas: &mut Canvas, cells: &[title::Cell], x: u16, y: u16, s: &St
             1,
         );
     }
+}
+
+/// The glitch of the title, over its letters (not their shadow) that are on screen.
+fn glitch_title(
+    surface: &mut Surface,
+    glitch: &mut glitch::Glitch,
+    cells: &[title::Cell],
+    x: u16,
+    y: u16,
+    area: Rect,
+    now: Instant,
+) {
+    let places: Vec<(u16, u16)> = cells
+        .iter()
+        .filter(|cell| cell.letter)
+        .map(|cell| (x + cell.x, y + cell.y))
+        .filter(|&(x, y)| x < area.right() && y < area.bottom())
+        .collect();
+    glitch.draw(now, surface, &places);
 }
 
 /// A heading: a word, and details after it (dimmed) or a spinner while its section loads.
@@ -1220,6 +1280,7 @@ pub(crate) mod tests {
             hints: &hints,
             title,
             vortex_only: false,
+            glitches: None,
         };
         render(&model, &theme, area, &mut buffer, now);
         buffer
@@ -1261,7 +1322,7 @@ pub(crate) mod tests {
     const SIZES: [(u16, u16); 4] = [(160, 50), (100, 44), (60, 24), (120, 40)];
     const MODES: [DashboardBackground; 3] = [
         DashboardBackground::On,
-        DashboardBackground::Load,
+        DashboardBackground::Settle,
         DashboardBackground::Static,
     ];
 
@@ -1405,9 +1466,9 @@ pub(crate) mod tests {
         };
         let titled = draw(100, 44, true);
         let untitled = draw(100, 44, false);
-        assert!(titled.contains("██╗") && titled.contains(title::CREDIT));
+        assert!(titled.contains("██▀▀▄▄") && titled.contains(title::CREDIT));
         assert!(
-            !untitled.contains('█') && !untitled.contains('╗'),
+            !untitled.contains('█') && !untitled.contains('▀'),
             "{untitled}"
         );
         assert!(!untitled.contains(title::CREDIT), "{untitled}");
@@ -1446,18 +1507,18 @@ pub(crate) mod tests {
             timeline(born, DashboardBackground::Off),
             born,
         );
-        let cells = title::LARGE.cells(0.0);
-        let open = title::LARGE.cells(1.0);
+        let cells = title::RUNES.cells(0.0);
+        let open = title::RUNES.cells(1.0);
         assert!(!cells.is_empty() && cells.len() < open.len());
-        let left = (160 - title::LARGE.width()) / 2;
-        let rows = title::LARGE.height();
+        let left = (160 - title::RUNES.width()) / 2;
+        let rows = title::RUNES.height();
         // some row puts the title there, and nothing else is in its box
         let found = (0..50 - rows).any(|top| {
             let drawn_cells = cells.iter().all(|cell| {
                 drawn[(left + cell.x, top + cell.y)].symbol.as_str() == cell.c.to_string()
             });
             let used = (top..top + rows)
-                .flat_map(|y| (left..left + title::LARGE.width()).map(move |x| (x, y)))
+                .flat_map(|y| (left..left + title::RUNES.width()).map(move |x| (x, y)))
                 .filter(|&(x, y)| !is_blank(&drawn, x, y))
                 .count();
             drawn_cells && used == cells.len()
@@ -1681,7 +1742,10 @@ pub(crate) mod tests {
             })
             .unwrap_or((160, 50));
         let mode = match std::env::var("PREVIEW_MODE").as_deref() {
-            Ok("load") => DashboardBackground::Load,
+            Ok("settle" | "load") => DashboardBackground::Settle,
+            Ok("drain") => DashboardBackground::Drain,
+            Ok("grow") => DashboardBackground::Grow,
+            Ok("grow-on") => DashboardBackground::GrowOn,
             Ok("static") => DashboardBackground::Static,
             Ok("off") => DashboardBackground::Off,
             _ => DashboardBackground::On,
@@ -1704,6 +1768,7 @@ pub(crate) mod tests {
                 hints: &hints,
                 title: true,
                 vortex_only: false,
+                glitches: None,
             };
             render(
                 &model,

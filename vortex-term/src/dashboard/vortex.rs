@@ -16,7 +16,11 @@
 //! is kept for the size, so a frame costs a few multiplications a cell and a logarithm and a sine
 //! for each point of a particle's trail; see FORK.md for the measured time.
 //!
-//! A cell's light picks its character, from `·` through `░▒▓` to `█`, and dims its color into
+//! Growing and draining (`grow`, `grow-on`, `drain`) are a reach over the same flow: cells
+//! farther from the eye than the reach aren't drawn, with a soft edge; nothing else changes.
+//!
+//! A cell's light picks its character, from `·` through `░▒▓` to `█` (or an ASCII ramp, see
+//! [`charset`](super::charset)), and dims its color into
 //! the background; its distance to the eye picks the color, along a gradient (by default two
 //! tones: the title's color at the eye, the text's at the rim). Cells are about twice as tall as
 //! wide, so distances count a row as two columns and circles stay round.
@@ -26,6 +30,10 @@ use std::f64::consts::TAU;
 use vortex_view::graphics::{Color, Rect, Style};
 
 use tui::buffer::Buffer as Surface;
+use vortex_view::theme::DashboardCharset;
+
+use super::charset;
+use super::timeline::EDGE;
 
 /// Below this size a vortex doesn't read as one: no background.
 pub const MIN_WIDTH: u16 = 48;
@@ -128,9 +136,8 @@ impl Colors {
     }
 }
 
-/// The characters of light, from the faintest, and the light each needs.
-const CHARS: [char; 5] = ['·', '░', '▒', '▓', '█'];
-const LEVELS: [f32; 5] = [0.10, 0.30, 0.52, 0.78, 1.15];
+/// The light the faintest and the densest characters need, in either charset.
+const LEVELS: [f32; 5] = charset::BLOCK_LEVELS;
 
 /// Whether a vortex fits in `area`.
 pub fn fits(area: Rect) -> bool {
@@ -194,6 +201,13 @@ fn geometry(width: u16, height: u16) -> Geometry {
 /// The light of the vortex at phase `spin` in each cell of an area of `width` × `height`
 /// cells, row by row: the current, and the particles spread over the cells around them.
 pub fn light(width: u16, height: u16, spin: f64) -> Vec<f32> {
+    light_within(width, height, spin, f64::INFINITY)
+}
+
+/// [`light`] within `reach` of the eye, as a share of the distance to the corners: cells
+/// farther out are dark, and the last [`EDGE`] fades out. Cells and points of trails out of
+/// reach aren't computed.
+pub fn light_within(width: u16, height: u16, spin: f64, reach: f64) -> Vec<f32> {
     let (cols, rows) = (width as usize, height as usize);
     let mut cells = vec![0f32; cols * rows];
     // in units of a cell's width: cells are about twice as tall as wide
@@ -207,8 +221,12 @@ pub fn light(width: u16, height: u16, spin: f64) -> Vec<f32> {
     let geometry = geometry(width, height);
     let (pour_sin, pour_cos) = ((POUR * spin) as f32).sin_cos();
     let (ripple_sin, ripple_cos) = ((RIPPLE_POUR * spin) as f32).sin_cos();
+    let reach32 = reach.min(1e6) as f32;
     for (light, cell) in cells.iter_mut().zip(geometry.iter()) {
-        let [arm_cos, arm_sin, ripple_cos_a, ripple_sin_a, weight, _] = *cell;
+        let [arm_cos, arm_sin, ripple_cos_a, ripple_sin_a, weight, t] = *cell;
+        if t >= reach32 {
+            continue;
+        }
         let arms = 0.5 + 0.5 * (arm_cos * pour_cos + arm_sin * pour_sin);
         let ripples = 0.5 + 0.5 * (ripple_cos_a * ripple_cos + ripple_sin_a * ripple_sin);
         // sharper arms
@@ -271,20 +289,62 @@ pub fn light(width: u16, height: u16, spin: f64) -> Vec<f32> {
             if x < -1.0 || y < -2.0 || x > w + 1.0 || y > h + 2.0 {
                 continue;
             }
+            // out of reach (the geometry's distance is `share` × 1.04)
+            if share as f64 * 1.04 >= reach {
+                continue;
+            }
             // the trail fades behind the particle, dust is fainter
             let weight = (1.0 - step as f32 / TRAIL as f32) * if dust { 0.35 } else { 0.6 };
             splat(x, y, weight);
         }
     }
+    // the soft edge, and the cells the particles' splats reached beyond it
+    if reach.is_finite() {
+        for (light, cell) in cells.iter_mut().zip(geometry.iter()) {
+            let fade = ((reach - cell[5] as f64) / EDGE).clamp(0.0, 1.0) as f32;
+            *light *= fade;
+        }
+    }
     cells
 }
 
-/// Draws the vortex at phase `spin` over `area`, except in `holes`.
-pub fn draw(surface: &mut Surface, area: Rect, spin: f64, holes: &[Rect], colors: &Colors) {
-    if !fits(area) {
+/// How the vortex looks: its colors, its characters, and how far it reaches (see
+/// [`light_within`]).
+#[derive(Debug, Clone, Copy)]
+pub struct Look<'a> {
+    pub colors: &'a Colors,
+    pub charset: DashboardCharset,
+    pub reach: f64,
+}
+
+impl<'a> Look<'a> {
+    /// The whole vortex in blocks.
+    pub fn full(colors: &'a Colors) -> Self {
+        Self {
+            colors,
+            charset: DashboardCharset::Blocks,
+            reach: f64::INFINITY,
+        }
+    }
+}
+
+/// Draws the vortex at phase `spin` over `area`, except in `holes`; the places of the cells it
+/// drew are added to `drawn` when given (for a glitch over them).
+pub fn draw(
+    surface: &mut Surface,
+    area: Rect,
+    spin: f64,
+    holes: &[Rect],
+    look: &Look,
+    mut drawn: Option<&mut Vec<(u16, u16)>>,
+) {
+    // an empty vortex costs nothing
+    if !fits(area) || look.reach <= 0.0 {
         return;
     }
-    let cells = light(area.width, area.height, spin);
+    let colors = look.colors;
+    let (chars, levels) = charset::ramp(look.charset);
+    let cells = light_within(area.width, area.height, spin, look.reach);
     let geometry = geometry(area.width, area.height);
     let full = LEVELS[LEVELS.len() - 1] as f64;
     // every color a cell can take, by its shade and its glow
@@ -297,7 +357,7 @@ pub fn draw(surface: &mut Surface, area: Rect, spin: f64, holes: &[Rect], colors
     for row in 0..area.height {
         for col in 0..area.width {
             let light = cells[row as usize * area.width as usize + col as usize];
-            let Some(level) = LEVELS.iter().rposition(|&level| light >= level) else {
+            let Some(level) = levels.iter().rposition(|&level| light >= level) else {
                 continue;
             };
             let (x, y) = (area.x + col, area.y + row);
@@ -311,9 +371,12 @@ pub fn draw(surface: &mut Surface, area: Rect, spin: f64, holes: &[Rect], colors
             let Some(cell) = surface.get_mut(x, y) else {
                 continue;
             };
-            cell.set_char(CHARS[level]);
+            cell.set_char(chars[level]);
             if let Some(color) = color {
                 cell.set_style(Style::default().fg(color));
+            }
+            if let Some(drawn) = drawn.as_mut() {
+                drawn.push((x, y));
             }
         }
     }
@@ -398,7 +461,14 @@ mod tests {
             let mut surface = Surface::empty(area);
             let start = Instant::now();
             for frame in 0..frames {
-                draw(&mut surface, area, frame as f64 / 30.0, &[], &colors);
+                draw(
+                    &mut surface,
+                    area,
+                    frame as f64 / 30.0,
+                    &[],
+                    &Look::full(&colors),
+                    None,
+                );
             }
             let vortex = start.elapsed() / frames;
 
@@ -412,6 +482,7 @@ mod tests {
                 hints: &hints,
                 title: true,
                 vortex_only: false,
+                glitches: None,
             };
             let start = Instant::now();
             for frame in 0..frames {

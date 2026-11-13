@@ -1,10 +1,17 @@
 //! The title of the dashboard, in its own file so it is easy to replace: `VX` while the
 //! dashboard loads, opening to `VORTEX` once it is ready, in three sizes for the room there is.
 //!
-//! Each size is six letters drawn from plain text. In the large one the block characters (`█`)
-//! are the letters and the box-drawing ones their shadow, each with its own theme scope. The
-//! opening ([`Title::cells`]): `V` and `X` slide apart from the center, and `O`, `R`, `T` and `E`
-//! appear in the room they leave, through the shades `░▒▓`, the inner letters first.
+//! Each size is six letters drawn from plain text. The large one is a theme's choice
+//! (`dashboard-logo` in its `[effects]`): the runic wordmark ([`RUNES`], the default: a diamond
+//! O, an up-arrow T, Σ for E, a sharp R, its diagonals in half blocks so every stroke is as
+//! thick as the R's) or the classic block letters ([`LARGE`]), whose box-drawing characters are
+//! their shadow, with its own theme scope. The opening ([`Title::cells`]): `V` and `X` slide
+//! apart from the center, and `O`, `R`, `T` and `E` appear in the room they leave, through three
+//! shades (`░▒▓`, or ASCII ones), the inner letters first.
+
+use vortex_view::theme::{DashboardCharset, DashboardLogo};
+
+use super::charset;
 
 /// One size of the title.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -15,7 +22,44 @@ pub struct Title {
     pub gap: u16,
 }
 
-/// The large title: 6 rows, 51 columns ("ANSI Shadow").
+/// The runic wordmark, the default large title: 5 rows, 66 columns.
+pub const RUNES: Title = Title {
+    letters: [
+        &[
+            "▀█      █▀",
+            " ▀█    █▀ ",
+            "  ██  ██  ",
+            "   █▄▄█   ",
+            "    ██    ",
+        ],
+        &[
+            "   ▄██▄   ",
+            " ▄█▀  ▀█▄ ",
+            "██      ██",
+            " ▀█▄  ▄█▀ ",
+            "   ▀██▀   ",
+        ],
+        &["██▀▀▄▄  ", "██   ▄█▀", "██▄█▀▀  ", "██  ▀█▄ ", "██    ▀█"],
+        &[
+            "    ██    ",
+            "  ██████  ",
+            "██  ██  ██",
+            "    ██    ",
+            "    ██    ",
+        ],
+        &["████████", " ▀█▄    ", "   ██   ", " ▄█▀    ", "████████"],
+        &[
+            "▀█▄    ▄█▀",
+            "  ▀█▄▄█▀  ",
+            "    ██    ",
+            "  ▄█▀▀█▄  ",
+            "▄█▀    ▀█▄",
+        ],
+    ],
+    gap: 2,
+};
+
+/// The classic large title: 6 rows, 51 columns ("ANSI Shadow").
 pub const LARGE: Title = Title {
     letters: [
         &[
@@ -90,7 +134,15 @@ pub const SMALL: Title = Title {
 };
 
 /// The titles from the largest to the smallest.
-pub const ALL: [Title; 3] = [LARGE, MEDIUM, SMALL];
+pub const ALL: [Title; 4] = [RUNES, LARGE, MEDIUM, SMALL];
+
+/// The large title of a logo.
+pub fn large(logo: DashboardLogo) -> Title {
+    match logo {
+        DashboardLogo::Runes => RUNES,
+        DashboardLogo::Classic => LARGE,
+    }
+}
 
 /// The line under the title.
 pub const CREDIT: &str = "fork of helix-editor/helix, by vzio";
@@ -132,7 +184,8 @@ fn noise(x: u16, y: u16) -> f64 {
 const APPEAR: [f64; 6] = [0.0, 0.34, 0.16, 0.16, 0.34, 0.0];
 /// How long a letter takes to appear, in the title's progress.
 const FADE: f64 = 0.5;
-const SHADES: [char; 3] = ['░', '▒', '▓'];
+#[cfg(test)]
+const SHADES: [char; 3] = charset::BLOCKS_SHADES;
 
 impl Title {
     fn letter_width(&self, letter: usize) -> u16 {
@@ -164,8 +217,15 @@ impl Title {
         !matches!(c, '╗' | '║' | '╔' | '═' | '╝' | '╚')
     }
 
-    /// The cells of the title at `progress`, from `VX` (0) to `VORTEX` (1).
+    /// The cells of the title at `progress`, from `VX` (0) to `VORTEX` (1), in blocks.
     pub fn cells(&self, progress: f64) -> Vec<Cell> {
+        self.cells_in(progress, DashboardCharset::Blocks)
+    }
+
+    /// The cells of the title at `progress`, its letters appearing through the shades of
+    /// `charset`.
+    pub fn cells_in(&self, progress: f64, charset: DashboardCharset) -> Vec<Cell> {
+        let shades = charset::shades(charset);
         let p = progress.clamp(0.0, 1.0);
         let width = self.width();
         let lefts = self.lefts();
@@ -221,7 +281,7 @@ impl Title {
                 let at = local * 1.35 - 0.35 * noise(cell_x, y);
                 match (at * 4.0).floor() as i64 {
                     ..=-1 => None,
-                    stage @ 0..=2 => Some(Some(SHADES[stage as usize])),
+                    stage @ 0..=2 => Some(Some(shades[stage as usize])),
                     _ => Some(None),
                 }
             });
@@ -257,6 +317,7 @@ mod tests {
 
     #[test]
     fn sizes() {
+        assert_eq!((RUNES.width(), RUNES.height()), (66, 5));
         assert_eq!((LARGE.width(), LARGE.height()), (51, 6));
         assert_eq!((MEDIUM.width(), MEDIUM.height()), (18, 3));
         assert_eq!((SMALL.width(), SMALL.height()), (11, 1));

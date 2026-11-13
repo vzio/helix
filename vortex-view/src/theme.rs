@@ -12,6 +12,7 @@ use toml::{map::Map, Value};
 use vortex_core::{hashmap, syntax::Highlight};
 use vortex_loader::merge_toml_values;
 
+pub use crate::effects::{DashboardCharset, DashboardLogo, Effects};
 use crate::graphics::UnderlineStyle;
 pub use crate::graphics::{Color, Modifier, Style};
 
@@ -23,7 +24,15 @@ pub const UPSTREAM_THEME_NAME: &str = "helix";
 
 /// The themes built into the binary, so they load without a runtime directory. `default`, the
 /// name the default theme had before it was Vortex's, still loads it too.
-pub const BUILT_IN_THEMES: &[&str] = &[DEFAULT_THEME_NAME, UPSTREAM_THEME_NAME, "base16_default"];
+pub const BUILT_IN_THEMES: &[&str] = &[
+    DEFAULT_THEME_NAME,
+    UPSTREAM_THEME_NAME,
+    MATRIX_THEME_NAME,
+    "base16_default",
+];
+
+/// The name of the Matrix theme (`matrix_theme.toml`): phosphor green on black.
+pub const MATRIX_THEME_NAME: &str = "matrix";
 
 pub static DEFAULT_THEME_DATA: LazyLock<Value> = LazyLock::new(|| {
     let bytes = include_bytes!("../../theme.toml");
@@ -33,6 +42,11 @@ pub static DEFAULT_THEME_DATA: LazyLock<Value> = LazyLock::new(|| {
 pub static UPSTREAM_THEME_DATA: LazyLock<Value> = LazyLock::new(|| {
     let bytes = include_bytes!("../../helix_theme.toml");
     toml::from_str(str::from_utf8(bytes).unwrap()).expect("Failed to parse upstream's theme")
+});
+
+pub static MATRIX_THEME_DATA: LazyLock<Value> = LazyLock::new(|| {
+    let bytes = include_bytes!("../../matrix_theme.toml");
+    toml::from_str(str::from_utf8(bytes).unwrap()).expect("Failed to parse the Matrix theme")
 });
 
 pub static BASE16_DEFAULT_THEME_DATA: LazyLock<Value> = LazyLock::new(|| {
@@ -50,6 +64,11 @@ pub static UPSTREAM_THEME: LazyLock<Theme> = LazyLock::new(|| Theme {
     ..Theme::from(UPSTREAM_THEME_DATA.clone())
 });
 
+pub static MATRIX_THEME: LazyLock<Theme> = LazyLock::new(|| Theme {
+    name: MATRIX_THEME_NAME.into(),
+    ..Theme::from(MATRIX_THEME_DATA.clone())
+});
+
 pub static BASE16_DEFAULT_THEME: LazyLock<Theme> = LazyLock::new(|| Theme {
     name: "base16_default".into(),
     ..Theme::from(BASE16_DEFAULT_THEME_DATA.clone())
@@ -60,6 +79,7 @@ fn built_in(name: &str) -> Option<&'static LazyLock<Theme>> {
     match name {
         DEFAULT_THEME_NAME | "default" => Some(&DEFAULT_THEME),
         UPSTREAM_THEME_NAME => Some(&UPSTREAM_THEME),
+        MATRIX_THEME_NAME => Some(&MATRIX_THEME),
         "base16_default" => Some(&BASE16_DEFAULT_THEME),
         _ => None,
     }
@@ -70,6 +90,7 @@ fn built_in_data(name: &str) -> Option<&'static LazyLock<Value>> {
     match name {
         DEFAULT_THEME_NAME | "default" => Some(&DEFAULT_THEME_DATA),
         UPSTREAM_THEME_NAME => Some(&UPSTREAM_THEME_DATA),
+        MATRIX_THEME_NAME => Some(&MATRIX_THEME_DATA),
         "base16_default" => Some(&BASE16_DEFAULT_THEME_DATA),
         _ => None,
     }
@@ -240,10 +261,18 @@ impl Loader {
         let mut palette = Map::new();
         palette.insert(String::from("palette"), palette_values);
 
+        // the effects (this fork) are merged key by key too
+        let effects =
+            crate::effects::merge(parent_theme_toml.get("effects"), theme_toml.get("effects"));
+
         // merge the theme into the parent theme
         let theme = merge_toml_values(parent_theme_toml, theme_toml, 1);
         // merge the before specially handled palette into the theme
-        merge_toml_values(theme, palette.into(), 1)
+        let mut theme = merge_toml_values(theme, palette.into(), 1);
+        if let (Some(effects), Value::Table(table)) = (effects, &mut theme) {
+            table.insert("effects".into(), effects);
+        }
+        theme
     }
 
     // Loads the theme data as `toml::Value`
@@ -317,6 +346,8 @@ pub struct Theme {
     /// is called many times per frame, so we optimize lookups.
     scope_index: HashMap<String, Highlight>,
     rainbow_length: usize,
+    /// The `[effects]` table (this fork).
+    effects: Effects,
 }
 
 impl From<Value> for Theme {
@@ -351,6 +382,7 @@ fn build_theme_values(
     Vec<String>,
     Vec<Style>,
     usize,
+    Effects,
     Vec<String>,
 ) {
     let mut styles = HashMap::new();
@@ -372,6 +404,11 @@ fn build_theme_values(
         .unwrap_or_default();
     // remove inherits from value to prevent errors
     let _ = values.remove("inherits");
+    // the effects (this fork) aren't a style
+    let effects = values
+        .remove("effects")
+        .map(|value| Effects::parse(value, |color| palette.parse_color(color), &mut warnings))
+        .unwrap_or_default();
     styles.reserve(values.len());
     scopes.reserve(values.len());
     highlights.reserve(values.len());
@@ -408,7 +445,14 @@ fn build_theme_values(
         highlights.push(style);
     }
 
-    (styles, scopes, highlights, rainbow_length, warnings)
+    (
+        styles,
+        scopes,
+        highlights,
+        rainbow_length,
+        effects,
+        warnings,
+    )
 }
 
 fn default_rainbow() -> Vec<Style> {
@@ -519,6 +563,11 @@ impl Theme {
         self.rainbow_length
     }
 
+    /// The theme's effects (this fork): all off for a theme without an `[effects]` table.
+    pub fn effects(&self) -> &Effects {
+        &self.effects
+    }
+
     fn from_toml(value: Value) -> (Self, Vec<String>) {
         if let Value::Table(table) = value {
             Theme::from_keys(table)
@@ -529,7 +578,7 @@ impl Theme {
     }
 
     fn from_keys(toml_keys: Map<String, Value>) -> (Self, Vec<String>) {
-        let (styles, scopes, highlights, rainbow_length, load_errors) =
+        let (styles, scopes, highlights, rainbow_length, effects, load_errors) =
             build_theme_values(toml_keys);
 
         let scope_index = scopes
@@ -544,6 +593,7 @@ impl Theme {
             highlights,
             scope_index,
             rainbow_length,
+            effects,
             ..Default::default()
         };
         (theme, load_errors)

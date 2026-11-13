@@ -1,0 +1,291 @@
+# Matrix theme
+# ------------
+# Author: vzio <github.com/vzio>
+# License: MIT License
+# ------------
+# Phosphor green on black: one hue, told apart by brightness, weight and tinted
+# backgrounds. Red is for errors only.
+# Sections:
+# - Syntax highlighting
+# - User interface
+# - Vortex fork screens
+# - Palette
+
+# Syntax highlighting
+# -------------------
+"attribute" = { fg = "mid", modifiers = ["italic"] }
+
+"type" = { fg = "text", modifiers = ["italic"] }
+"type.builtin" = { fg = "text", modifiers = ["italic"] }
+"type.parameter" = { fg = "dim", modifiers = ["italic"] }
+"type.enum.variant" = { fg = "bright", modifiers = ["italic"] }
+
+"constructor" = { fg = "bright", modifiers = ["bold"] }
+
+"constant" = "bright"
+"constant.builtin" = { fg = "bright", modifiers = ["italic"] }
+"constant.character" = { fg = "bright", bg = "g_1", modifiers = ["bold"] }
+"constant.character.escape" = { fg = "bright", bg = "g_2", modifiers = ["bold"] }
+"constant.numeric" = { fg = "bright", modifiers = ["bold"] }
+
+"string" = { fg = "text", bg = "g_1" }
+"string.regexp" = { fg = "bright", bg = "g_1" }
+"string.special" = { fg = "bright", bg = "g_1" }
+"string.special.url" = { fg = "text", bg = "g_1", modifiers = ["underlined"] }
+"string.special.path" = { fg = "text", bg = "g_1", modifiers = ["bold"] }
+"string.special.symbol" = { fg = "mid", bg = "g_1" }
+
+"comment" = { fg = "dim", modifiers = ["italic"] }
+"comment.block.documentation" = { fg = "dim_up", modifiers = ["italic"] }
+"comment.line.documentation" = { fg = "dim_up", modifiers = ["italic"] }
+
+"variable" = "text"
+"variable.parameter" = { fg = "text", modifiers = ["italic"] }
+"variable.builtin" = { fg = "bright", modifiers = ["italic"] }
+"variable.other.member" = "text"
+
+"label" = { fg = "mid", modifiers = ["italic"] }
+
+"punctuation" = "mid"
+"punctuation.special" = { fg = "bright", modifiers = ["bold"] }
+"punctuation.bracket" = "dim_up"
+"punctuation.delimiter" = "dim_up"
+
+"keyword" = { fg = "bright", modifiers = ["bold"] }
+"keyword.operator" = { fg = "mid", modifiers = ["bold"] }
+"keyword.directive" = { fg = "bright", modifiers = ["bold", "italic"] }
+"keyword.storage.modifier" = { fg = "bright", modifiers = ["bold", "italic"] }
+
+"operator" = "mid"
+
+"function" = { fg = "bright", modifiers = ["bold"] }
+"function.builtin" = { fg = "bright", modifiers = ["bold", "italic"] }
+"function.macro" = { fg = "bright", modifiers = ["italic"] }
+
+"tag" = { fg = "bright", modifiers = ["italic"] }
+
+"namespace" = { fg = "mid", modifiers = ["bold"] }
+
+"special" = { fg = "bright", modifiers = ["bold"] } # fuzzy highlight
+
+"markup.heading" = { fg = "bright", modifiers = ["bold"] }
+"markup.list" = "mid"
+"markup.bold" = { modifiers = ["bold"] }
+"markup.italic" = { modifiers = ["italic"] }
+"markup.link" = "text"
+"markup.link.url" = { fg = "text", modifiers = ["italic", "underlined"] }
+"markup.link.text" = "bright"
+"markup.raw" = { fg = "text", bg = "g_2" }
+"markup.quote" = { fg = "dim_up", modifiers = ["italic"] }
+
+"diff.plus" = { fg = "bright", modifiers = ["bold"] }
+"diff.minus" = "dim"
+"diff.delta" = "text"
+"diff.delta.moved" = { fg = "mid", modifiers = ["italic"] }
+"diff.delta.conflict" = { fg = "bright", bg = "g_3", modifiers = ["bold"] }
+
+# User interface
+"ui.background" = { fg = "text", bg = "background" }
+"ui.background.separator" = "line"
+
+"ui.gutter" = { bg = "background" }
+"ui.gutter.selected" = { bg = "g_1" }
+
+"ui.linenr" = "dim"
+"ui.linenr.selected" = { fg = "bright", modifiers = ["bold"] }
+# bookmarks in the gutter: their number, then a marker past the ninth
+"ui.gutter.bookmark" = { fg = "bright", bg = "g_2", modifiers = ["bold"] }
+
+"ui.statusline" = { fg = "text", bg = "g_2" }
+"ui.statusline.inactive" = { fg = "dim", bg = "g_1" }
+"ui.statusline.normal" = { fg = "background", bg = "bright", modifiers = ["bold"] }
+"ui.statusline.insert" = { fg = "background", bg = "text", modifiers = ["bold"] }
+"ui.statusline.select" = { fg = "background", bg = "mid", modifiers = ["bold", "italic"] }
+
+"ui.popup" = { fg = "text", bg = "g_1" }
+"ui.popup.info" = { fg = "text", bg = "g_1" }
+"ui.info" = { fg = "bright", bg = "g_1" }
+"ui.window" = "line"
+"ui.help" = { fg = "text", bg = "g_1", modifiers = ["bold"] }
+
+"ui.bufferline" = { fg = "dim", bg = "background" }
+"ui.bufferline.active" = { fg = "bright", bg = "g_2", underline = { color = "bright", style = "line" }, modifiers = ["bold"] }
+"ui.bufferline.background" = { bg = "background" }
+
+"ui.text" = "text"
+"ui.text.focus" = { fg = "bright", bg = "g_2", underline = { color = "bright", style = "line" }, modifiers = ["bold"] }
+"ui.text.inactive" = { fg = "dim", modifiers = ["italic"] }
+"ui.text.info" = "text"
+"ui.text.directory" = { fg = "bright", modifiers = ["bold"] }
+
+"ui.virtual" = "dim"
+"ui.virtual.ruler" = { bg = "g_1" }
+"ui.virtual.whitespace" = "line"
+"ui.virtual.indent-guide" = "faint"
+"ui.virtual.wrap" = "line"
+"ui.virtual.inlay-hint" = { fg = "dim", modifiers = ["italic"] }
+"ui.virtual.jump-label" = { fg = "background", bg = "bright", modifiers = ["bold"] }
+
+"ui.selection" = { bg = "sel" }
+"ui.selection.primary" = { bg = "sel_primary" }
+
+"ui.cursor" = { fg = "black", bg = "mid" }
+"ui.cursor.primary" = { fg = "black", bg = "bright", modifiers = ["bold"] }
+"ui.cursor.normal" = { fg = "black", bg = "mid" }
+"ui.cursor.insert" = { fg = "black", bg = "dim" }
+"ui.cursor.select" = { fg = "black", bg = "mid", modifiers = ["italic"] }
+"ui.cursor.primary.normal" = { fg = "black", bg = "bright", modifiers = ["bold"] }
+"ui.cursor.primary.insert" = { fg = "black", bg = "text", modifiers = ["bold"] }
+"ui.cursor.primary.select" = { fg = "black", bg = "bright", modifiers = ["bold", "italic"] }
+"ui.cursor.match" = { fg = "bright", bg = "g_3", modifiers = ["underlined", "bold"] }
+
+"ui.cursorline.primary" = { bg = "g_1" }
+"ui.cursorline" = { bg = "g_1" }
+
+"ui.highlight" = { fg = "bright", bg = "g_2", underline = { color = "bright", style = "line" }, modifiers = ["bold"] }
+
+"ui.menu" = { fg = "text", bg = "g_1" }
+"ui.menu.selected" = { fg = "black", bg = "bright", modifiers = ["bold"] }
+
+"ui.picker.header" = { fg = "text", modifiers = ["bold"] }
+"ui.picker.header.column" = "dim"
+"ui.picker.header.column.active" = { fg = "bright", modifiers = ["bold", "underlined"] }
+
+"ui.debug.breakpoint" = { fg = "bright", modifiers = ["bold"] }
+"ui.debug.active" = { fg = "bright", bg = "g_3", modifiers = ["bold"] }
+
+"diagnostic.error" = { bg = "red_dark", underline = { color = "red", style = "curl" } }
+"diagnostic.warning" = { bg = "g_2", underline = { color = "bright", style = "curl" }, modifiers = ["bold"] }
+"diagnostic.info" = { bg = "g_1", underline = { color = "text", style = "dotted" } }
+"diagnostic.hint" = { underline = { color = "dim", style = "dotted" }, modifiers = ["italic"] }
+"diagnostic.unnecessary" = { modifiers = ["dim"] }
+"diagnostic.deprecated" = { modifiers = ["crossed_out"] }
+
+error = { fg = "red", bg = "red_dark", modifiers = ["bold"] }
+warning = { fg = "bright", bg = "g_2", modifiers = ["bold"] }
+info = { fg = "text", bg = "g_1" }
+hint = { fg = "dim", bg = "g_1", modifiers = ["italic"] }
+
+# File tree and pickers
+"ui.picker.divider" = { fg = "dim", modifiers = ["bold"] }
+"ui.explorer.ignored" = { fg = "dim", modifiers = ["italic"] }
+
+# Merge conflicts
+"diagnostic.conflict" = { bg = "g_3", underline = { color = "bright", style = "double_line" } }
+
+# Inline blame
+"ui.virtual.inline-blame" = { fg = "dim", modifiers = ["italic"] }
+"ui.virtual.inline-blame.hash" = { fg = "mid", modifiers = ["italic"] }
+
+# Watch mode: the session's changes in the gutter, the hunk followed to, the WATCH indicator
+"diff.watch.plus" = { fg = "bright", modifiers = ["bold"] }
+"diff.watch.delta" = "text"
+"diff.watch.minus" = "dim"
+"ui.highlight.watch" = { bg = "g_3" }
+"ui.statusline.watch.following" = { fg = "background", bg = "mid", modifiers = ["bold"] }
+"ui.statusline.watch.paused" = { fg = "background", bg = "dim", modifiers = ["bold", "italic"] }
+
+# Terminal panel and its SH indicator
+"ui.terminal" = { fg = "text", bg = "background" }
+"ui.statusline.shell" = { fg = "text", bg = "g_2" }
+"ui.statusline.shell.running" = { fg = "background", bg = "text", modifiers = ["bold"] }
+"ui.statusline.shell.success" = { fg = "background", bg = "bright", modifiers = ["bold"] }
+"ui.statusline.shell.failure" = { fg = "background", bg = "red", modifiers = ["bold"] }
+
+# Debugger: the line the program stopped at, breakpoints, the panel, and its statusline item
+"ui.highlight.frameline" = { bg = "g_3" }
+"ui.debug.breakpoint.unverified" = { fg = "mid", modifiers = ["italic"] }
+"ui.debug.breakpoint.disabled" = { fg = "dim", modifiers = ["crossed_out"] }
+"ui.debug.panel" = { fg = "text", bg = "background" }
+"ui.debug.tab" = { fg = "dim", bg = "g_1" }
+"ui.debug.tab.active" = { fg = "background", bg = "bright", modifiers = ["bold"] }
+"ui.debug.name" = "text"
+"ui.debug.value" = "text"
+"ui.debug.value.changed" = { fg = "bright", bg = "g_3", modifiers = ["bold"] }
+"ui.debug.heading" = { fg = "bright", modifiers = ["bold"] }
+"ui.debug.console.error" = "red"
+"ui.debug.console.info" = "dim_up"
+"ui.debug.console.input" = { fg = "bright", modifiers = ["bold"] }
+"ui.statusline.debug.running" = { fg = "background", bg = "text", modifiers = ["bold"] }
+"ui.statusline.debug.stopped" = { fg = "background", bg = "red", modifiers = ["bold"] }
+"ui.statusline.debug.exited" = { fg = "background", bg = "bright", modifiers = ["bold"] }
+"ui.statusline.debug.failed" = { fg = "background", bg = "red", modifiers = ["bold", "italic"] }
+"ui.statusline.debug.playing" = { fg = "background", bg = "mid", modifiers = ["bold"] }
+"ui.debug.rewind" = { fg = "background", bg = "dim", modifiers = ["bold", "italic"] }
+"ui.debug.frozen" = { fg = "mid", modifiers = ["italic"] }
+"ui.debug.hint" = { fg = "dim", modifiers = ["italic"] }
+"ui.debug.memory" = { fg = "mid", modifiers = ["italic"] }
+"ui.debug.carried" = { fg = "dim", modifiers = ["italic"] }
+"ui.debug.loading" = "bright"
+"ui.debug.loading.bar" = "text"
+"ui.debug.loading.glow" = { fg = "bright", modifiers = ["bold"] }
+"ui.debug.loading.track" = "faint"
+"ui.virtual.step-time" = { fg = "dim", modifiers = ["italic"] }
+
+# Hex view
+"ui.hex.null" = "line"
+"ui.hex.printable" = "text"
+"ui.hex.whitespace" = { fg = "mid", modifiers = ["italic"] }
+"ui.hex.control" = { fg = "dim_up", modifiers = ["italic"] }
+"ui.hex.other" = "mid"
+"ui.hex.prefix" = "line"
+"ui.hex.offset" = "dim"
+"ui.hex.match" = { fg = "background", bg = "bright", modifiers = ["bold"] }
+"ui.hex.changed" = { fg = "bright", bg = "g_3", modifiers = ["bold", "underlined"] }
+"ui.hex.unreadable" = { fg = "dim", modifiers = ["crossed_out"] }
+"ui.hex.unrecorded" = "faint"
+
+# Dashboard
+"ui.dashboard.logo" = { fg = "bright", modifiers = ["bold"] }
+"ui.dashboard.logo.shadow" = "g_3"
+"ui.dashboard.credit" = { fg = "dim", modifiers = ["italic"] }
+"ui.dashboard.heading" = { fg = "bright", modifiers = ["bold"] }
+"ui.dashboard.label" = "dim"
+"ui.dashboard.value" = "text"
+"ui.dashboard.key" = { fg = "background", bg = "bright", modifiers = ["bold"] }
+"ui.dashboard.action" = "text"
+"ui.dashboard.hint" = { fg = "dim", modifiers = ["italic"] }
+"ui.dashboard.spinner" = "bright"
+# the panels; the vortex fades from the logo's color at the eye into the text's at the rim
+"ui.dashboard.panel" = { bg = "background" }
+
+# :practice
+"ui.practice" = { fg = "text", bg = "g_1" }
+"ui.practice.lesson" = "text"
+"ui.practice.goal" = { fg = "bright", modifiers = ["bold"] }
+"ui.practice.hint" = { fg = "dim_up", modifiers = ["italic"] }
+"ui.practice.key" = { fg = "bright", bg = "g_3", modifiers = ["bold"] }
+"ui.practice.label" = "dim"
+"ui.practice.status" = "text"
+"ui.practice.solved" = { fg = "bright", modifiers = ["bold"] }
+"ui.practice.dim" = { fg = "dim", modifiers = ["italic"] }
+
+[effects]
+dashboard-charset = "ascii"
+dashboard-logo = "classic"
+glitch-logo = 0.6
+glitch-background = 0.004
+glitch-diagnostics = 0.01
+terminal-phosphor = "phosphor"
+
+[palette]
+background = "#000000"
+
+# Phosphor greens, darkest to brightest; contrast on black in comments
+g_1 = "#06200d"           #      cursor line, strings, popups
+g_2 = "#0a2a12"           #      statusline, raw text, warnings
+g_3 = "#0f3a1a"           #      matches, conflicts, frame line
+sel = "#0d3b20"           #      secondary selections
+sel_primary = "#14532d"   #      primary selection
+faint = "#0f4a22"         # 2.0  indent guides, tracks (decor)
+line = "#17692f"          # 3.1  separators, whitespace (decor)
+dim = "#2fa84f"           # 6.8  comments, inactive, line numbers
+dim_up = "#34b457"        # 7.8  doc comments, punctuation
+mid = "#22bb55"           # 8.3  secondary cursors, operators
+text = "#33dd66"          # 11.7 normal text; also the terminal phosphor
+bright = "#7dff9b"        # 16.7 keywords, functions, primary cursor
+phosphor = "#33dd66"      # 11.7 the terminal panel's green
+
+# Errors, the only other hue
+red = "#ff3b3b"           # 5.9  errors
+red_dark = "#3a0a0a"      #      error backgrounds

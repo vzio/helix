@@ -528,7 +528,7 @@ fn frames(frames: &AtomicUsize) -> usize {
 #[tokio::test(flavor = "multi_thread")]
 async fn frames_are_asked_for_as_long_as_the_mode_moves() {
     let (on, on_frames, on_task) = ticking(DashboardBackground::On);
-    let (_, load_frames, load_task) = ticking(DashboardBackground::Load);
+    let (_, load_frames, load_task) = ticking(DashboardBackground::Settle);
     let (_, static_frames, static_task) = ticking(DashboardBackground::Static);
     let (_, off_frames, off_task) = ticking(DashboardBackground::Off);
 

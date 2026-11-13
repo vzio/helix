@@ -49,6 +49,10 @@ pub struct EditorView {
     hex_keys: commands::hex::HexKeys,
     /// The dashboard, drawn over an empty scratch buffer while it is up (this fork).
     pub dashboard: Option<crate::dashboard::Dashboard>,
+    /// The glitch over the ghost text of error diagnostics (this fork, `glitch-diagnostics` in
+    /// the theme's `[effects]`), and the cells of that ghost text in the frame being drawn.
+    diagnostic_glitch: crate::ui::glitch::Slot,
+    diagnostic_cells: std::cell::RefCell<Vec<(u16, u16)>>,
 }
 
 #[derive(Debug, Clone)]
@@ -80,7 +84,27 @@ impl EditorView {
             terminal_focused: true,
             hex_keys: Default::default(),
             dashboard: None,
+            diagnostic_glitch: Default::default(),
+            diagnostic_cells: Default::default(),
         }
+    }
+
+    /// The glitch over the ghost text of error diagnostics just drawn (this fork): over the
+    /// characters only, not the spaces between words, and only when the theme sets a rate.
+    fn glitch_diagnostics(&mut self, editor: &Editor, surface: &mut Surface) {
+        let rate = editor.theme.effects().glitch_diagnostics;
+        let Some(glitch) = self.diagnostic_glitch.at(rate) else {
+            return;
+        };
+        use vortex_core::unicode::width::UnicodeWidthStr;
+        // one-column characters only: a glitch is one ASCII column
+        let cells = self.diagnostic_cells.get_mut();
+        cells.retain(|&(x, y)| {
+            surface
+                .get(x, y)
+                .is_some_and(|cell| !cell.symbol.trim().is_empty() && cell.symbol.width() == 1)
+        });
+        glitch.draw(std::time::Instant::now(), surface, cells);
     }
 
     /// Opens the dashboard over the focused view (this fork, `:dashboard` and startup).
@@ -275,12 +299,16 @@ impl EditorView {
             .diagnostics_handler
             .show_cursorline_diagnostics(doc, view.id);
         let inline_diagnostic_config = config.inline_diagnostics.prepare(width, enable_cursor_line);
+        // the cells of the ghost text of errors are kept only for a glitch over them
+        let glitch_cells =
+            (theme.effects().glitch_diagnostics > 0.0).then_some(&self.diagnostic_cells);
         decorations.add_decoration(InlineDiagnostics::new(
             doc,
             theme,
             primary_cursor,
             inline_diagnostic_config,
             config.end_of_line_diagnostics,
+            glitch_cells,
         ));
         // the debugger's time per line, before the blame
         if let Some(times) = text_decorations::StepTimes::new(editor, doc, theme) {
@@ -1881,6 +1909,7 @@ impl Component for EditorView {
 
         // with the panel focused, no split is
         let panel_focused = cx.editor.terminal.is_focused() || cx.editor.debug.is_focused();
+        self.diagnostic_cells.get_mut().clear();
         for (view, is_focused) in cx.editor.tree.views() {
             let doc = cx.editor.document(view.doc).unwrap();
             self.render_view(
@@ -1892,6 +1921,7 @@ impl Component for EditorView {
                 is_focused && !panel_focused,
             );
         }
+        self.glitch_diagnostics(cx.editor, surface);
 
         if let Some(panel_area) = panel_area {
             crate::terminal::render(cx.editor, panel_area, surface);

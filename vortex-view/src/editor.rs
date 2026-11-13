@@ -351,10 +351,19 @@ impl<'de> Deserialize<'de> for Ignored {
 #[serde(rename_all = "kebab-case")]
 pub enum DashboardBackground {
     /// A vortex that spins while the dashboard is up.
-    #[default]
     On,
     /// A vortex that spins like `On` while the dashboard loads, then slows down to a stop.
-    Load,
+    /// `load`, its name before, still works.
+    #[serde(alias = "load")]
+    Settle,
+    /// A full vortex that, once the dashboard loaded, flows into its eye and ends empty.
+    Drain,
+    /// No vortex until the dashboard loaded, then one that grows from the eye to the edges
+    /// and stops there.
+    Grow,
+    /// Grows like `Grow`, then spins like `On`.
+    #[default]
+    GrowOn,
     /// A vortex that doesn't move.
     Static,
     /// No vortex.

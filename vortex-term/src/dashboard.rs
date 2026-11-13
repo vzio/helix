@@ -13,6 +13,7 @@
 //! everything is in, over a [`vortex`] that spins, slows down or stands still as configured.
 //! Once nothing moves anymore, no more frames are asked for.
 
+pub mod charset;
 pub mod languages;
 pub mod render;
 pub mod stats;
@@ -55,6 +56,8 @@ pub struct Dashboard {
     version: i32,
     /// Only the vortex (`:vortex`).
     vortex_only: bool,
+    /// The glitches of the title and the background, from frame to frame.
+    glitches: std::cell::RefCell<render::Glitches>,
 }
 
 impl Drop for Dashboard {
@@ -100,6 +103,7 @@ impl Dashboard {
             doc: doc_id,
             version,
             vortex_only: false,
+            glitches: Default::default(),
         }
     }
 
@@ -126,6 +130,7 @@ impl Dashboard {
             doc: doc.id(),
             version: doc.version(),
             vortex_only: false,
+            glitches: Default::default(),
         }
     }
 
@@ -208,6 +213,7 @@ impl Dashboard {
             hints: &self.hints,
             title: editor.config().dashboard_title,
             vortex_only: self.vortex_only,
+            glitches: Some(&self.glitches),
         };
         render::render(&model, &editor.theme, area, surface, now);
     }
