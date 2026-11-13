@@ -1539,10 +1539,25 @@ go). Where a level costs much and says little, less is recorded: frames playback
 (the runtime's, in `own` mode: a Rust stack has a dozen of them under `main`) keep their own
 variables, not what is inside them; registers keep their groups; an expensive scope (js-debug's
 global object) and a scope without a hint that every frame repeats (lldb's globals) are recorded in
-the top frame only. With lldb-dap and rustc's formatters a stop of the example program costs about
-70 requests and 50 KB. Recording runs in the background, so the screen never waits on it; playback waits for it before
-its next step (a stop's references are only valid until the program moves), which may lower the top
-speed. `R` opens the capture settings in the panel: depth, collection size and history length
+the top frame only. Frames that can't have changed since the stop before aren't fetched again:
+playing line by line, the frames under the top one are mostly the same calls, waiting at the same
+lines, and those carry the variables recorded then. A frame is the same when it is on the same
+thread, at the same depth counted from the bottom of the stack (the top changes, the bottom
+doesn't), in the same function and source, at the same line (adapters give frames new ids at every
+stop, so ids can't tell). The top frame is always fetched, and so is a frame whose line moved,
+which is how a return into a carried frame fetches it again. Nothing is carried at the first stop
+of a session, the first after a thread switch, after the capture settings or the follow mode
+changed, after the thread ran lines that weren't recorded (a full-speed run, a run to the cursor),
+or while hidden breakpoints are still going in. In rewind a carried frame says so above its
+variables, `carried from step 128` (`ui.debug.carried`): the step that fetched them. A callee can
+change a caller's locals through a pointer or a reference while the caller isn't on top, and a
+frame that runs again at the same line between two stops (a loop on one line; library code that
+isn't recorded calling back into yours) keeps the values it had: those changes show when the frame
+is fetched again (its line moves, or it is the top). The requests of a stop go out together, a
+level of the tree at a time, at most 16 at once. With lldb-dap and rustc's formatters a stop of the
+example program costs about 15 requests (74 when every frame is fetched) and 50 KB. Recording runs
+in the background, so the screen never waits on it; playback waits for it before its next step (a
+stop's references are only valid until the program moves), which may lower the top speed. `R` opens the capture settings in the panel: depth, collection size and history length
 (`unlimited` allowed, with a warning), with the cost measured over the last stops (requests per stop,
 memory per stop and in all) or estimated before any. `[` and `]` (`{` `}` by ten) scrub back and
 forward: the editor and the panel show that stop, read-only, under an unmissable marker,
@@ -1617,11 +1632,21 @@ they never show in the gutter or the panel's breakpoints, and don't follow edits
 debugging (like yours).
 
 **Installing.** At the session's configuration, before `configurationDone`: the files are found on
-a background thread, then sent four requests at a time; your breakpoints in other files and the
-exception filters follow, then `configurationDone`. The program then stops at the first line of
-your code that runs, on whichever thread: that thread is spectated, playback paused (`Stopped at the
-first line of your code that ran: Space plays`). Switching the follow mode (`e`) sends the whole set
-again for the new mode. While breakpoints are installed, lifted or restored, the panel's last row
+a background thread, then sent four requests at a time, the files likely to run first ahead of the
+rest: the open buffers, the launch's program when it is a source file, and the files with your
+breakpoints. Once those are in, your breakpoints in other files and the exception filters follow,
+then `configurationDone`, and the program starts while the rest go in behind it, with the loading
+animation saying so (`installing breakpoints · 120/486 files: lines in the rest aren't counted
+yet`): until a file is in, its lines aren't hit, so playback passes through them unseen and the
+lineline doesn't count them (the spectated thread, when it stops in such a file, steps through it
+as without the engine). When the last file is in, the lineline gets a `covered` mark: before it,
+coverage was partial. When none of the files is one of those (nothing open, no breakpoint), the
+program waits for all of them, as before. The program stops at the first line of your code that
+runs, on whichever thread: that thread is spectated, playback paused (`Stopped at the first line of
+your code that ran: Space plays`). Switching the follow mode (`e`) sends the whole set again for the
+new mode, and the restore after a full-speed run puts it back, both in the same order (the
+spectated thread's file first) and both letting playback go on once those are in. `space G c` waits
+until a set is complete (it says so). While breakpoints are installed, lifted or restored, the panel's last row
 shows the loading animation (a spinner, a bar that fills as files are done with a glow running along
 it, `installing breakpoints · 12/48 files · 3,410 lines`) and the statusline `DBG … · ◜ 12/48`; the
 editor stays usable.
@@ -1661,7 +1686,8 @@ and everything is recorded against it:
   `line-record` hits (1,000,000 by default, about 8 MB), the oldest go first, with what was recorded
   against them;
 - marks: your breakpoints, exceptions, pauses, switches of the spectated thread, full-speed gaps,
-  threads starting and exiting, the program's end (room is left for the selected variable's reads
+  threads starting and exiting, the program's end, the point where every covered file had its
+  hidden breakpoints after the program ran on a partial set (`covered`) (room is left for the selected variable's reads
   and writes);
 - each thread's lifetime: the counter when it started, its first and last hit, when it exited; and
   the main thread, the first one the adapter reported;
@@ -1832,6 +1858,7 @@ default `outFiles`, and breakpoints in TypeScript sources land only after the co
 | `ui.debug.hint` | the keys at the bottom of the panel | `ui.text.inactive` |
 | `ui.virtual.step-time` | the time per line | `ui.virtual.inline-blame`, then `ui.virtual.inlay-hint` |
 | `ui.debug.memory` | `▦`, a value whose memory can be shown | `info` |
+| `ui.debug.carried` | `carried from step 128`, a frame rewind reused from an earlier stop | `ui.text.inactive`, italic |
 | `ui.debug.loading`, `.bar`, `.glow`, `.track` | the [engine](#engine)'s loading animation: its spinner and text, the bar's filled part, the glow running along it, the empty part | `ui.debug.active` (else `ui.text.focus`); its color; bold; `ui.text.inactive` |
 | `ui.hex.changed`, `ui.hex.unreadable`, `ui.hex.unrecorded` | in a [memory view](#memory): bytes the program changed since the stop before, `??`, `··` | bold `ui.debug.value.changed` (else `warning`); `ui.text.inactive`; `ui.virtual.whitespace` |
 

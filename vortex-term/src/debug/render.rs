@@ -150,6 +150,9 @@ fn role_style(theme: &Theme, role: Role) -> Style {
         Role::Memory => theme
             .try_get_exact("ui.debug.memory")
             .unwrap_or_else(|| fg_only(theme.get("info"))),
+        Role::Carried => theme
+            .try_get_exact("ui.debug.carried")
+            .unwrap_or_else(|| theme.get("ui.text.inactive").add_modifier(Modifier::ITALIC)),
     }
 }
 

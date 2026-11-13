@@ -123,6 +123,8 @@ pub fn toggle_freeze(editor: &mut Editor, key: ThreadKey) {
         return;
     }
     let frozen = editor.debug.spectator.toggle_frozen(key);
+    // the client's fast path continues other threads' hits alone while a thread is frozen
+    super::engine::sync_watch(editor);
     let name = editor.debug.thread_name(key);
     if frozen {
         if !playback::is_stopped(editor, key) {

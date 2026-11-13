@@ -476,12 +476,80 @@ fn record_ids(
     state.file_ids.insert(path.to_owned(), new);
 }
 
+/// The files likely to run first, which go in before the program is let go: the open buffers,
+/// the launch's program when it is a source file, the files with your breakpoints, and the file
+/// the spectated thread is in.
+fn first_files(editor: &Editor, session: DebugAdapterId) -> HashSet<PathBuf> {
+    let mut first: HashSet<PathBuf> = editor
+        .documents()
+        .filter_map(|doc| doc.path().map(Path::to_path_buf))
+        .collect();
+    first.extend(
+        editor
+            .breakpoints
+            .iter()
+            .filter(|(_, breakpoints)| !breakpoints.is_empty())
+            .map(|(path, _)| path.clone()),
+    );
+    let args = editor
+        .debug_adapters
+        .get_client(session)
+        .and_then(|client| client.starting_request_args());
+    if let Some(program) = args.and_then(|args| args.get("program")?.as_str()) {
+        let cwd = args.and_then(|args| args.get("cwd")?.as_str());
+        let program = Path::new(program);
+        first.insert(match cwd {
+            Some(cwd) if program.is_relative() => Path::new(cwd).join(program),
+            _ => program.to_owned(),
+        });
+    }
+    if let Some(key) = spectated(editor).filter(|key| key.session == session) {
+        let frames = editor
+            .debug_adapters
+            .get_client(session)
+            .and_then(|client| client.stack_frames.get(&key.thread));
+        if let Some(path) = frames
+            .and_then(|frames| frames.first())
+            .and_then(|frame| frame.source.as_ref()?.path.clone())
+        {
+            first.insert(path);
+        }
+    }
+    first
+}
+
+/// Puts the jobs of the files likely to run first ahead of the rest, and returns how many there
+/// are. None of them: all of them count as first (nothing tells which code matters, so the
+/// program waits for all of it, as small programs do anyway).
+fn first_in_line(jobs: &mut [FileJob], first: &HashSet<PathBuf>) -> usize {
+    jobs.sort_by_key(|job| !first.contains(&job.path));
+    match jobs.iter().filter(|job| first.contains(&job.path)).count() {
+        0 => jobs.len(),
+        count => count,
+    }
+}
+
 /// Runs `jobs` in the background for task `token`, then `then` in the editor.
 fn run_files(
     editor: &mut Editor,
     session: DebugAdapterId,
     token: u64,
     jobs: Vec<FileJob>,
+    then: impl FnOnce(&mut Editor) + Send + 'static,
+) {
+    let all = jobs.len();
+    run_files_staged(editor, session, token, jobs, all, |_| {}, then);
+}
+
+/// Runs `jobs` in the background for task `token`: `at_first` in the editor once the first
+/// `first` jobs are done (the rest still going), then `then` once they all are.
+fn run_files_staged(
+    editor: &mut Editor,
+    session: DebugAdapterId,
+    token: u64,
+    jobs: Vec<FileJob>,
+    first: usize,
+    at_first: impl FnOnce(&mut Editor) + Send + 'static,
     then: impl FnOnce(&mut Editor) + Send + 'static,
 ) {
     let Some(client) = editor.debug_adapters.get_client(session) else {
@@ -497,13 +565,32 @@ fn run_files(
         task.files_total = jobs.len();
     }
     tokio::spawn(async move {
-        let mut results = futures_util::stream::iter(
-            jobs.into_iter()
-                .map(|job| run_job(requester.clone(), locations, job)),
-        )
-        .buffer_unordered(IN_FLIGHT);
-        while let Some(result) = results.next().await {
+        let mut results =
+            futures_util::stream::iter(jobs.into_iter().enumerate().map(|(index, job)| {
+                let requester = requester.clone();
+                async move { (index < first, run_job(requester, locations, job).await) }
+            }))
+            .buffer_unordered(IN_FLIGHT);
+        let mut at_first = Some(at_first);
+        let mut first_left = first;
+        if first_left == 0 {
+            if let Some(at_first) = at_first.take() {
+                job::dispatch(move |editor, _| at_first(editor)).await;
+            }
+        }
+        while let Some((is_first, result)) = results.next().await {
             job::dispatch(move |editor, _| apply_result(editor, session, token, result)).await;
+            if is_first {
+                first_left -= 1;
+                if first_left == 0 {
+                    if let Some(at_first) = at_first.take() {
+                        job::dispatch(move |editor, _| at_first(editor)).await;
+                    }
+                }
+            }
+        }
+        if let Some(at_first) = at_first.take() {
+            job::dispatch(move |editor, _| at_first(editor)).await;
         }
         job::dispatch(move |editor, _| then(editor)).await;
     });
@@ -549,6 +636,13 @@ fn finish(editor: &mut Editor, session: DebugAdapterId, token: u64, kind: TaskKi
         if let Some(alive) = editor.debug.engine.animation.take() {
             alive.store(false, Ordering::Relaxed);
         }
+    }
+    let Some(state) = editor.debug.engine.sessions.get_mut(&session) else {
+        return;
+    };
+    if std::mem::take(&mut state.partial) {
+        // the program ran while the last files went in: coverage is whole from here
+        editor.debug.engine.record.mark(MarkKind::Covered);
     }
     let Some(state) = editor.debug.engine.sessions.get_mut(&session) else {
         return;
@@ -633,12 +727,55 @@ pub fn install(
                 path,
             })
             .collect::<Vec<_>>();
+        let mut jobs = jobs;
+        let first = first_in_line(&mut jobs, &first_files(editor, session));
+        let rest = first < jobs.len();
         let covered: HashSet<PathBuf> = jobs.iter().map(|job| job.path.clone()).collect();
-        run_files(editor, session, token, jobs, move |editor| {
-            finish(editor, session, token, TaskKind::Install);
-            then(editor, covered);
-        });
+        // the program starts once the files likely to run first are in; the rest go in behind it
+        run_files_staged(
+            editor,
+            session,
+            token,
+            jobs,
+            first,
+            move |editor| {
+                go(editor, session, token, rest);
+                then(editor, covered);
+            },
+            move |editor| finish(editor, session, token, TaskKind::Install),
+        );
     });
+}
+
+/// The files first in line are in: the hidden breakpoints work from here, while the rest (if
+/// any) go in behind the program, whose lines in them aren't hit until they do.
+fn go(editor: &mut Editor, session: DebugAdapterId, token: u64, rest: bool) {
+    let Some(state) = editor.debug.engine.sessions.get_mut(&session) else {
+        return;
+    };
+    if state.state == SessionState::Installing {
+        state.state = SessionState::Ready;
+    }
+    state.partial = rest;
+    if let Some(task) = editor.debug.engine.task_mut(token) {
+        task.running = rest;
+        if rest {
+            let text = format!(
+                "{}/{} files have their hidden breakpoints: the program goes on, and lines in \
+                 the rest aren't counted until they are in",
+                task.files_done, task.files_total
+            );
+            editor.debug.console.line(LineKind::Info, text);
+        }
+    }
+    sync_ids(editor, session);
+    sync_watch(editor);
+    if std::mem::take(&mut editor.debug.engine.pending_advance) {
+        let spectator = &editor.debug.spectator;
+        if spectator.is_playing() && spectator.step.is_none() {
+            playback::advance(editor);
+        }
+    }
 }
 
 fn warn_capped(editor: &mut Editor, capped: bool) {
@@ -776,9 +913,17 @@ fn reinstall(editor: &mut Editor, session: DebugAdapterId, follow: Follow) {
         for job in &mut jobs {
             job.mine = mine(editor, &job.path);
         }
-        run_files(editor, session, token, jobs, move |editor| {
-            finish(editor, session, token, TaskKind::Reinstall)
-        });
+        let first = first_in_line(&mut jobs, &first_files(editor, session));
+        let rest = first < jobs.len();
+        run_files_staged(
+            editor,
+            session,
+            token,
+            jobs,
+            first,
+            move |editor| go(editor, session, token, rest),
+            move |editor| finish(editor, session, token, TaskKind::Reinstall),
+        );
     });
 }
 
@@ -887,8 +1032,17 @@ fn drop_strays_soon(editor: &mut Editor, path: PathBuf) {
 /// puts them back at the next stop. Returns false when the session has no hidden breakpoints in
 /// place (the caller continues as usual).
 pub fn full_speed(editor: &mut Editor, key: ThreadKey) -> bool {
-    if !editor.debug.engine.is_ready(key.session) || editor.debug.engine.task.is_some() {
+    if !editor.debug.engine.is_ready(key.session) {
         return false;
+    }
+    if let Some(task) = &editor.debug.engine.task {
+        // a continue would only reach the next hidden breakpoint: wait for the set
+        editor.set_error(format!(
+            "Hidden breakpoints are still going in ({}/{} files): Space G c runs at full speed \
+             once they are",
+            task.files_done, task.files_total
+        ));
+        return true;
     }
     let session = key.session;
     let files: Vec<PathBuf> = editor.debug.engine.sessions[&session]
@@ -988,10 +1142,19 @@ fn restore(editor: &mut Editor, session: DebugAdapterId) {
                 },
             }
         })
-        .collect();
-    run_files(editor, session, token, jobs, move |editor| {
-        finish(editor, session, token, TaskKind::Restore)
-    });
+        .collect::<Vec<_>>();
+    let mut jobs = jobs;
+    let first = first_in_line(&mut jobs, &first_files(editor, session));
+    let rest = first < jobs.len();
+    run_files_staged(
+        editor,
+        session,
+        token,
+        jobs,
+        first,
+        move |editor| go(editor, session, token, rest),
+        move |editor| finish(editor, session, token, TaskKind::Restore),
+    );
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -1031,9 +1194,19 @@ pub fn sync_watch(editor: &Editor) {
         filter.watched = spectated
             .filter(|key| key.session == id)
             .map(|key| key.thread);
-        filter.alone = editor.debug.spectator.non_stop.contains(&id)
-            && playback::supports_single_thread(editor, id);
+        filter.alone = hits_alone(editor, id);
     }
+}
+
+/// Whether the hits the engine continues by itself go with `singleThread`: in a session whose
+/// threads stop one by one (each continues alone), and in any session with a frozen thread, so
+/// that no continue of another thread's hit runs it (an all-stop adapter otherwise runs every
+/// thread at a continue).
+fn hits_alone(editor: &Editor, session: DebugAdapterId) -> bool {
+    let spectator = &editor.debug.spectator;
+    playback::supports_single_thread(editor, session)
+        && (spectator.non_stop.contains(&session)
+            || spectator.frozen.iter().any(|key| key.session == session))
 }
 
 /// The spectated thread, while its session lives (no fallback to the current thread: at the
@@ -1083,8 +1256,7 @@ fn continue_hit(editor: &Editor, key: ThreadKey) {
     let Some(client) = editor.debug_adapters.get_client(key.session) else {
         return;
     };
-    let alone = editor.debug.spectator.non_stop.contains(&key.session)
-        && playback::supports_single_thread(editor, key.session);
+    let alone = hits_alone(editor, key.session);
     let request = client.requester().continue_with(key.thread, alone);
     tokio::spawn(async move {
         if let Err(err) = request.await {

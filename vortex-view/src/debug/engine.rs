@@ -98,6 +98,9 @@ pub struct SessionEngine {
     /// Files that frames showed and the follow mode covers but aren't installed: the stepping
     /// fallback covers them until they are.
     pub uncovered: BTreeSet<PathBuf>,
+    /// The program runs while the rest of the files are installed: lines of the files not done
+    /// yet aren't hit (nor counted) until they are.
+    pub partial: bool,
 }
 
 impl SessionEngine {
@@ -110,6 +113,7 @@ impl SessionEngine {
             file_ids: HashMap::new(),
             known: HashMap::new(),
             uncovered: BTreeSet::new(),
+            partial: false,
         }
     }
 
@@ -246,6 +250,8 @@ pub struct Task {
     pub files_done: usize,
     /// Hidden breakpoints sent so far.
     pub lines: usize,
+    /// The program runs meanwhile: the files first in line are done, the rest go in behind it.
+    pub running: bool,
     /// Bumped for every new task: the answers of an older one are dropped.
     pub token: u64,
 }
@@ -255,6 +261,14 @@ impl Task {
     pub fn label(&self) -> String {
         if self.files_total == 0 {
             return format!("{} · finding files", self.kind.verb());
+        }
+        if self.running {
+            return format!(
+                "{} · {}/{} files: lines in the rest aren't counted yet",
+                self.kind.verb(),
+                self.files_done,
+                self.files_total,
+            );
         }
         format!(
             "{} · {}/{} files · {} lines",
@@ -425,6 +439,7 @@ impl Engine {
             files_total: files,
             files_done: 0,
             lines: 0,
+            running: false,
             token: self.token,
         });
         self.token

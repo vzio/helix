@@ -120,6 +120,10 @@ pub enum MarkKind {
     },
     /// The program ended.
     End,
+    /// Every file covered has its hidden breakpoints from here. Since the program started (or
+    /// since the last follow switch or full-speed run), lines of the files not done yet weren't
+    /// hit, nor counted: the program ran while they went in.
+    Covered,
     // Room for the selected variable's reads and writes (debug mode's variables): they are
     // marks at the hits that read or wrote it, added once they are known.
 }
@@ -469,6 +473,26 @@ impl Lineline {
             .map(|index| self.view(self.base + index as Counter, &self.hits[index]))
     }
 
+    /// Whether `thread` came straight from its hit at `from` to its hit at `to`: no hit of it in
+    /// between, and no full-speed run (whose lines aren't counted). Rewind lends a stop's frames
+    /// to the next only across such hits.
+    pub fn adjacent(&self, thread: ThreadKey, from: Counter, to: Counter) -> bool {
+        let Some(&id) = self.thread_ids.get(&thread) else {
+            return false;
+        };
+        if to <= from || from < self.base || to >= self.counter() {
+            return false;
+        }
+        let full_speed = self
+            .marks
+            .iter()
+            .rev()
+            .take_while(|mark| mark.at > from)
+            .any(|mark| mark.at <= to && matches!(mark.kind, MarkKind::FullSpeed { .. }));
+        let between = (from + 1 - self.base) as usize..(to - self.base) as usize;
+        !full_speed && self.hits.range(between).all(|hit| hit.thread != id)
+    }
+
     pub fn marks(&self) -> impl DoubleEndedIterator<Item = &Mark> + '_ {
         self.marks.iter()
     }
@@ -602,6 +626,30 @@ mod tests {
             record.iter().map(|hit| hit.line).collect::<Vec<_>>(),
             vec![4]
         );
+    }
+
+    #[test]
+    fn a_thread_is_adjacent_across_other_threads_hits_only() {
+        let threads = keys(3);
+        let (main, a, b) = (threads[0], threads[1], threads[2]);
+        let mut record = Lineline::default();
+        let path = Path::new("/src/main.rs");
+        let first = record.hit(a, Some((path, 1)), Why::Line, Some(a));
+        record.hit(b, Some((path, 5)), Why::Line, Some(a));
+        let second = record.hit(a, Some((path, 2)), Why::Line, Some(a));
+        assert!(
+            record.adjacent(a, first, second),
+            "b's hit in between doesn't count"
+        );
+        let third = record.hit(a, Some((path, 3)), Why::Line, Some(a));
+        assert!(!record.adjacent(a, first, third), "a ran line 2 in between");
+        // a full-speed run in between: its lines weren't counted
+        record.mark(MarkKind::FullSpeed {
+            duration: Duration::from_millis(5),
+        });
+        let fourth = record.hit(a, Some((path, 9)), Why::Breakpoint, Some(a));
+        assert!(!record.adjacent(a, third, fourth));
+        assert!(!record.adjacent(main, first, second), "a thread never seen");
     }
 
     #[test]

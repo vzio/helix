@@ -2,16 +2,21 @@
 //! frames (within the capture caps) and the watches, loaded in the background while the stop is
 //! shown. Playback waits for the recording before its next step, because the references a stop
 //! gives are only valid until the program moves.
+//!
+//! Playing line by line, the frames under the top one are mostly the same calls as at the stop
+//! before, waiting at the same lines: those carry the variables recorded then instead of being
+//! fetched again (`history::reusable`), and only the frames that changed are fetched. The
+//! requests go out together, a level of the tree at a time, at most [`IN_FLIGHT`] at once.
 
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::Arc;
 
 use futures_util::future::{join_all, BoxFuture, FutureExt};
-use tokio::sync::oneshot;
+use tokio::sync::{oneshot, Semaphore};
 use vortex_dap::{registry::DebugAdapterId, Requester, StackFrame};
 use vortex_view::{
     debug::{
-        history::{Caps, MemoryWindow, Snapshot},
+        history::{self, Caps, MemoryWindow, Snapshot},
         mark_changes,
         spectator::ThreadKey,
         VarNode, Watch,
@@ -21,11 +26,35 @@ use vortex_view::{
 
 use crate::job;
 
-/// What one capture counts as it goes.
-#[derive(Default)]
+/// Requests a capture has in flight at most: adapters answer them one by one, but sending the
+/// next before the last answer arrives saves the round trips (lldb-dap and js-debug cope with
+/// far more).
+pub const IN_FLIGHT: usize = 16;
+
+/// What one capture counts as it goes, and the requests it may have in flight.
 struct Counters {
     requests: AtomicUsize,
     truncated: AtomicBool,
+    in_flight: Semaphore,
+}
+
+impl Default for Counters {
+    fn default() -> Self {
+        Self {
+            requests: AtomicUsize::new(0),
+            truncated: AtomicBool::new(false),
+            in_flight: Semaphore::new(IN_FLIGHT),
+        }
+    }
+}
+
+impl Counters {
+    /// Sends a request once a slot is free, and counts it.
+    async fn send<T>(&self, request: impl std::future::Future<Output = T>) -> T {
+        let _slot = self.in_flight.acquire().await;
+        self.requests.fetch_add(1, Ordering::Relaxed);
+        request.await
+    }
 }
 
 /// Records the stop of `key` at `frames` in the background. The receiver fires once the
@@ -67,12 +96,43 @@ pub fn capture(
         .filter(|(stopped, _)| *stopped == key)
         .map(|(_, at)| at);
     let thread_name = editor.debug.thread_name(key);
+    // what the last recorded stop lends: the frames that can't have changed since
+    let recipe = (caps, follow);
+    let previous = editor.debug.spectator.history.stops.back();
+    let adjacent =
+        previous.is_some_and(|previous| straight_from(editor, previous, key, counter, reason));
+    let lent = history::reusable(previous, key, recipe, adjacent, &frames);
+    let carried: Vec<Option<usize>> = lent
+        .iter()
+        .map(|other| {
+            let previous = previous?;
+            let other = (*other)?;
+            Some(
+                previous
+                    .carried
+                    .get(other)
+                    .copied()
+                    .flatten()
+                    .unwrap_or(previous.step),
+            )
+        })
+        .collect();
+    let reused: Vec<Option<Vec<VarNode>>> = lent
+        .iter()
+        .map(|other| {
+            let previous = previous?;
+            previous.scopes.get((*other)?).cloned().flatten()
+        })
+        .collect();
     let reason = reason.to_owned();
     let (done, receiver) = oneshot::channel();
     editor.debug.spectator.recording += 1;
     tokio::spawn(async move {
         let counters = Arc::new(Counters::default());
         let scopes = join_all(frames.iter().enumerate().map(|(index, frame)| {
+            if let Some(scopes) = reused[index].clone() {
+                return async move { Some(scopes) }.boxed();
+            }
             let caps = if followed[index] {
                 caps
             } else {
@@ -88,17 +148,16 @@ pub fn capture(
                 caps,
                 counters.clone(),
             )
+            .boxed()
         }))
         .await;
         let mut watch_values = Vec::with_capacity(watches.len());
         for expression in watches {
             let node = match frames.first() {
                 Some(top) => {
-                    counters.requests.fetch_add(1, Ordering::Relaxed);
-                    match requester
-                        .evaluate(expression.clone(), Some(top.id), Some("watch"))
-                        .await
-                    {
+                    let evaluate =
+                        requester.evaluate(expression.clone(), Some(top.id), Some("watch"));
+                    match counters.send(evaluate).await {
                         Ok(response) => {
                             let mut node = VarNode {
                                 name: expression.clone(),
@@ -154,6 +213,8 @@ pub fn capture(
             reason,
             frames,
             scopes,
+            carried,
+            recipe,
             watches: watch_values,
             memory,
             requests: counters.requests.load(Ordering::Relaxed),
@@ -165,6 +226,30 @@ pub fn capture(
         let _ = done.send(());
     });
     Some(receiver)
+}
+
+/// Whether the stop of `key` comes straight from `previous`, the last recorded stop: on the
+/// engine, no line of the thread ran unrecorded in between (the lineline says); stepping, the
+/// stop is the end of one step from it. While hidden breakpoints are still going in, lines of
+/// files without them run unseen, so nothing is lent.
+fn straight_from(
+    editor: &Editor,
+    previous: &Snapshot,
+    key: ThreadKey,
+    counter: Option<vortex_view::debug::lineline::Counter>,
+    reason: &str,
+) -> bool {
+    let engine = &editor.debug.engine;
+    if engine.sessions.get(&key.session).is_some_and(|state| {
+        state.partial || state.state == vortex_view::debug::engine::SessionState::Installing
+    }) {
+        return false;
+    }
+    match (previous.counter, counter) {
+        (Some(from), Some(to)) => engine.record.adjacent(key, from, to),
+        (None, None) => reason == "step",
+        _ => false,
+    }
 }
 
 /// Keeps a snapshot, its changes marked against the stop before it in the same function.
@@ -216,8 +301,7 @@ async fn capture_frame(
     caps: Caps,
     counters: Arc<Counters>,
 ) -> Option<Vec<VarNode>> {
-    counters.requests.fetch_add(1, Ordering::Relaxed);
-    let scopes = requester.scopes(frame_id).await.ok()?;
+    let scopes = counters.send(requester.scopes(frame_id)).await.ok()?;
     let hinted_frame = scopes.iter().any(|scope| {
         matches!(
             scope.presentation_hint.as_deref(),
@@ -263,9 +347,8 @@ fn children(
     counters: Arc<Counters>,
 ) -> BoxFuture<'static, Vec<VarNode>> {
     async move {
-        counters.requests.fetch_add(1, Ordering::Relaxed);
-        let mut result = requester
-            .variables_page(reference, caps.collection.map(|_| 0), caps.collection)
+        let mut result = counters
+            .send(requester.variables_page(reference, caps.collection.map(|_| 0), caps.collection))
             .await;
         // an adapter that answers a page with nothing although the variable has children doesn't
         // page: ask for all of them
@@ -273,8 +356,9 @@ fn children(
             && total.is_some_and(|total| total > 0)
             && result.as_ref().is_ok_and(Vec::is_empty)
         {
-            counters.requests.fetch_add(1, Ordering::Relaxed);
-            result = requester.variables_page(reference, None, None).await;
+            result = counters
+                .send(requester.variables_page(reference, None, None))
+                .await;
         }
         let variables = match result {
             Ok(variables) => variables,

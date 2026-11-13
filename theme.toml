@@ -213,6 +213,7 @@ hint = { fg = "n_8", bg = "n_1" }
 "ui.debug.frozen" = "purple_soft"
 "ui.debug.hint" = "n_6"
 "ui.debug.memory" = "purple_soft"
+"ui.debug.carried" = { fg = "n_6", modifiers = ["italic"] }
 "ui.debug.loading" = "purple_light"
 "ui.debug.loading.bar" = "purple"
 "ui.debug.loading.glow" = { fg = "purple_light", modifiers = ["bold"] }

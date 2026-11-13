@@ -227,6 +227,8 @@ pub enum Role {
     Rewind,
     /// The badge of a value whose memory can be shown.
     Memory,
+    /// In rewind, a frame whose variables were carried from an earlier stop.
+    Carried,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -545,6 +547,17 @@ impl DebugState {
         }
     }
 
+    /// In rewind, the step the shown frame's variables were carried from, when they weren't
+    /// fetched at this stop (the frame hadn't moved since).
+    pub fn shown_carried(&self) -> Option<usize> {
+        let snapshot = self.spectator.history.current()?;
+        snapshot
+            .carried
+            .get(self.spectator.history.frame)
+            .copied()
+            .flatten()
+    }
+
     /// The watches shown: the live ones, or in rewind the recorded ones.
     pub fn shown_watches(&self) -> &[Watch] {
         match self.spectator.history.current() {
@@ -762,6 +775,14 @@ impl DebugState {
                     Status::Running | Status::Starting => "Running: the variables show at a stop",
                     _ => "No debug session",
                 }));
+            }
+            if let Some(step) = self.shown_carried() {
+                rows.push(Row {
+                    depth: 0,
+                    marker: Marker::None,
+                    parts: vec![(format!("carried from step {step}"), Role::Carried)],
+                    target: Target::None,
+                });
             }
             for scope in scopes {
                 let path = VarPath {
