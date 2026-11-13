@@ -576,8 +576,10 @@ fn finish(editor: &mut Editor, session: DebugAdapterId, token: u64, kind: TaskKi
         }
         TaskKind::Install | TaskKind::Reinstall => {
             let text = format!(
-                "{} hidden breakpoints in {files} files{}",
+                "{} hidden breakpoint{} in {files} file{}{}",
                 engine::thousands(count),
+                if count == 1 { "" } else { "s" },
+                if files == 1 { "" } else { "s" },
                 time.map(|time| format!(" ({time})")).unwrap_or_default()
             );
             editor.debug.console.line(LineKind::Info, text.clone());

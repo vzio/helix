@@ -406,10 +406,9 @@ fn status_text(editor: &Editor) -> String {
         && state.status.is_active()
         && !state.engine.record.is_empty()
     {
-        text = format!(
-            "{text} · {} lines",
-            engine::thousands(state.engine.record.counter() as usize)
-        );
+        let lines = state.engine.record.counter() as usize;
+        let noun = if lines == 1 { "line" } else { "lines" };
+        text = format!("{text} · {} {noun}", engine::thousands(lines));
     }
     if !state.session_name.is_empty() && state.status.is_active() {
         text = format!("{text} · {}", state.session_name);
