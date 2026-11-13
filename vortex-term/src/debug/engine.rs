@@ -1183,7 +1183,6 @@ pub fn on_stopped(
                     LineDecision::Stop => {}
                 }
                 editor.debug.engine.last_stop = Some((key, at));
-                log::info!("TIMING line hit {at} {}:{}", path.display(), line + 1);
                 return Outcome::Proceed(LINE_REASON.to_owned());
             }
             HitKind::Mine(mine) => {
@@ -1195,11 +1194,13 @@ pub fn on_stopped(
                         engine::breakpoint_pauses(breakpoint, key, main)
                     })
                 });
+                // a stop at yours takes the camera: the switch is marked at this hit
+                let watched = if pauses { Some(key) } else { spectated };
                 let at = editor.debug.engine.record.hit(
                     key,
                     place.as_ref().map(|(path, line)| (path.as_path(), *line)),
                     Why::Breakpoint,
-                    spectated,
+                    watched,
                 );
                 if !pauses {
                     continue_hit(editor, key);

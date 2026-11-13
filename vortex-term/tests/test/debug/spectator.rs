@@ -157,6 +157,16 @@ impl Env {
             .collect()
     }
 
+    /// Your breakpoint on `line` (1-based), set before the launch.
+    fn breakpoint(&mut self, line: usize) {
+        debug::breakpoints::toggle(&mut self.h.app.editor, self.path.clone(), line - 1);
+    }
+
+    /// The stepping engine (no hidden breakpoints): for the tests of the stepping fallback.
+    fn stepping(&mut self) {
+        self.h.app.editor.debug.engine.kind = vortex_view::debug::engine::EngineKind::Stepping;
+    }
+
     fn errors_have(&self, needle: &str) -> bool {
         self.h.errors.iter().any(|e| e.contains(needle))
     }
@@ -177,10 +187,11 @@ fn is_stopped(app: &Application, reason: &str) -> bool {
     matches!(&app.editor.debug.status, Status::Stopped { reason: r, .. } if r == reason)
 }
 
-/// `n` stops of the one thread at lines 2, 3, ...: any step reaches the next.
+/// `n` line stops of the one thread at lines 2, 3, ... (line mode: the engine's hidden
+/// breakpoints stop the program at each).
 fn run(p: &str, n: u64) -> Script {
-    (0..n).fold(Script::new(p), |script, i| {
-        script.stop(Stop::new(2 + i, "entry"))
+    (0..n).fold(Script::new(p).lines(), |script, i| {
+        script.stop(Stop::new(2 + i, "step"))
     })
 }
 
@@ -226,12 +237,13 @@ async fn space_plays_and_pauses_in_the_panel_and_opens_the_menu_in_the_editor() 
 async fn playback_at_25_lines_a_second_takes_40_ms_a_step_and_pauses_at_a_breakpoint_and_the_end(
 ) -> anyhow::Result<()> {
     let mut e = env(|p| {
-        let script = run(p, 10); // the entry stop and 9 steps (lines 2-11)
-        script
-            .stop(Stop::new(12, "breakpoint").keep_reason())
-            .stop(Stop::new(13, "entry"))
+        // the first line and 9 more (lines 2-11), then line 12 (your breakpoint) and 13
+        run(p, 10)
+            .stop(Stop::new(12, "step"))
+            .stop(Stop::new(13, "step"))
     })
     .await?;
+    e.breakpoint(12);
     e.launch()?;
     e.settled(1).await;
     e.focus().await?;
@@ -276,7 +288,8 @@ async fn n_makes_exactly_one_playback_step() -> anyhow::Result<()> {
     e.h.keys("n").await?;
     e.settled(2).await;
     e.h.pump_for(Duration::from_millis(400)).await;
-    assert_eq!(e.motion_names(), ["stepIn"]);
+    // on the engine a playback step is a continue to the next line
+    assert_eq!(e.motion_names(), ["continue"]);
     assert_eq!(e.fake.stops_sent().len(), 2);
     assert_eq!(spectator(&e.h.app).mode, Mode::Paused);
     e.h.finish().await
@@ -306,6 +319,8 @@ async fn follow_case(presses: usize, steps: usize) -> anyhow::Result<Vec<String>
             .stop(Stop::new(4, "entry"))
     })
     .await?;
+    // the follow modes' stepping fallback: libraries and the runtime have no hidden breakpoints
+    e.stepping();
     e.launch()?;
     e.settled(1).await;
     e.focus().await?;
@@ -347,7 +362,10 @@ async fn std_never_steps_out() -> anyhow::Result<()> {
 
 /// Two threads with a stop queue each; the adapter can run one thread alone when `cap`.
 fn two_threads(p: &str, cap: bool, a: Vec<Stop>, b: Vec<Stop>) -> Script {
-    let script = Script::new(p).thread_program(1, a).thread_program(2, b);
+    let script = Script::new(p)
+        .lines()
+        .thread_program(1, a)
+        .thread_program(2, b);
     if cap {
         single_thread_cap(script)
     } else {
@@ -356,7 +374,7 @@ fn two_threads(p: &str, cap: bool, a: Vec<Stop>, b: Vec<Stop>) -> Script {
 }
 
 fn queue(lines: &[u64]) -> Vec<Stop> {
-    lines.iter().map(|l| Stop::new(*l, "entry")).collect()
+    lines.iter().map(|l| Stop::new(*l, "step")).collect()
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
@@ -383,7 +401,7 @@ async fn a_frozen_thread_never_runs_and_its_neighbour_steps_alone() -> anyhow::R
     e.advance(1).await?;
     assert_eq!(
         e.motion_threads(),
-        [("stepIn".to_string(), 1, true)],
+        [("continue".to_string(), 1, true)],
         "singleThread because a neighbour is frozen"
     );
     assert_eq!(e.fake.advanced(1), 2);
@@ -406,7 +424,7 @@ async fn a_frozen_thread_never_runs_and_its_neighbour_steps_alone() -> anyhow::R
     assert!(!thread2(&e.h.app));
     assert!(spectator(&e.h.app).solo);
     e.advance(1).await?;
-    assert_eq!(e.motion_threads()[1], ("stepIn".to_string(), 1, true));
+    assert_eq!(e.motion_threads()[1], ("continue".to_string(), 1, true));
     assert!(texts(&e.h.app, Section::Stack)
         .iter()
         .any(|t| t.starts_with("1 main") && t.contains("alone")));
@@ -415,7 +433,7 @@ async fn a_frozen_thread_never_runs_and_its_neighbour_steps_alone() -> anyhow::R
     e.h.keys("o").await?;
     assert!(!spectator(&e.h.app).solo);
     e.advance(1).await?;
-    assert_eq!(e.motion_threads()[2], ("stepIn".to_string(), 1, false));
+    assert_eq!(e.motion_threads()[2], ("continue".to_string(), 1, false));
     assert!(e.motion()[2].1.get("singleThread").is_none());
     e.h.finish().await
 }
@@ -455,7 +473,7 @@ async fn a_configured_capability_makes_freeze_work_and_steps_carry_single_thread
     assert!(!e.errors_have("singleThread"), "{:?}", e.h.errors);
     assert_eq!(spectator(&e.h.app).frozen.len(), 1);
     e.advance(1).await?;
-    assert_eq!(e.motion_threads(), [("stepIn".to_string(), 1, true)]);
+    assert_eq!(e.motion_threads(), [("continue".to_string(), 1, true)]);
     e.h.finish().await
 }
 
@@ -484,9 +502,9 @@ async fn a_forced_interleaving_gives_the_stops_in_the_order_it_was_driven() -> a
     assert_eq!(
         e.motion_threads(),
         [
-            ("stepIn".to_string(), 1, true),
-            ("stepIn".to_string(), 2, true),
-            ("stepIn".to_string(), 2, true),
+            ("continue".to_string(), 1, true),
+            ("continue".to_string(), 2, true),
+            ("continue".to_string(), 2, true),
             ("continue".to_string(), 1, false),
         ]
     );
@@ -630,8 +648,8 @@ async fn a_slow_step_labels_the_line_it_left_and_x_clears_the_labels() -> anyhow
     let mut e = env(|p| {
         let script = run(p, 9);
         // a long tail, so the program is still there when playback is paused
-        (12..80).fold(script.stop(Stop::new(11, "entry").delay(250)), |s, l| {
-            s.stop(Stop::new(l, "entry"))
+        (12..80).fold(script.stop(Stop::new(11, "step").delay(250)), |s, l| {
+            s.stop(Stop::new(l, "step"))
         })
     })
     .await?;
@@ -981,8 +999,8 @@ async fn fast_forward_stops_on_the_first_change_of_a_watched_value() -> anyhow::
         ["1", "1", "1", "1", "2", "2", "2"]
             .iter()
             .enumerate()
-            .fold(Script::new(p), |s, (i, x)| {
-                s.stop(Stop::new(2 + i as u64, "entry").scope(x_scope(x)))
+            .fold(Script::new(p).lines(), |s, (i, x)| {
+                s.stop(Stop::new(2 + i as u64, "step").scope(x_scope(x)))
             })
     })
     .await?;
@@ -1032,16 +1050,18 @@ async fn fast_forward_stops_on_the_first_change_of_a_watched_value() -> anyhow::
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn fast_forward_stops_on_a_breakpoint_and_f_or_space_cancels_it() -> anyhow::Result<()> {
     let mut e = env(|p| {
-        let script = (0..3).fold(Script::new(p), |s, i| {
-            s.stop(Stop::new(2 + i, "entry").scope(x_scope("1")))
+        let script = (0..3).fold(Script::new(p).lines(), |s, i| {
+            s.stop(Stop::new(2 + i, "step").scope(x_scope("1")))
         });
         script
-            .stop(Stop::new(5, "breakpoint").keep_reason().scope(x_scope("1")))
-            .stop(Stop::new(6, "entry").scope(x_scope("1")).delay(500))
-            .stop(Stop::new(7, "entry").scope(x_scope("1")).delay(500))
-            .stop(Stop::new(8, "entry").scope(x_scope("1")))
+            .stop(Stop::new(5, "step").scope(x_scope("1")))
+            .stop(Stop::new(6, "step").scope(x_scope("1")).delay(500))
+            .stop(Stop::new(7, "step").scope(x_scope("1")).delay(500))
+            .stop(Stop::new(8, "step").scope(x_scope("1")))
     })
     .await?;
+    // line 5 is your breakpoint
+    e.breakpoint(5);
     e.launch()?;
     e.settled(1).await;
     e.focus().await?;
@@ -1089,6 +1109,9 @@ async fn run_to_cursor_uses_a_temporary_breakpoint_that_goes_away() -> anyhow::R
             .stop(Stop::new(12, "breakpoint"))
     })
     .await?;
+    // the temporary breakpoint protocol of the stepping engine (the engine's hidden breakpoints
+    // cover the lines already)
+    e.stepping();
     e.launch()?;
     e.settled(1).await;
     // the cursor is on line 2; go to line 8 and run there
@@ -1141,7 +1164,8 @@ async fn run_to_cursor_while_playing_plays_until_that_line() -> anyhow::Result<(
     let stops = e.fake.stops_sent();
     assert_eq!(stops.last().map(|s| s.1), Some(6));
     assert_eq!(stops.len(), 5, "no step after it");
-    assert!(e.fake.requests_named("setBreakpoints").is_empty());
-    assert_eq!(e.motion_names(), ["stepIn"; 4]);
+    // the engine's one install, nothing else; a continue per line
+    assert_eq!(e.fake.requests_named("setBreakpoints").len(), 1);
+    assert_eq!(e.motion_names(), ["continue"; 4]);
     e.h.finish().await
 }

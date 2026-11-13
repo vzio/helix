@@ -70,7 +70,6 @@ pub fn capture(
     let reason = reason.to_owned();
     let (done, receiver) = oneshot::channel();
     editor.debug.spectator.recording += 1;
-    let capture_started = std::time::Instant::now();
     tokio::spawn(async move {
         let counters = Arc::new(Counters::default());
         let scopes = join_all(frames.iter().enumerate().map(|(index, frame)| {
@@ -162,11 +161,6 @@ pub fn capture(
             truncated: counters.truncated.load(Ordering::Relaxed),
         };
         snapshot.measure();
-        log::info!(
-            "TIMING capture {} requests in {:?}",
-            snapshot.requests,
-            capture_started.elapsed()
-        );
         job::dispatch(move |editor, _| keep(editor, snapshot)).await;
         let _ = done.send(());
     });

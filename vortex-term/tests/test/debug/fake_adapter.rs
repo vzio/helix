@@ -2930,6 +2930,11 @@ async fn fake_adapter_without_lines_or_locations_nothing_changes() -> Result<()>
     let (mut c, caps) = launched(&fake, &[(file, &[3, 40])]).await?;
     // advertised, and always empty
     assert_eq!(caps["body"]["supportsBreakpointLocationsRequest"], true);
+    // not line mode: the "step" stop is an ordinary stop of its own reason, the breakpoint one
+    // reports its id
+    let stopped = c.until(|m| m["event"] == "stopped").await?;
+    assert_eq!(stopped["body"]["reason"], "step");
+    assert!(stopped["body"].get("hitBreakpointIds").is_none());
     let r = c
         .call(
             "breakpointLocations",
@@ -2937,11 +2942,6 @@ async fn fake_adapter_without_lines_or_locations_nothing_changes() -> Result<()>
         )
         .await?;
     assert_eq!(r["body"]["breakpoints"], json!([]));
-    // not line mode: the "step" stop is an ordinary stop of its own reason, the breakpoint one
-    // reports its id
-    let stopped = c.until(|m| m["event"] == "stopped").await?;
-    assert_eq!(stopped["body"]["reason"], "step");
-    assert!(stopped["body"].get("hitBreakpointIds").is_none());
     let seq = c.request("continue", json!({"threadId": 1})).await?;
     c.response(seq).await?;
     let stopped = c.until(|m| m["event"] == "stopped").await?;

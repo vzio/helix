@@ -61,8 +61,8 @@ pub enum Found {
 /// The hidden breakpoints of a file.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct HiddenFile {
-    /// The 0-based lines asked for (without the lines of your breakpoints, which never get a
-    /// hidden one: adapters merge two breakpoints on a line into one).
+    /// The 0-based executable lines found. A line with one of your breakpoints is skipped when
+    /// the file is sent (adapters merge two breakpoints on a line into one).
     pub lines: Vec<usize>,
     pub found: Found,
     /// Lines whose breakpoint the adapter moved: dropped at the next send.
@@ -461,7 +461,7 @@ pub fn thousands(n: usize) -> String {
     let digits = n.to_string();
     let mut out = String::with_capacity(digits.len() + digits.len() / 3);
     for (index, digit) in digits.chars().enumerate() {
-        if index > 0 && (digits.len() - index) % 3 == 0 {
+        if index > 0 && (digits.len() - index).is_multiple_of(3) {
             out.push(',');
         }
         out.push(digit);

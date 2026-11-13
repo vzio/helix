@@ -246,9 +246,7 @@ pub fn after_stop(
     let known = client.thread_id;
     let generation = editor.debug.generation;
     tokio::spawn(async move {
-        let started = std::time::Instant::now();
         let threads = requester.threads().await.unwrap_or_default();
-        log::info!("TIMING threads in {:?}", started.elapsed());
         let Some(thread) = thread
             .or(known)
             .or_else(|| threads.first().map(|thread| thread.id))
@@ -260,7 +258,6 @@ pub fn after_stop(
             .await
             .map(|(frames, _)| frames)
             .unwrap_or_default();
-        log::info!("TIMING threads+stack in {:?}", started.elapsed());
         job::dispatch(move |editor, _| {
             if editor.debug.generation != generation {
                 return;

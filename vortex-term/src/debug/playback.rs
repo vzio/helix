@@ -334,7 +334,6 @@ fn send_step(editor: &mut Editor, single: bool) {
         continued,
         alive: alive.clone(),
     });
-    log::warn!("TIMING advance continued={continued}");
     if continued {
         send_continue(requester, key, single_thread, generation);
     } else {
