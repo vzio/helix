@@ -704,8 +704,8 @@ watched depends on what the platform's file watching can do:
 
 - **One watch per directory** (inotify on Linux, and every backend but FSEvents), so `target/` or
   `node_modules/` cost nothing. The walk that places them runs in the background, on the
-  watcher's thread: opening the log never waits for it (about 0.2 s for 1,000 directories, a
-  few seconds for tens of thousands). A file changed in a directory the walk hasn't reached yet
+  watcher's thread: opening the log never waits for it (in a release build on Linux, about
+  75 ms for 400 directories, 1.3 s for 15,000). A file changed in a directory the walk hasn't reached yet
   isn't missed: the walk reports what was modified since the watch started, and the views
   refresh once with it.
 - **One recursive watch on the root** (FSEvents on macOS), which watches a whole tree for the cost
