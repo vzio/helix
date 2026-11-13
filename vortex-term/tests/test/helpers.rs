@@ -396,6 +396,12 @@ impl AppBuilder {
         self
     }
 
+    /// `vx --watch`: starts in watch mode.
+    pub fn with_watch(mut self) -> Self {
+        self.args.watch = true;
+        self
+    }
+
     pub fn with_input_text<S: Into<String>>(mut self, input_text: S) -> Self {
         self.input = Some(test::print(&input_text.into()));
         self
