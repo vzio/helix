@@ -58,6 +58,9 @@ pub struct Client {
     /// When the last `stopped` event came from the adapter, before the editor got to it: what
     /// the time of a step is measured to.
     last_stop: Arc<Mutex<Option<Instant>>>,
+    /// What the client continues by itself: hits of hidden breakpoints on threads the editor
+    /// doesn't watch (the per-line breakpoint engine).
+    hit_filter: Arc<Mutex<crate::hits::HitFilter>>,
 }
 
 /// How long to wait for a spawned adapter to accept connections.
@@ -116,13 +119,17 @@ impl Client {
             configured: false,
             name: String::new(),
             last_stop: Arc::new(Mutex::new(None)),
+            hit_filter: Arc::new(Mutex::new(crate::hits::HitFilter::default())),
         };
 
+        let requester = client.requester();
         tokio::spawn(Self::recv(
             id,
             server_rx,
             client_tx,
             client.last_stop.clone(),
+            client.hit_filter.clone(),
+            requester,
         ));
 
         Ok((client, client_rx))
@@ -261,12 +268,35 @@ impl Client {
         mut server_rx: UnboundedReceiver<Payload>,
         client_tx: UnboundedSender<(DebugAdapterId, Payload)>,
         last_stop: Arc<Mutex<Option<Instant>>>,
+        hit_filter: Arc<Mutex<crate::hits::HitFilter>>,
+        requester: Requester,
     ) {
+        use serde::Deserialize;
         while let Some(msg) = server_rx.recv().await {
             let payload = match msg {
-                Payload::Event(ev) => {
+                Payload::Event(mut ev) => {
                     if ev.event == "stopped" {
                         *last_stop.lock().unwrap() = Some(Instant::now());
+                        let filter = hit_filter.lock().unwrap();
+                        let body = ev
+                            .body
+                            .as_ref()
+                            .filter(|_| filter.enabled)
+                            .and_then(|body| events::StoppedBody::deserialize(body).ok());
+                        if let Some(body) = body {
+                            if let (Some(taken), Some(thread)) =
+                                (filter.take(&body), body.thread_id)
+                            {
+                                // continued now: the editor only records the hit
+                                let request = requester.continue_with(thread, filter.alone);
+                                tokio::spawn(async move {
+                                    if let Err(err) = request.await {
+                                        log::debug!("continue of a hidden hit: {err}");
+                                    }
+                                });
+                                ev.taken = Some(taken);
+                            }
+                        }
                     }
                     Payload::Event(ev)
                 }
@@ -282,6 +312,11 @@ impl Client {
 
     pub fn id(&self) -> DebugAdapterId {
         self.id
+    }
+
+    /// What the client continues by itself (the per-line breakpoint engine's fast path).
+    pub fn hit_filter(&self) -> &Arc<Mutex<crate::hits::HitFilter>> {
+        &self.hit_filter
     }
 
     /// When the last `stopped` event arrived from the adapter.

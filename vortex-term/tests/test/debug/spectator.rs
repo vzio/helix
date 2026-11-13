@@ -6,7 +6,7 @@
 //! temporary folder, so `<folder>/main.rs` is own code, a path under `.cargo/registry` is a
 //! library's and one under `/rustc/` the runtime's.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
 use serde_json::{json, Value};
@@ -58,7 +58,10 @@ async fn env(script: impl FnOnce(&str) -> Script) -> anyhow::Result<Env> {
     })
 }
 
-fn adapter_config(capabilities: Option<serde_json::Map<String, Value>>) -> DebugAdapterConfig {
+fn adapter_config(
+    capabilities: Option<serde_json::Map<String, Value>>,
+    dir: &Path,
+) -> DebugAdapterConfig {
     DebugAdapterConfig {
         name: "fake".into(),
         transport: "tcp".into(),
@@ -67,6 +70,9 @@ fn adapter_config(capabilities: Option<serde_json::Map<String, Value>>) -> Debug
         port_arg: None,
         templates: Vec::new(),
         quirks: Default::default(),
+        // the engine puts its hidden breakpoints under these folders only (else the whole
+        // workspace, that is the whole repository when the tests run)
+        own_paths: Some(vec![dir.to_owned()]),
         std_paths: None,
         lib_paths: None,
         capabilities,
@@ -85,7 +91,7 @@ impl Env {
         debug::start(
             &mut self.h.app.editor,
             Some(self.fake.addr),
-            &adapter_config(capabilities),
+            &adapter_config(capabilities, &self.dir),
             "fake",
             "launch",
             json!({"program": self.dir.join("prog"), "cwd": self.dir}),

@@ -59,10 +59,18 @@ pub fn capture(
     // the memory views of the session, around what they show
     let windows = super::memory::to_record(editor, session, caps.memory);
     let step = editor.debug.spectator.history.next_step();
+    // the hit the engine recorded for this stop, if it is one
+    let counter = editor
+        .debug
+        .engine
+        .last_stop
+        .filter(|(stopped, _)| *stopped == key)
+        .map(|(_, at)| at);
     let thread_name = editor.debug.thread_name(key);
     let reason = reason.to_owned();
     let (done, receiver) = oneshot::channel();
     editor.debug.spectator.recording += 1;
+    let capture_started = std::time::Instant::now();
     tokio::spawn(async move {
         let counters = Arc::new(Counters::default());
         let scopes = join_all(frames.iter().enumerate().map(|(index, frame)| {
@@ -141,6 +149,7 @@ pub fn capture(
         }
         let mut snapshot = Snapshot {
             step,
+            counter,
             key,
             thread_name,
             reason,
@@ -153,6 +162,11 @@ pub fn capture(
             truncated: counters.truncated.load(Ordering::Relaxed),
         };
         snapshot.measure();
+        log::info!(
+            "TIMING capture {} requests in {:?}",
+            snapshot.requests,
+            capture_started.elapsed()
+        );
         job::dispatch(move |editor, _| keep(editor, snapshot)).await;
         let _ = done.send(());
     });

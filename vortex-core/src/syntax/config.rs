@@ -497,8 +497,13 @@ pub struct DebugAdapterConfig {
     pub templates: Vec<DebugTemplate>,
     #[serde(default)]
     pub quirks: DebuggerQuirks,
-    /// Spectator mode (fork feature): a frame whose source path contains one of these is the
-    /// language runtime's (playback's `std`). Unset: a default list for common runtimes.
+    /// Spectator mode (fork feature): the folders of your own code (playback's `own`, and the
+    /// files the per-line breakpoint engine covers in it). Unset: the workspace, and the launch's
+    /// `cwd` and program folder when they are elsewhere.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub own_paths: Option<Vec<std::path::PathBuf>>,
+    /// A frame whose source path contains one of these is the language runtime's (playback's
+    /// `std`). Unset: a default list for common runtimes.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub std_paths: Option<Vec<String>>,
     /// A frame whose source path contains one of these is a library's (`lib`), even inside the

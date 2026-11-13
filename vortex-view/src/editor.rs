@@ -1623,7 +1623,11 @@ impl Editor {
         Self {
             mode: Mode::Normal,
             terminal: crate::terminal::Panel::default(),
-            debug: crate::debug::DebugState::default(),
+            debug: {
+                let mut debug = crate::debug::DebugState::default();
+                debug.apply_config(&conf.debugger);
+                debug
+            },
             save_messages: HashMap::new(),
             tree: Tree::new(area),
             next_document_id: DocumentId::default(),
@@ -1712,6 +1716,9 @@ impl Editor {
     pub fn refresh_config(&mut self, old_config: &Config) {
         let config = self.config();
         self.auto_pairs = (&config.auto_pairs).into();
+        if config.debugger != old_config.debugger {
+            self.debug.apply_config(&config.debugger);
+        }
         self.reset_idle_timer();
         self._refresh();
         vortex_event::dispatch(crate::events::ConfigDidChange {

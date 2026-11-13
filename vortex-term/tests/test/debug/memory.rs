@@ -7,7 +7,7 @@
 //! the rest unreadable. Bytes are read when the views are drawn (`memory::load_wanted`), so the
 //! tests pump the editor until the cells they look at have their bytes.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use serde_json::{json, Value};
 use tempfile::TempDir;
@@ -60,7 +60,7 @@ async fn env(script: impl FnOnce(&str) -> Script) -> anyhow::Result<Env> {
     })
 }
 
-fn adapter_config() -> DebugAdapterConfig {
+fn adapter_config(dir: &Path) -> DebugAdapterConfig {
     DebugAdapterConfig {
         name: "fake".into(),
         transport: "tcp".into(),
@@ -69,6 +69,7 @@ fn adapter_config() -> DebugAdapterConfig {
         port_arg: None,
         templates: Vec::new(),
         quirks: Default::default(),
+        own_paths: Some(vec![dir.to_owned()]),
         std_paths: None,
         lib_paths: None,
         capabilities: None,
@@ -77,10 +78,12 @@ fn adapter_config() -> DebugAdapterConfig {
 
 impl Env {
     fn launch(&mut self) -> anyhow::Result<()> {
+        // these tests are about the memory, not playback: the engine has its own tests
+        self.h.app.editor.debug.engine.kind = vortex_view::debug::engine::EngineKind::Stepping;
         debug::start(
             &mut self.h.app.editor,
             Some(self.fake.addr),
-            &adapter_config(),
+            &adapter_config(&self.dir),
             "fake",
             "launch",
             json!({"program": self.dir.join("prog"), "cwd": self.dir}),

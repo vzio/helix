@@ -750,6 +750,7 @@ fn cycle_follow(editor: &mut Editor) {
         debug::spectator::Follow::Own => "Playback stays in your own code (own)",
     };
     editor.set_status(text);
+    super::engine::follow_changed(editor);
 }
 
 /// `u`: the step granularity, when the adapter offers one.

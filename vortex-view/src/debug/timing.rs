@@ -108,6 +108,18 @@ impl Timing {
         Some(corrected)
     }
 
+    /// A step's time without what stepping costs, whatever the threshold (nothing taken off
+    /// before the overhead is calibrated).
+    pub fn correct(&self, step: Duration, outs: &[Duration]) -> Duration {
+        let overhead = self.overhead().unwrap_or_default();
+        let out_overhead = self.out_overhead().unwrap_or_default();
+        step.saturating_sub(overhead)
+            + outs
+                .iter()
+                .map(|out| out.saturating_sub(out_overhead))
+                .sum::<Duration>()
+    }
+
     /// The label of a line: `12 ms`, `12 ms (3 cpu)`, `1.4 s ×12`.
     pub fn label(&self, path: &Path, line: usize) -> Option<String> {
         let time = self.lines.get(path)?.get(&line)?;

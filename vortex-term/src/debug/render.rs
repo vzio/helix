@@ -3,6 +3,7 @@
 
 use tui::buffer::Buffer as Surface;
 use vortex_view::{
+    debug::engine,
     debug::{Marker, Role, Row, Section},
     graphics::{Modifier, Rect, Style},
     theme::Theme,
@@ -241,6 +242,16 @@ pub fn render(editor: &mut Editor, area: Rect, surface: &mut Surface) {
         );
     }
 
+    if editor.debug.engine.task.is_some() {
+        // over the hints, or over the top row's status when there is no row of hints
+        let row = if has_hints(area) {
+            Rect::new(area.x, area.bottom() - 1, area.width, 1)
+        } else {
+            Rect::new(area.x, area.y, area.width, 1)
+        };
+        draw_loading(editor, row, surface, base);
+    }
+
     if editor.debug.spectator.settings.is_some() {
         let mut body = area.clip_top(1);
         if has_hints(area) {
@@ -269,6 +280,74 @@ pub fn render(editor: &mut Editor, area: Rect, surface: &mut Surface) {
     for (section, pane) in &layout.panes {
         draw_section(editor, *section, *pane, surface, base);
     }
+}
+
+/// The width of the loading animation's bar.
+const LOADING_BAR: usize = 24;
+
+/// The engine's task, animated: a spinner, a bar that fills as files are done (a comet that
+/// sweeps while the files are still being found) with a glow running along it, and the
+/// progress: `◜ ━━━━━━━━━━──────────── installing breakpoints · 12/48 files · 3,410 lines`.
+fn draw_loading(editor: &Editor, row: Rect, surface: &mut Surface, base: Style) {
+    let Some(task) = &editor.debug.engine.task else {
+        return;
+    };
+    let theme = &editor.theme;
+    let text = theme
+        .try_get_exact("ui.debug.loading")
+        .or_else(|| theme.try_get_exact("ui.debug.active"))
+        .unwrap_or_else(|| theme.get("ui.text.focus"));
+    let bar = theme
+        .try_get_exact("ui.debug.loading.bar")
+        .unwrap_or_else(|| fg_only(text));
+    let glow = theme
+        .try_get_exact("ui.debug.loading.glow")
+        .unwrap_or_else(|| fg_only(text).add_modifier(Modifier::BOLD));
+    let track = theme
+        .try_get_exact("ui.debug.loading.track")
+        .unwrap_or_else(|| theme.get("ui.text.inactive"));
+    surface.set_style(row, base);
+    let frame = (task.started.elapsed().as_millis() / 80) as usize;
+    let mut x = row.x + 1;
+    let right = row.right().saturating_sub(1);
+    let put = |surface: &mut Surface, x: &mut u16, text: &str, style: Style| {
+        if *x < right {
+            surface.set_stringn(*x, row.y, text, (right - *x) as usize, base.patch(style));
+            *x += text.chars().count() as u16;
+        }
+    };
+    put(
+        surface,
+        &mut x,
+        &format!("{} ", engine::spinner(frame / 2)),
+        text,
+    );
+    let width = LOADING_BAR.min((row.width as usize).saturating_sub(4) / 3);
+    if width >= 6 {
+        let cycle = width + 6;
+        let head = frame % cycle;
+        for cell in 0..width {
+            let (glyph, style) = if task.files_total == 0 {
+                // still finding the files: a comet sweeps along the track
+                let behind = head.checked_sub(cell + 3);
+                match behind {
+                    Some(0) => ("━", glow),
+                    Some(1..=3) => ("━", bar),
+                    _ => ("─", track),
+                }
+            } else {
+                let filled = cell * task.files_total < task.files_done * width;
+                match (filled, head.checked_sub(3) == Some(cell)) {
+                    (true, true) => ("━", glow),
+                    (true, false) => ("━", bar),
+                    (false, _) => ("─", track),
+                }
+            };
+            put(surface, &mut x, glyph, style);
+        }
+        put(surface, &mut x, " ", text);
+    }
+    put(surface, &mut x, &task.label(), text);
 }
 
 /// The keys for what the panel shows now.
@@ -320,6 +399,16 @@ fn status_text(editor: &Editor) -> String {
             "{text} · {} · {}",
             state.spectator.speed_label(),
             state.spectator.follow.label()
+        );
+    }
+    // the lineline's counter: lines run so far, every thread
+    if state.engine.kind == engine::EngineKind::Breakpoints
+        && state.status.is_active()
+        && !state.engine.record.is_empty()
+    {
+        text = format!(
+            "{text} · {} lines",
+            engine::thousands(state.engine.record.counter() as usize)
         );
     }
     if !state.session_name.is_empty() && state.status.is_active() {

@@ -35,7 +35,7 @@ fn file_to_send(breakpoints: &[Breakpoint]) -> Vec<Sent> {
 
 /// What `path` sends: its breakpoints but the disabled ones, and run to cursor's temporary one
 /// when it goes to a line of this file without a breakpoint.
-fn path_to_send(editor: &Editor, path: &Path) -> Vec<Sent> {
+pub fn path_to_send(editor: &Editor, path: &Path) -> Vec<Sent> {
     let list = editor
         .breakpoints
         .get(path)
@@ -100,29 +100,24 @@ pub fn check_support(editor: &Editor, path: &Path) -> anyhow::Result<()> {
     Ok(())
 }
 
-/// Sends the breakpoints of `path` to every configured session. The answers come back
-/// through the job queue.
+/// Sends the breakpoints of `path` to every configured session, with the session's hidden
+/// breakpoints of that file (the engine's) after yours. The answers come back through the job
+/// queue.
 pub fn sync(editor: &mut Editor, path: &Path) {
-    let sent = path_to_send(editor, path);
     let sessions: Vec<_> = editor
         .debug_adapters
         .iter()
         .filter(|(_, client)| client.configured)
-        .map(|(id, client)| (id, client.requester()))
+        .map(|(id, _)| id)
         .collect();
-    for (id, requester) in sessions {
-        let path = path.to_owned();
-        let sent = sent.clone();
-        tokio::spawn(async move {
-            let breakpoints = sent.iter().map(|(_, b)| b.clone()).collect();
-            let result = requester.set_breakpoints(path.clone(), breakpoints).await;
-            job::dispatch(move |editor, _| apply(editor, id, &path, &sent, result)).await;
-        });
+    for id in sessions {
+        sync_then(editor, path, id, |_| {});
     }
 }
 
-/// Sends the breakpoints of `path` to `session` alone, then calls `then` once it answered (run
-/// to cursor: its temporary breakpoint must be set before the program continues).
+/// Sends the breakpoints of `path` (yours, then the hidden ones) to `session` alone, then calls
+/// `then` once it answered (run to cursor: its temporary breakpoint must be set before the
+/// program continues).
 pub fn sync_then(
     editor: &mut Editor,
     path: &Path,
@@ -130,23 +125,55 @@ pub fn sync_then(
     then: impl FnOnce(&mut Editor) + Send + 'static,
 ) {
     let sent = path_to_send(editor, path);
+    let hidden = super::engine::hidden_lines(editor, session, path, &sent);
     let Some(client) = editor.debug_adapters.get_client(session) else {
         return;
     };
     let requester = client.requester();
     let path = path.to_owned();
     tokio::spawn(async move {
-        let breakpoints = sent.iter().map(|(_, b)| b.clone()).collect();
+        let breakpoints = sent
+            .iter()
+            .map(|(_, b)| b.clone())
+            .chain(hidden.iter().map(|line| SourceBreakpoint {
+                line: line + 1,
+                column: None,
+                condition: None,
+                hit_condition: None,
+                log_message: None,
+            }))
+            .collect();
         let result = requester.set_breakpoints(path.clone(), breakpoints).await;
         job::dispatch(move |editor, _| {
             let failed = result.is_err();
-            apply(editor, session, &path, &sent, result);
+            apply_with_hidden(editor, session, &path, &sent, &hidden, result);
             if !failed {
                 then(editor);
             }
         })
         .await;
     });
+}
+
+/// An answer to a send of yours and the hidden breakpoints: yours get the first answers, the
+/// engine the rest.
+fn apply_with_hidden(
+    editor: &mut Editor,
+    session: DebugAdapterId,
+    path: &Path,
+    sent: &[Sent],
+    hidden: &[usize],
+    result: dap::Result<Option<Vec<dap::Breakpoint>>>,
+) {
+    match result {
+        Ok(answers) => {
+            let answers = answers.unwrap_or_default();
+            let (yours, theirs) = answers.split_at(sent.len().min(answers.len()));
+            apply(editor, session, path, sent, Ok(Some(yours.to_vec())));
+            super::engine::apply_hidden(editor, session, path, hidden, theirs);
+        }
+        Err(err) => apply(editor, session, path, sent, Err(err)),
+    }
 }
 
 /// A session's answer to `setBreakpoints` for `path`: its ids and verification, matched to the
@@ -213,7 +240,17 @@ fn record(breakpoint: &mut Breakpoint, session: DebugAdapterId, id: Option<usize
 
 /// The adapter's `breakpoint` event: a breakpoint of session `session` was verified or moved
 /// (`changed`), created by the adapter (`new`), or removed.
-pub fn event(editor: &mut Editor, session: DebugAdapterId, reason: &str, answer: dap::Breakpoint) {
+/// Returns whether one of yours changed (the engine's hidden breakpoints don't show: an adapter
+/// that verifies them one by one sends thousands of these).
+pub fn event(
+    editor: &mut Editor,
+    session: DebugAdapterId,
+    reason: &str,
+    answer: dap::Breakpoint,
+) -> bool {
+    if super::engine::breakpoint_event(editor, session, reason, &answer) {
+        return false;
+    }
     let find = |editor: &mut Editor, id: usize| -> Option<(PathBuf, usize)> {
         editor.breakpoints.iter().find_map(|(path, list)| {
             let index = list.iter().position(|b| {
@@ -227,10 +264,10 @@ pub fn event(editor: &mut Editor, session: DebugAdapterId, reason: &str, answer:
     match reason {
         "changed" => {
             let Some(id) = answer.id else {
-                return;
+                return false;
             };
             let Some((path, index)) = find(editor, id) else {
-                return;
+                return false;
             };
             let list = editor.breakpoints.get_mut(&path).unwrap();
             let moved = answer
@@ -256,7 +293,7 @@ pub fn event(editor: &mut Editor, session: DebugAdapterId, reason: &str, answer:
                     .and_then(|source| source.path.clone()),
                 answer.line,
             ) else {
-                return;
+                return false;
             };
             let list = editor.breakpoints.entry(path).or_default();
             let line = line.saturating_sub(1);
@@ -276,7 +313,7 @@ pub fn event(editor: &mut Editor, session: DebugAdapterId, reason: &str, answer:
         }
         "removed" => {
             let Some(id) = answer.id else {
-                return;
+                return false;
             };
             if let Some((path, index)) = find(editor, id) {
                 let breakpoint = &mut editor.breakpoints.get_mut(&path).unwrap()[index];
@@ -288,6 +325,7 @@ pub fn event(editor: &mut Editor, session: DebugAdapterId, reason: &str, answer:
         }
         reason => log::debug!("unknown breakpoint event reason '{reason}'"),
     }
+    true
 }
 
 /// Sets or removes the breakpoint on `line` of `path`, and tells the sessions.

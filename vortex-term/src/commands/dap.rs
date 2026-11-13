@@ -415,7 +415,10 @@ pub fn dap_continue(cx: &mut Context) {
         return;
     };
     let key = debug::spectator_key(debugger.id(), thread);
-    debug::threads::continue_thread(cx.editor, key);
+    // the engine lifts its hidden breakpoints and runs at full speed to your next one
+    if !debug::engine::full_speed(cx.editor, key) {
+        debug::threads::continue_thread(cx.editor, key);
+    }
 }
 
 pub fn dap_pause(cx: &mut Context) {
@@ -493,6 +496,7 @@ pub fn dap_follow_mode(cx: &mut Context) {
     spectator.follow = spectator.follow.next();
     let label = spectator.follow.label();
     cx.editor.set_status(format!("Playback follows: {label}"));
+    debug::engine::follow_changed(cx.editor);
 }
 
 pub fn dap_freeze_thread(cx: &mut Context) {

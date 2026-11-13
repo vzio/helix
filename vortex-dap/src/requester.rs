@@ -445,6 +445,45 @@ impl Requester {
         async move { Ok(request.await?.breakpoints) }
     }
 
+    /// The breakpoint locations of `path` between `line` and `end_line` (1-based, inclusive):
+    /// the lines (each once) where a breakpoint would stop.
+    pub fn breakpoint_locations(
+        &self,
+        path: PathBuf,
+        line: usize,
+        end_line: usize,
+    ) -> impl Future<Output = Result<Vec<usize>>> + Send + 'static {
+        let request =
+            self.request::<requests::BreakpointLocations>(requests::BreakpointLocationsArguments {
+                source: Source {
+                    path: Some(path),
+                    ..Default::default()
+                },
+                line,
+                column: None,
+                end_line: Some(end_line),
+                end_column: None,
+            });
+        async move {
+            let mut lines: Vec<usize> = request
+                .await?
+                .breakpoints
+                .into_iter()
+                .map(|location| location.line)
+                .collect();
+            lines.sort_unstable();
+            lines.dedup();
+            Ok(lines)
+        }
+    }
+
+    /// The sources the program loaded (`loadedSources`).
+    pub fn loaded_sources(&self) -> impl Future<Output = Result<Vec<Source>>> + Send + 'static {
+        let request =
+            self.request::<requests::LoadedSources>(Some(requests::LoadedSourcesArguments {}));
+        async move { Ok(request.await?.sources) }
+    }
+
     pub fn set_exception_breakpoints(
         &self,
         filters: Vec<String>,

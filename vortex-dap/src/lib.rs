@@ -1,4 +1,5 @@
 mod client;
+pub mod hits;
 pub mod registry;
 mod requester;
 mod transport;

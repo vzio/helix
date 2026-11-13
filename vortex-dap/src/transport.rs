@@ -36,6 +36,9 @@ pub struct Response {
 pub struct Event {
     pub event: String,
     pub body: Option<Value>,
+    /// What the client already did with it (a `stopped` event its hit filter continued).
+    #[serde(skip)]
+    pub taken: Option<crate::hits::Taken>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]

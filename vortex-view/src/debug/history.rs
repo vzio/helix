@@ -177,6 +177,8 @@ impl Caps {
 pub struct Snapshot {
     /// Its number in the session, from 1.
     pub step: usize,
+    /// Its place on the lineline: the counter of its hit (the engine's), when it had one.
+    pub counter: Option<super::lineline::Counter>,
     pub key: ThreadKey,
     pub thread_name: String,
     /// The stop's reason: `step`, `breakpoint`, ...
@@ -423,6 +425,7 @@ mod tests {
     fn snapshot(step: usize) -> Snapshot {
         Snapshot {
             step,
+            counter: None,
             key: key(),
             thread_name: "main".into(),
             reason: "step".into(),

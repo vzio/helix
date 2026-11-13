@@ -5,6 +5,7 @@
 
 pub mod breakpoints;
 pub mod cpu;
+pub mod engine;
 pub mod load;
 pub mod memory;
 pub mod panel;

@@ -474,9 +474,20 @@ where
         .map(|key| format!(" · T{} {}", key.thread, state.thread_name(key)))
         .unwrap_or_default();
     let label = playing.unwrap_or_else(|| status.label());
+    // the engine's hidden breakpoints being installed: `◜ 12/48`
+    let loading = state
+        .engine
+        .task
+        .as_ref()
+        .and_then(|task| {
+            let frame = (task.started.elapsed().as_millis() / 160) as usize;
+            state.engine.short_label(frame)
+        })
+        .map(|label| format!(" · {label}"))
+        .unwrap_or_default();
     write(
         context,
-        Span::styled(format!(" DBG {label}{thread} "), style),
+        Span::styled(format!(" DBG {label}{thread}{loading} "), style),
     );
 }
 

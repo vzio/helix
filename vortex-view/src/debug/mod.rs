@@ -8,7 +8,9 @@ use std::path::{Path, PathBuf};
 use vortex_dap::{registry::DebugAdapterId, StackFrame, Thread, ThreadId};
 
 pub mod config;
+pub mod engine;
 pub mod history;
+pub mod lineline;
 pub mod spectator;
 pub mod timing;
 
@@ -402,6 +404,8 @@ pub struct DebugState {
     pub generation: u64,
     /// Playback, threads, history and time labels.
     pub spectator: Spectator,
+    /// The per-line breakpoint engine, and the lineline.
+    pub engine: engine::Engine,
 }
 
 /// The threads of one session.
@@ -465,6 +469,21 @@ impl DebugState {
         self.console.clear();
         self.generation += 1;
         self.spectator.start_session();
+        self.engine.start_session();
+    }
+
+    /// Applies `[editor.debugger]`: the defaults of playback and recording, and the engine.
+    pub fn apply_config(&mut self, config: &config::DebuggerConfig) {
+        let spectator = &mut self.spectator;
+        spectator.speed = config.speed_index();
+        spectator.follow = config.follow.into();
+        spectator.caps = config.caps();
+        spectator.history.trim(spectator.caps.history);
+        spectator.timing.enabled = config.time_labels;
+        spectator.timing.threshold =
+            std::time::Duration::from_secs_f64(config.time_threshold.max(0.0) / 1000.0);
+        self.engine.kind = config.engine.into();
+        self.engine.record.set_cap(config.line_record);
     }
 
     /// The threads of `session`.
@@ -556,6 +575,7 @@ impl DebugState {
             watch.node = None;
         }
         self.spectator.end_session();
+        self.engine.end_session();
         self.hide();
     }
 
