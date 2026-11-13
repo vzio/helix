@@ -56,15 +56,25 @@ pub fn toggle_focus(editor: &mut Editor) {
         editor.debug.unfocus();
     } else {
         show(editor);
-        editor.debug.focus();
+        enter(editor);
     }
 }
 
 /// Shows and focuses `section`.
 pub fn focus_section(editor: &mut Editor, section: Section) {
     show(editor);
-    editor.debug.focus();
+    enter(editor);
     editor.debug.select(section);
+}
+
+/// Focuses the panel: a screen, so going to it from the editor is a jump (this fork: history).
+fn enter(editor: &mut Editor) {
+    if editor.debug.is_focused() {
+        return;
+    }
+    let from = editor.place();
+    editor.debug.focus();
+    editor.record_jump(vortex_view::history::Jump::Screen, from);
 }
 
 /// The rows of `section`, searched.
@@ -683,7 +693,7 @@ pub fn handle_mouse(mouse: &MouseEvent, editor: &mut Editor, compositor: &mut Co
     }
     match mouse.kind {
         MouseEventKind::Down(MouseButton::Left) => {
-            editor.debug.focus();
+            enter(editor);
             let Some(hit) = super::render::hit(editor, mouse.column, mouse.row) else {
                 return true;
             };

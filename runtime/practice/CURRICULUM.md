@@ -103,7 +103,7 @@ Assumes: chapters 1-4.
 
 ## 6. Search and jump
 
-Keys: `/` `?` `n` `N` `*` `<A-*>` `<C-o>` `gg` `ge` `<space>=`
+Keys: `/` `?` `n` `N` `*` `<A-*>` `ga` `gg` `ge` `<space>=`
 
 How to get somewhere without counting lines or columns:
 
@@ -112,13 +112,15 @@ How to get somewhere without counting lines or columns:
   also inside longer words. A match is a selection, so `c`
   changes it, and `n.` repeats that on the next one. In select mode (`v`), `n` and `N` add the
   next match as one more selection instead, so one `c` changes them all;
-- coming back: a search is a jump, and `<C-o>` returns to where you were before it;
+- coming back: a search is a jump, and `ga` (this fork's history) returns to where you were
+  before it;
 - the ends of the file: `gg` and `ge`;
 - the changes since the last commit (this fork's diff view): `<space>=` shows them, `n` and `N`
   jump between its hunks as between matches, and `r` reverts a hunk, as an edit `u` undoes.
 
-The jumplist itself (`<C-s>`, `<C-i>`, the `<space>j` picker), `12G` for line 12 and `g.` for
-the last change are explained in `:tutor`, with the rest of moving around files.
+The rest of history (`gA`), bookmarks (`<C-s>`, `<C-i>`, `<C-o>`, the `<space>j` picker), `12G`
+for line 12 and `g.` for the last change are explained in `:tutor`, with the rest of moving
+around files.
 
 Assumes: chapters 1-5.
 

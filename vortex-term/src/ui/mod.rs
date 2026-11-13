@@ -83,6 +83,7 @@ pub fn regex_prompt(
     prompt: std::borrow::Cow<'static, str>,
     history_register: Option<char>,
     completion_fn: impl FnMut(&Editor, &str) -> Vec<prompt::Completion> + 'static,
+    jump: Option<vortex_view::history::Jump>,
     fun: impl Fn(&mut crate::compositor::Context, rope::Regex, PromptEvent) + 'static,
 ) {
     raw_regex_prompt(
@@ -90,6 +91,7 @@ pub fn regex_prompt(
         prompt,
         history_register,
         completion_fn,
+        jump,
         move |cx, regex, _, event| fun(cx, regex, event),
     );
 }
@@ -98,6 +100,8 @@ pub fn raw_regex_prompt(
     prompt: std::borrow::Cow<'static, str>,
     history_register: Option<char>,
     completion_fn: impl FnMut(&Editor, &str) -> Vec<prompt::Completion> + 'static,
+    // what validating records in history (this fork): a search does, a selection doesn't
+    jump: Option<vortex_view::history::Jump>,
     fun: impl Fn(&mut crate::compositor::Context, rope::Regex, &str, PromptEvent) + 'static,
 ) {
     let (view, doc) = current!(cx.editor);
@@ -149,11 +153,19 @@ pub fn raw_regex_prompt(
                             doc.set_selection(view.id, snapshot.clone());
 
                             if event == PromptEvent::Validate {
-                                // Equivalent to push_jump to store selection just before jump
-                                view.push_jump(doc, (doc_id, snapshot.clone()));
+                                // the changes so far stay apart from the jump
+                                doc.append_changes_to_history(view);
                             }
 
                             fun(cx, regex, input, event);
+
+                            if let (PromptEvent::Validate, Some(jump)) = (event, jump) {
+                                let from = vortex_view::history::Place::Text {
+                                    doc: doc_id,
+                                    selection: snapshot.clone(),
+                                };
+                                cx.editor.record_jump(jump, from);
+                            }
 
                             let (view, doc) = current!(cx.editor);
                             view.ensure_cursor_in_view(doc, config.scrolloff);

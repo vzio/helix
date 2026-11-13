@@ -409,7 +409,7 @@ mod tests {
             Mode::Normal => keymap!({ "Normal mode"
                 "i" => normal_mode,
                 "无" => insert_mode,
-                "z" => jump_backward,
+                "z" => prev_bookmark,
                 "g" => { "Merge into goto mode"
                     "$" => goto_line_end,
                     "g" => delete_char_forward,
@@ -434,7 +434,7 @@ mod tests {
         // Assumes that z is a node in the default keymap
         assert_eq!(
             keymap.get(Mode::Normal, key!('z')),
-            KeymapResult::Matched(MappableCommand::jump_backward),
+            KeymapResult::Matched(MappableCommand::prev_bookmark),
             "Leaf should replace node"
         );
 

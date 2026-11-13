@@ -11,7 +11,7 @@ use vortex_lsp::{
     Client, LanguageServerId, OffsetEncoding,
 };
 
-use super::{align_view, push_jump, Align, Context, Editor};
+use super::{align_view, Align, Context, Editor};
 
 use vortex_core::{
     diagnostic::{DiagnosticProvider, Severity},
@@ -192,20 +192,24 @@ fn location_to_file_location(location: &Location) -> Option<FileLocation<'_>> {
 
 fn jump_to_location(editor: &mut Editor, location: &Location, action: Action) {
     let (view, doc) = current!(editor);
-    push_jump(view, doc);
+    let from = super::jump_from(view, doc);
 
     let Some(path) = location.uri.as_path() else {
         let err = format!("unable to convert URI to filepath: {:?}", location.uri);
         editor.set_error(err);
         return;
     };
-    jump_to_position(
-        editor,
-        path,
-        location.range,
-        location.offset_encoding,
-        action,
-    );
+    // opening the file isn't a jump of its own: the location is
+    editor.without_history(|editor| {
+        jump_to_position(
+            editor,
+            path,
+            location.range,
+            location.offset_encoding,
+            action,
+        )
+    });
+    editor.record_jump(vortex_view::history::Jump::Goto, from);
 }
 
 fn jump_to_position(

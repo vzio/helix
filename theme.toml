@@ -91,6 +91,8 @@
 
 "ui.linenr" = "n_4"
 "ui.linenr.selected" = "n_7"
+# bookmarks in the gutter: their number, then a marker past the ninth
+"ui.gutter.bookmark" = { fg = "purple_light", modifiers = ["bold"] }
 
 "ui.statusline" = { fg = "n_9", bg = "n_2" }
 "ui.statusline.inactive" = { fg = "n_6", bg = "n_1" }

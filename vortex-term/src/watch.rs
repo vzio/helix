@@ -290,6 +290,12 @@ fn apply(editor: &mut Editor, id: u64, updates: Vec<FileUpdate>) {
 /// Opens the file of `target` (or switches to the split that shows it), puts the cursor on the
 /// first line of the hunk, centers it and flashes it.
 fn go_to(editor: &mut Editor, target: &Target, action: Action) {
+    // the session keeps its own order of changes (`n`/`N`, `:watch-changes`): following and `n`
+    // are not history's jumps (a pick in `:watch-changes` is, as any picker's)
+    editor.without_history(|editor| go_to_unrecorded(editor, target, action));
+}
+
+fn go_to_unrecorded(editor: &mut Editor, target: &Target, action: Action) {
     let shown = editor.document_by_path(&target.path).and_then(|doc| {
         let doc_id = doc.id();
         editor
@@ -388,111 +394,119 @@ enum Effect {
     End,
 }
 
-/// The commands that don't end watch mode, by name (the static commands).
+/// The static commands that change nothing.
+const NONE: &[&str] = &[
+    "no_op",
+    "normal_mode",
+    "command_mode",
+    "command_palette",
+    "select_register",
+    "search_next",
+    "search_prev",
+    "toggle_terminal",
+    // setting or removing a bookmark (history and bookmarks) neither moves nor opens anything
+    "toggle_bookmark",
+];
+
+/// The static commands that search.
+const SEARCH: &[&str] = &[
+    "search",
+    "rsearch",
+    "extend_search_next",
+    "extend_search_prev",
+    "search_selection",
+    "search_selection_detect_word_boundaries",
+    "make_search_word_bounded",
+];
+
+/// The static commands that move the cursor, the selections or the view, without opening anything
+/// (besides the `move_`, `extend_`, `find_`, `till_`, `rotate_selections_` and `goto_` ones).
+const MOVE: &[&str] = &[
+    "repeat_last_motion",
+    "page_up",
+    "page_down",
+    "half_page_up",
+    "half_page_down",
+    "page_cursor_up",
+    "page_cursor_down",
+    "page_cursor_half_up",
+    "page_cursor_half_down",
+    "select_all",
+    "select_regex",
+    "split_selection",
+    "split_selection_on_newline",
+    "merge_selections",
+    "merge_consecutive_selections",
+    "select_line_above",
+    "select_line_below",
+    "shrink_to_line_bounds",
+    "collapse_selection",
+    "flip_selections",
+    "ensure_selections_forward",
+    "select_mode",
+    "exit_select_mode",
+    "trim_selections",
+    "keep_selections",
+    "remove_selections",
+    "keep_primary_selection",
+    "remove_primary_selection",
+    "copy_selection_on_next_line",
+    "copy_selection_on_prev_line",
+    "expand_selection",
+    "shrink_selection",
+    "select_next_sibling",
+    "select_prev_sibling",
+    "select_all_siblings",
+    "select_all_children",
+    "match_brackets",
+    "select_textobject_around",
+    "select_textobject_inner",
+    "jump_view_right",
+    "jump_view_left",
+    "jump_view_up",
+    "jump_view_down",
+    "rotate_view",
+    "rotate_view_reverse",
+    "align_view_middle",
+    "align_view_top",
+    "align_view_center",
+    "align_view_bottom",
+    "scroll_up",
+    "scroll_down",
+    "yank",
+    "yank_to_clipboard",
+    "yank_to_primary_clipboard",
+    "yank_joined",
+    "yank_joined_to_clipboard",
+    "yank_main_selection_to_clipboard",
+    "yank_joined_to_primary_clipboard",
+    "yank_main_selection_to_primary_clipboard",
+    "goto_word",
+    "extend_to_word",
+];
+
+/// The `goto_*` static commands that may open another buffer: they end watch mode. History
+/// (`history_toggle`, `history_back`, `history_forward`) and the bookmarks' `next_bookmark`,
+/// `prev_bookmark` and `bookmark_picker` end it too, as any command in no list does.
+const OPENS: &[&str] = &[
+    "goto_definition",
+    "goto_declaration",
+    "goto_type_definition",
+    "goto_implementation",
+    "goto_reference",
+    "goto_file",
+    "goto_file_hsplit",
+    "goto_file_vsplit",
+    "goto_last_accessed_file",
+    "goto_last_modified_file",
+    "goto_next_buffer",
+    "goto_previous_buffer",
+    "goto_next_tabstop",
+    "goto_prev_tabstop",
+];
+
+/// What a static command does to watch mode, by name.
 fn effect(name: &str) -> Effect {
-    const NONE: &[&str] = &[
-        "no_op",
-        "normal_mode",
-        "command_mode",
-        "command_palette",
-        "select_register",
-        "search_next",
-        "search_prev",
-        "toggle_terminal",
-    ];
-    const SEARCH: &[&str] = &[
-        "search",
-        "rsearch",
-        "extend_search_next",
-        "extend_search_prev",
-        "search_selection",
-        "search_selection_detect_word_boundaries",
-        "make_search_word_bounded",
-    ];
-    // what moves the cursor, the selections or the view, without opening anything
-    const MOVE: &[&str] = &[
-        "repeat_last_motion",
-        "page_up",
-        "page_down",
-        "half_page_up",
-        "half_page_down",
-        "page_cursor_up",
-        "page_cursor_down",
-        "page_cursor_half_up",
-        "page_cursor_half_down",
-        "select_all",
-        "select_regex",
-        "split_selection",
-        "split_selection_on_newline",
-        "merge_selections",
-        "merge_consecutive_selections",
-        "select_line_above",
-        "select_line_below",
-        "shrink_to_line_bounds",
-        "collapse_selection",
-        "flip_selections",
-        "ensure_selections_forward",
-        "select_mode",
-        "exit_select_mode",
-        "trim_selections",
-        "keep_selections",
-        "remove_selections",
-        "keep_primary_selection",
-        "remove_primary_selection",
-        "copy_selection_on_next_line",
-        "copy_selection_on_prev_line",
-        "expand_selection",
-        "shrink_selection",
-        "select_next_sibling",
-        "select_prev_sibling",
-        "select_all_siblings",
-        "select_all_children",
-        "match_brackets",
-        "select_textobject_around",
-        "select_textobject_inner",
-        "jump_forward",
-        "jump_backward",
-        "save_selection",
-        "jump_view_right",
-        "jump_view_left",
-        "jump_view_up",
-        "jump_view_down",
-        "rotate_view",
-        "rotate_view_reverse",
-        "align_view_middle",
-        "align_view_top",
-        "align_view_center",
-        "align_view_bottom",
-        "scroll_up",
-        "scroll_down",
-        "yank",
-        "yank_to_clipboard",
-        "yank_to_primary_clipboard",
-        "yank_joined",
-        "yank_joined_to_clipboard",
-        "yank_main_selection_to_clipboard",
-        "yank_joined_to_primary_clipboard",
-        "yank_main_selection_to_primary_clipboard",
-        "goto_word",
-        "extend_to_word",
-    ];
-    // `goto_*` that may open another file
-    const OPENS: &[&str] = &[
-        "goto_definition",
-        "goto_declaration",
-        "goto_type_definition",
-        "goto_implementation",
-        "goto_reference",
-        "goto_file",
-        "goto_file_hsplit",
-        "goto_file_vsplit",
-        "goto_last_accessed_file",
-        "goto_last_modified_file",
-        "goto_next_buffer",
-        "goto_previous_buffer",
-        "goto_next_tabstop",
-        "goto_prev_tabstop",
-    ];
     if NONE.contains(&name) {
         Effect::None
     } else if SEARCH.contains(&name) {
@@ -750,5 +764,40 @@ mod tests {
         assert_eq!(effect("file_picker"), Effect::End);
         assert_eq!(effect("delete_selection"), Effect::End);
         assert_eq!(effect("toggle_terminal"), Effect::None);
+        // history and bookmarks
+        assert_eq!(effect("toggle_bookmark"), Effect::None);
+        for name in [
+            "history_toggle",
+            "history_back",
+            "history_forward",
+            "next_bookmark",
+            "prev_bookmark",
+            "bookmark_picker",
+            "goto_last_accessed_file",
+        ] {
+            assert_eq!(effect(name), Effect::End, "{name}");
+        }
+    }
+
+    /// A renamed or removed command left in a list would silently fall to "ends watch mode".
+    #[test]
+    fn every_listed_command_is_a_static_command() {
+        let names: Vec<&str> = crate::commands::MappableCommand::STATIC_COMMAND_LIST
+            .iter()
+            .map(|command| command.name())
+            .collect();
+        for (list, commands) in [
+            ("NONE", NONE),
+            ("SEARCH", SEARCH),
+            ("MOVE", MOVE),
+            ("OPENS", OPENS),
+        ] {
+            for command in commands {
+                assert!(
+                    names.contains(command),
+                    "{command} in {list} is not a static command"
+                );
+            }
+        }
     }
 }

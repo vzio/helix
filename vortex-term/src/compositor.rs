@@ -128,6 +128,12 @@ impl Compositor {
         self.layers.pop()
     }
 
+    /// Removes every layer above the editor (this fork: history leaving a screen and the pickers
+    /// it was opened from).
+    pub fn pop_to_editor(&mut self) {
+        self.layers.truncate(1);
+    }
+
     pub fn remove(&mut self, id: &'static str) -> Option<Box<dyn Component>> {
         let idx = self
             .layers

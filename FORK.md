@@ -93,6 +93,7 @@ git blame FILE
 - [Dashboard](#dashboard)
 - [Worktrees](#worktrees)
 - [Watch mode](#watch-mode)
+- [History and bookmarks](#history-and-bookmarks)
 - [The vortex theme](#the-vortex-theme)
 - [Practice](#practice)
 - [Tutor](#tutor)
@@ -120,6 +121,7 @@ Each feature lives in its own modules, to keep rebasing on upstream cheap:
 | Dashboard | `vortex-term/src/dashboard.rs` (when it is up, its keys), `vortex-term/src/dashboard/` (`stats.rs` the background reading, `languages.rs` the line counts, `render.rs` the layout and the panels, `timeline.rs` when things move, `title.rs` the title, `vortex.rs` the vortex, `wrap.rs` long values on two rows, `snapshots/` the drawings the tests compare with), `vortex-vcs/src/git/summary.rs` (the git summary), `vortex-term/tests/test/dashboard.rs` |
 | Worktrees | `vortex-term/src/commands/worktrees.rs` (the `:worktrees` picker: its rows, columns, background jobs and `Enter`), `vortex-vcs/src/git/summary.rs` (the worktrees, missing ones flagged; `Repo::status`, the last modified time; `Repo::dated_worktrees`; `Worktree::details`), `vortex-stdx/src/time.rs` (`format_ago`), the dashboard's worktree rows and `t` in `vortex-term/src/dashboard/`, `vortex-term/tests/test/worktrees.rs` |
 | Watch mode | `vortex-view/src/watch.rs` (the session: the baseline, the files and hunks numbered in the order they changed, following, `n`/`N`, the new count), `vortex-term/src/watch.rs` (`:watch` and the other commands, reading the changed files on the watcher's thread, following, the flash, which commands pause or end it, the statusline element, the `:watch-changes` picker), `RepoWatch::start_tapped` in `vortex-term/src/live.rs`, the session's gutter markers in `vortex-view/src/gutter.rs`, `vortex-term/tests/test/watch.rs` |
+| History and bookmarks | `vortex-view/src/history.rs` (what records a jump, `Editor::record_jump`, the places of a view, walking), `vortex-view/src/bookmarks.rs` (the bookmarks of a buffer, mapped through its changes; the closed files' bookmarks; the ring), `vortex-term/src/history.rs` (`ga`, `gA` and its sticky state, showing a screen again, the bookmark commands and picker), the `bookmarks` gutter in `vortex-view/src/gutter.rs`, `vortex-term/tests/test/history.rs` |
 | The vortex theme | `theme.toml` (the theme), `helix_theme.toml` (upstream's default theme), the built-in themes in `vortex-view/src/theme.rs` |
 | Practice | `vortex-term/src/practice.rs`, `vortex-term/src/practice/`, `runtime/practice/`, `vortex-term/tests/test/practice.rs` |
 
@@ -234,6 +236,22 @@ The vortex theme changes `vortex-view/src/theme.rs` (the built-in themes and the
 The hunk actions add `Editor::save_messages` (`vortex-view/src/editor.rs`), a message shown
 instead of `'file' written` when a document's save completes (`handle_document_write` in
 `application.rs`), so that a revert says how to undo it.
+
+History and bookmarks change core files: the jumplist in `vortex-view/src/view.rs` became
+`View::history` (`View::push_jump` is gone); `Editor::switch` records a buffer switch and the old
+`Editor::jump_forward`/`jump_backward` are gone, `jump_to` shows a history place, `new_document` and
+`close_document` hand a file's bookmarks over (`vortex-view/src/editor.rs`, with the fields
+`screen_cover`, `history_paused`, `history_menu`, `bookmark_state`); `Document::bookmarks`, mapped in
+`apply_impl` (`vortex-view/src/document.rs`); the recording calls in `commands.rs` (`jump_from` and
+`record_jump` where `push_jump` was, `n`/`N`), `commands/lsp.rs`, `commands/typed.rs` (`:<line>`),
+`ui/mod.rs` (a search prompt; `regex_prompt` says what its prompt records); `Picker::pick` and
+`without_jumps` (the command palette) in `ui/picker.rs`; the sticky state and the dashboard as a
+screen in `ui/editor.rs`; `ga`/`gA`, leaving and coming back in `ui/diff_view.rs`;
+`Compositor::pop_to_editor`; `ga`/`gA` in the hex view (`commands/hex.rs`); entering the debug panel
+(`debug/panel.rs`) and the debugger's stops not recording (`handlers/dap.rs`); the opening of each
+diff (`commands/diff_view.rs`); the keys in `keymap/default.rs`; `ui.gutter.bookmark` in both
+themes. With watch mode: its command lists (`vortex-term/src/watch.rs`) know the new commands, and
+its following and `n`/`N` run without recording.
 
 To build: `cargo install --path vortex-term --locked`.
 
@@ -1625,7 +1643,7 @@ deletes a byte, and it never loads the file: a file of several GB opens at once.
 | `:w` | Write the overwritten bytes, in place |
 
 `:`, `space` and the keys with `Ctrl` or `Alt` the view doesn't use go to the keymap as in any
-buffer: `:q`, `:w`, the pickers, the windows (`Ctrl-w`), the jumplist (`Ctrl-o`/`Ctrl-i`)... Any
+buffer: `:q`, `:w`, the pickers, the windows (`Ctrl-w`), the bookmarks (`Ctrl-o`/`Ctrl-i`)... Any
 other character is refused in read-only mode with `read-only, i to overwrite`.
 
 ### Overwrite mode
@@ -1668,8 +1686,8 @@ bytes; the elements about text (line ending, indentation, encoding, total lines)
 The hex view is a mode of the document, not a separate view or component: a `Document` in the hex
 view has a `HexBuffer` (`vortex-view/src/hex.rs`) and draws its rows instead of its text. So it is a
 buffer like any other: splits (each view with its own cursor and hex or bin mode, a new split
-starting where the view it splits is), the buffer picker, `:q`, `:w`, `:bc`, the jumplist between
-buffers, the modified flag.
+starting where the view it splits is), the buffer picker, `:q`, `:w`, `:bc`, history (`ga`,
+`gA`) between buffers, the modified flag.
 
 - **The bytes are read in windows**: a `HexBuffer` holds the open file and reads what it is asked
   for, through a 64 KiB window cache, with positioned reads. Drawing reads a screen of rows; a
@@ -1712,8 +1730,8 @@ Overwritten bytes use `diff.delta`, the selection `ui.selection` and the cursor 
   (`5j`): digits are refused like any other character in read-only mode.
 - A search runs on the main thread: through a multi-GB file it can take seconds when the match is
   far or absent.
-- The jumplist remembers buffers, not offsets: `Ctrl-o` comes back to the hex view where its cursor
-  is, not to the offset before a `G` or a search.
+- History remembers buffers, not offsets: `ga` comes back to the hex view where its cursor is, not
+  to the offset before a `G` or a search.
 - `:w` writes to the file itself only: `:w other.bin` is refused.
 - A file changed on disk counts as changed when its modification time does, even if `touch` left
   its bytes the same.
@@ -2077,11 +2095,20 @@ The view never jumps while you're reading: new changes are counted in the status
 the newest change follows again, and the statusline says `WATCH following`.
 
 **Anything else ends watch mode**: an edit, insert mode, opening a file yourself (`:open`, `gf`,
-`ga`, `gd`, a buffer switch), a picker, a split, a command other than `:goto` and the watch
-commands. The session's markers, `n`/`N` and `:watch-changes` stay until the next `:watch` or
+`gd`, a buffer switch), [history](#history-and-bookmarks)'s `ga` and `gA` and the bookmarks'
+`C-i`, `C-o` and `space j` (they can open another buffer or screen), a picker, a split, a command
+other than `:goto` and the watch commands. The session's markers, `n`/`N` and `:watch-changes` stay until the next `:watch` or
 `:watch-clear`; the working tree is no longer watched, so they show the changes up to then. `Esc`,
 the command line (`:`) and the palette themselves, and the [terminal panel](#terminal-panel)
 (`C-t`), change nothing: an agent can run in the panel while its changes are followed above it.
+Setting or removing a bookmark (`C-s`) changes nothing either.
+
+**History and bookmarks.** Following and `n`/`N` through the session's changes are not
+[history](#history-and-bookmarks)'s jumps: the session has its own order and its picker, and
+following would otherwise fill the history with every change an agent makes. So `ga` after watch
+mode goes back to where your own last jump left, not to the change followed before. A change
+picked in `:watch-changes` is a jump, as in any picker. Bookmarks set while watching stay on their
+lines while the files change under them (a reload maps them like any edit).
 
 ### The statusline
 
@@ -2178,6 +2205,169 @@ that file; the others are still followed. Its markers compare the buffer with th
   on.
 - Following shows changes one batch at a time: in a burst over several files, only the newest is
   jumped to (the others are marked, and `n`/`N` reach them).
+
+## History and bookmarks
+
+Upstream's jumplist mixes two things: an automatic "where I was" and the places marked by hand
+with `Ctrl-s`. It records so much that `Ctrl-o` can't be trusted. This fork splits it in two:
+**history**, automatic and invisible, on `ga` and `gA`; and **bookmarks**, set by hand, on
+`Ctrl-s`, `Ctrl-i`/`Ctrl-o` and `Space j`.
+
+### History
+
+`ga` goes back to where the last jump left, and pressing it again returns: `ga ga` is where you
+were. `gA` steps one place back and leaves the `g` menu open in a small sticky state (its infobox
+says `A back · a forward · Esc done`):
+
+| Key | Does |
+| --- | --- |
+| `ga` | Back to the last place jumped from; again, back where you were. After a walk with `gA`, back to where the walk started, like `cd -` |
+| `gA` | One place back, then the sticky state |
+| `A` | (sticky) One more place back: `gAAA` is back three |
+| `a` | (sticky) One place forward: `gAAAa` is back three, forward one |
+| `Esc` | (sticky) Closes the state |
+| any other key | Closes the state and does what it always does: `gAAAj` is back three, then down a line |
+
+A count repeats `ga` and `gA` (`3gA`). Walking back records where the walk starts, the present,
+so `a` and `ga` can return to it; making a new jump from somewhere in the middle of a walk drops
+the places ahead, as an edit drops the redo history. Each split has its own history, as each had
+its own jumplist (a new split of the same buffer starts with a copy): the places in one window
+are what that window went through. A history keeps 30 places, the oldest go first; the place
+of a closed buffer goes with it.
+
+**What records a jump**: only teleports, through one function (`Editor::record_jump`, with the
+rule in `vortex_view::history::records`):
+
+- the goto family: `gd`, `gD`, `gy`, `gr`, `gi` and every location a language server gives (the
+  pickers of several locations, symbols, diagnostics); `gf`;
+- a search: `/` and `?` once validated, `n` and `N` (`*` and `Alt-*` only set the search: they
+  don't move, the `n` after them does);
+- `gg`, `ge`, a line by number (`12G`, `12gg`, `:12`);
+- `g.`, the last modification;
+- `[d`, `]d`, `[D`, `]D`, the diagnostics, and `[g`, `]g`, the changes: like `n`, they go
+  anywhere in the file;
+- the result picked in any picker (files, buffers, symbols, diagnostics, global search, the
+  changed files, the commits and their changes, the file tree, the bookmarks...), but the command
+  palette, whose commands record their own;
+- another buffer, by any means: `gn`/`gp`, `gm`, `:open`, `:buffer`, `:new`, a picker, `vx file`
+  from the terminal panel, `:tutor`, `:practice`...
+- another screen. The screens, the full-screen views the editor has:
+  - the dashboard (`:dashboard`, `:vortex`, and the one at startup), drawn over an empty buffer;
+  - the side by side diff, every kind of it: `Space =` on a file, `Enter` or `Ctrl-g` in the
+    changed files picker, a file of the uncommitted changes or of a commit from the commit log;
+  - the debug panel, once focused (`Ctrl-g`, a `Space G` key that focuses it, a click in it);
+  - the hex view and a debugged program's memory: they are buffers, so they are places like any
+    buffer;
+- going to a bookmark (`Ctrl-i`, `Ctrl-o`, `Space j`).
+
+**What never records**: the motions through the text around the cursor (`hjkl`, `w`/`b`/`e`,
+`f`/`t`, `}`/`{`, `%`, `gh`/`gl`/`gs`, `gt`/`gc`/`gb`, `g|`, the syntax tree's `]f`, `]t`, `]a`...
+and `Alt-o`/`Alt-i`, `gw` and its labels on the screen), scrolling, a mouse click in the same
+buffer, selections (`s`, `S`, `K`... even though they use a regex prompt like `/`), edits, the
+terminal panel (a drawer, not a screen), history's own steps, the debugger's stops (stepping
+through files would fill the history; spectator mode steps many times a second),
+[watch mode](#watch-mode)'s following and its `n`/`N` (the session has its own order and picker)
+and switching windows. A jump that lands on the line it left records nothing, and a place on the same buffer
+and line as the last one recorded replaces it rather than adding a second one.
+
+**Screens are places.** `ga` from a file opened from a diff (`Enter`) comes back to the diff, as
+it was (its scroll, its hunk), read again in case the file changed; `ga` or `gA` in the diff
+leaves it for the place before. `ga` from a file opened from the dashboard brings the dashboard
+back (over a new empty buffer; the one left behind is closed). `ga` back to the debug panel
+focuses it, while a session runs. Pickers are not places: the result picked is the jump, and a
+picker, its query and its scroll are never brought back: leaving a diff by history also closes
+the pickers it was opened from.
+
+The hex view takes `ga` and `gA` from its own `g` keys. In the debug panel, which takes its keys
+first, they do nothing: history goes on from wherever `Esc` (or `Ctrl-g`) drops you.
+
+### Bookmarks
+
+A bookmark is a line set by hand, a place to keep coming back to: a working set across files,
+in the order it was built.
+
+| Key | Does |
+| --- | --- |
+| `Ctrl-s` | Sets a bookmark on the cursor's line, or removes the one there; with several cursors, on each cursor's line. Normal and select mode (in insert mode it is still the undo checkpoint) |
+| `Ctrl-i` (`Tab`) | The next bookmark, in the order they were set; past the last, the first |
+| `Ctrl-o` | The previous bookmark |
+| `Space j` | The bookmark picker: number, file and line, the line's text, in the order they were set; `Enter` goes to one, `Ctrl-x` removes it |
+
+- **The order is the order they were set**, not file and line: the ring goes the way the working
+  set was built, across files. A bookmark's number is its rank, so removing one closes the gap
+  (remove 2, and 3 becomes 2). `Ctrl-i`/`Ctrl-o` go on from the bookmark on the cursor's line, or
+  else from the last one gone to or set (even if it was removed since: from where it was).
+- Going to a bookmark puts the cursor on the line's first non-blank character and is a history
+  jump: `ga` comes back.
+- **They move with the text.** A buffer maps its bookmarks through every change, as it does its
+  selections: a bookmark stays on its line when lines are inserted or deleted above it (a line
+  opened right above it with `O` goes above it), and goes when its line is deleted. A file
+  reloaded from disk applies the difference as a change, so its bookmarks follow it as well as
+  that difference allows.
+- **They outlive their buffer**: closing a file's buffer keeps its bookmarks by path and line, and
+  opening the file again brings them back; `Ctrl-i` opens it. A buffer without a file takes its
+  bookmarks with it when it closes.
+- They are global, not per split: every window shows the same ones. They live in memory and are
+  gone when `vx` quits: no file, no cache.
+- `Ctrl-i` and `Tab` are bound together: terminals send the same key for both unless the kitty
+  keyboard protocol is on.
+
+**The gutter** shows bookmarks in the column of diagnostics and breakpoints: the number, `1` to
+`9`, then `◆` from the tenth on, so the order is visible at a glance. With a diagnostic on the
+same line the bookmark is drawn in the diagnostic's color, so the warning isn't lost. A
+breakpoint on the same line wins while a debug session runs; otherwise the bookmark does. Theme
+scope: `ui.gutter.bookmark` (falls back to `ui.linenr.selected`).
+
+### Removed
+
+- `Ctrl-o`, `Ctrl-i` and `Tab` as jumplist keys, and the commands `jump_backward`, `jump_forward`;
+- `Ctrl-s` `save_selection`, which put the selection on the jumplist;
+- `Space j` `jumplist_picker`;
+- `ga` as `goto_last_accessed_file`: a buffer switch is a jump, so `ga` goes back to the previous
+  buffer anyway. The command is still there, in the command palette (`Space ?`), unbound.
+
+`gk`/`gj` in the `g` menu are unchanged. The separate roadmap item "`ga` returns to the previous
+screen" is this: screens are places.
+
+### Decisions
+
+- **`gA`'s sticky state is the editor's, not the keymap's.** A sticky keymap node (like `Z`)
+  can't take a step as it opens, and an unknown key in it does nothing instead of running as
+  usual. So `A`, `a` and `Esc` are fixed keys while the state is open, taken before anything
+  else (the dashboard, the hex view, a diff on top).
+- **The recording rule is a kind per call site** (`Jump::Goto`, `Search`, `FileEdge`...), and
+  `records` decides which kinds record: the call sites of the old `push_jump` stayed where they
+  were, each now says what it is, and the motions that used to record (`]f`, `gw`, `g|`) say so
+  and are filtered in that one place.
+- **A jump records after it lands**, so it can tell that it landed on the line it left: the place
+  is taken before the move and recorded after, with the same-line check.
+- **The diagnostics and changes (`]d`, `]g`) record**, like `n`: they go anywhere in the file. The
+  syntax tree's objects (`]f`...) don't: they move to what is around the cursor.
+- **The debugger's stops don't record**; the debug panel, once focused, is a place.
+- **The terminal panel is not a screen**: a drawer toggled with one key; recording it would fill
+  the history with it.
+- **Bookmarks of a closed file are kept** by path and line (the prompt only said a buffer
+  without a file loses them).
+- **A bookmark is a line**, stored as the start of the line: text typed at the very start of the
+  line, or a line opened above it, leaves it on its line. Of two bookmarks joined onto one line
+  (`J`), the older stays.
+- **In watch mode**, `ga`, `gA`, `C-i`, `C-o` and `space j` end it, as opening a file yourself
+  does (also from the keys that bypass the keymap: the sticky state, the hex view, a diff);
+  `C-s` changes nothing.
+- **`Ctrl-x` removes a bookmark** in the picker: no picker or prompt key uses it.
+- **`◆`** marks the bookmarks past the ninth; numbers are drawn in `ui.gutter.bookmark`, bold
+  purple in the vortex theme, bold honey in upstream's.
+
+### Limitations
+
+- Undo brings a deleted line back, not its bookmark.
+- Moving a line with [move lines](#move-lines) (`j`/`k` in move mode, `M`; the `move_lines_down`
+  and `move_lines_up` commands) deletes and inserts it: its bookmark goes.
+- The hex view's history places are buffers, not offsets: `ga` comes back to the hex view where
+  its cursor is now, not to the offset before a `G` or a search.
+- A diff left by history is kept as it was and read again when it comes back; leaving it with
+  `q` drops it, and history skips it from then on.
+- A walk's places of a closed buffer are dropped; if it was where the walk started, `ga` says so.
 
 ## The vortex theme
 
@@ -2306,7 +2496,7 @@ and that every solution only uses keys that its chapter or an earlier one teache
 
 `:tutor` is rewritten to go with [`:practice`](#practice): it keeps upstream's header and says to
 use `:practice` for editing, then covers only what doesn't fit an exercise checked by the text of
-a buffer: opening, saving and quitting, buffers, pickers, the file tree, the jumplist, going
+a buffer: opening, saving and quitting, buffers, pickers, the file tree, history and bookmarks, going
 places (`gw`, `[`/`]`), the view, splits, the system clipboard, language servers, git (with this
 fork's diff view, commit log and blame), the shell commands other than `|`, `:earlier`, settings,
 the debugger, this fork's terminal panel and hex view, and a last section with the editing keys that have no exercise. Upstream's lessons

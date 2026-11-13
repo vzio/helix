@@ -56,7 +56,9 @@ pub fn in_source_view<R>(editor: &mut Editor, f: impl FnOnce(&mut Editor) -> R) 
 }
 
 pub fn jump_to_stack_frame(editor: &mut Editor, frame: &vortex_dap::StackFrame) {
-    in_source_view(editor, |editor| jump_in_view(editor, frame))
+    // the debugger's stops aren't the user's jumps (this fork: history): stepping through
+    // files would fill the history
+    editor.without_history(|editor| in_source_view(editor, |editor| jump_in_view(editor, frame)))
 }
 
 fn jump_in_view(editor: &mut Editor, frame: &vortex_dap::StackFrame) {

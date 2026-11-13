@@ -206,6 +206,8 @@ pub struct Document {
     selections: HashMap<ViewId, Selection>,
     view_data: HashMap<ViewId, ViewData>,
     pub active_snippet: Option<ActiveSnippet>,
+    /// The bookmarks of its lines (this fork).
+    pub bookmarks: crate::bookmarks::Marks,
 
     /// Inlay hints annotations for the document, by view.
     ///
@@ -852,6 +854,7 @@ impl Document {
             focused_at: std::time::Instant::now(),
             readonly: false,
             hex: None,
+            bookmarks: Default::default(),
             jump_labels: HashMap::new(),
             document_highlights: HashMap::new(),
             code_action_hints: HashSet::new(),
@@ -1782,6 +1785,9 @@ impl Document {
                 // Ensure all selections across all views still adhere to invariants.
                 .ensure_invariants(self.text.slice(..));
         }
+
+        self.bookmarks
+            .apply(&old_doc, self.text.slice(..), transaction.changes());
 
         for view_data in self.view_data.values_mut() {
             view_data.view_position.anchor = transaction

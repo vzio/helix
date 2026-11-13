@@ -305,6 +305,8 @@ pub struct Picker<T: 'static + Send + Sync, D: 'static> {
     widths: Vec<Constraint>,
 
     callback_fn: PickerCallback<T>,
+    /// Whether picking a result records a jump in history (this fork); not for the command palette.
+    records_jumps: bool,
     default_action: Action,
 
     pub truncate_start: bool,
@@ -506,6 +508,7 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
             truncate_start: true,
             show_preview: true,
             callback_fn: Box::new(callback_fn),
+            records_jumps: true,
             default_action: Action::Replace,
             completion_height: 0,
             widths,
@@ -756,6 +759,25 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
         self.matcher.tick(10);
         // the rows of the new items, for the owner looking for one of them right away
         self.update_order();
+    }
+
+    /// Picking a result doesn't record a jump in history (this fork): the command palette, whose
+    /// commands record their own.
+    pub fn without_jumps(mut self) -> Self {
+        self.records_jumps = false;
+        self
+    }
+
+    /// Runs the callback on a picked result: a jump in history (this fork) when it lands
+    /// somewhere else.
+    fn pick(&self, ctx: &mut Context, option: &T, action: Action) {
+        if !self.records_jumps {
+            return (self.callback_fn)(ctx, option, action);
+        }
+        let from = ctx.editor.place();
+        (self.callback_fn)(ctx, option, action);
+        ctx.editor
+            .record_jump(vortex_view::history::Jump::Pick, from);
     }
 
     /// Pressing `key` runs `handler` on the selected item and closes the picker.
@@ -1781,7 +1803,7 @@ impl<I: 'static + Send + Sync, D: 'static + Send + Sync> Component for Picker<I,
             key!(Esc) | ctrl!('c') => return close_fn(self),
             alt!(Enter) => {
                 if let Some(option) = self.selection() {
-                    (self.callback_fn)(ctx, option, self.default_action);
+                    self.pick(ctx, option, self.default_action);
                 }
             }
             key!(Enter) => {
@@ -1805,7 +1827,7 @@ impl<I: 'static + Send + Sync, D: 'static + Send + Sync> Component for Picker<I,
                     self.handle_prompt_change(true);
                 } else {
                     if let Some(option) = self.selection() {
-                        (self.callback_fn)(ctx, option, self.default_action);
+                        self.pick(ctx, option, self.default_action);
                     }
                     if let Some(history_register) = self.prompt.history_register() {
                         if let Err(err) = ctx
@@ -1821,13 +1843,13 @@ impl<I: 'static + Send + Sync, D: 'static + Send + Sync> Component for Picker<I,
             }
             ctrl!('s') => {
                 if let Some(option) = self.selection() {
-                    (self.callback_fn)(ctx, option, Action::HorizontalSplit);
+                    self.pick(ctx, option, Action::HorizontalSplit);
                 }
                 return close_fn(self);
             }
             ctrl!('v') => {
                 if let Some(option) = self.selection() {
-                    (self.callback_fn)(ctx, option, Action::VerticalSplit);
+                    self.pick(ctx, option, Action::VerticalSplit);
                 }
                 return close_fn(self);
             }

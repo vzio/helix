@@ -52,7 +52,8 @@ pub fn default() -> HashMap<Mode, KeyTrie> {
             "t" => goto_window_top,
             "c" => goto_window_center,
             "b" => goto_window_bottom,
-            "a" => goto_last_accessed_file,
+            "a" => history_toggle,
+            "A" => history_back,
             "m" => goto_last_modified_file,
             "n" => goto_next_buffer,
             "p" => goto_previous_buffer,
@@ -218,9 +219,10 @@ pub fn default() -> HashMap<Mode, KeyTrie> {
 
         // z family for save/restore/combine from/to sels from register
 
-        "C-i" | "tab" => jump_forward, // tab == <C-i>
-        "C-o" => jump_backward,
-        "C-s" => save_selection,
+        // bookmarks (this fork); tab is C-i without the kitty keyboard protocol
+        "C-i" | "tab" => next_bookmark,
+        "C-o" => prev_bookmark,
+        "C-s" => toggle_bookmark,
 
         "space" => { "Space"
             "f" => file_picker,
@@ -229,7 +231,7 @@ pub fn default() -> HashMap<Mode, KeyTrie> {
             "E" => toggle_explorer,
             "." => file_explorer_in_current_buffer_directory,
             "b" => buffer_picker,
-            "j" => jumplist_picker,
+            "j" => bookmark_picker,
             "s" => lsp_or_syntax_symbol_picker,
             "S" => lsp_or_syntax_workspace_symbol_picker,
             "d" => diagnostics_picker,

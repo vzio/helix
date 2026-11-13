@@ -1132,3 +1132,89 @@ async fn a_commit_while_watching_changes_nothing_of_the_session() {
     assert_eq!(hunks(&session.app, "a.txt"), [(3, 4)]);
     assert!(session.watching());
 }
+
+// History and bookmarks
+
+/// The places the focused view's history holds.
+fn history_len(app: &Application) -> usize {
+    app.editor.tree.get(app.editor.tree.focus).history.len()
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn following_and_n_record_no_history_jumps() {
+    let Some(_) = enter("following_and_n_record_no_history_jumps") else {
+        return;
+    };
+    let mut session = Session::new();
+    // following goes through three files: none of it is a jump
+    session.three_changes().await;
+    assert_eq!(history_len(&session.app), 0);
+
+    // nor are n and N through the session's changes, across files
+    session.keys("n").await;
+    assert_eq!(focus(&session.app), at("a.txt", 1));
+    session.keys("nN").await;
+    assert_eq!(focus(&session.app), at("a.txt", 1));
+    assert_eq!(history_len(&session.app), 0);
+    assert!(session.watching());
+
+    // so ga, which ends watch mode, has nowhere to go back to
+    session.keys("ga").await;
+    assert!(!session.watching());
+    assert_eq!(status(&session.app), "No jumps to go back to");
+    assert_eq!(focus(&session.app), at("a.txt", 1));
+
+    // n after the end still goes through the session's changes, without recording either
+    session.keys("n").await;
+    assert_eq!(focus(&session.app), at("b.txt", 4));
+    assert_eq!(history_len(&session.app), 0);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn setting_a_bookmark_neither_pauses_nor_ends_watch_mode() {
+    let Some(_) = enter("setting_a_bookmark_neither_pauses_nor_ends_watch_mode") else {
+        return;
+    };
+    let mut session = Session::new();
+    session.three_changes().await;
+    session.keys("<C-s>").await;
+    assert!(session.watching());
+    assert!(session.following());
+    assert_eq!(session.app.editor.bookmarks().len(), 1);
+    // and removing it
+    session.keys("<C-s>").await;
+    assert!(session.following());
+    assert!(session.app.editor.bookmarks().is_empty());
+
+    // following goes on
+    session.change_and_follow("a.txt", 6, "a6 agent").await;
+    assert!(session.following());
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn ga_ends_watch_mode_but_keeps_the_changes() {
+    let Some(_) = enter("ga_ends_watch_mode_but_keeps_the_changes") else {
+        return;
+    };
+    let session = ended_by("ga").await;
+    changes_stay_after_the_end(session).await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn going_round_the_bookmarks_ends_watch_mode_but_keeps_the_changes() {
+    let Some(_) = enter("going_round_the_bookmarks_ends_watch_mode_but_keeps_the_changes") else {
+        return;
+    };
+    let session = ended_by("<C-i>").await;
+    changes_stay_after_the_end(session).await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn the_bookmark_picker_ends_watch_mode_but_keeps_the_changes() {
+    let Some(_) = enter("the_bookmark_picker_ends_watch_mode_but_keeps_the_changes") else {
+        return;
+    };
+    let mut session = ended_by("<space>j").await;
+    session.keys("<esc>").await;
+    changes_stay_after_the_end(session).await;
+}

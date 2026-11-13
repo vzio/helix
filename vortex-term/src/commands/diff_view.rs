@@ -171,6 +171,8 @@ pub(crate) fn open_uncommitted(
     if let Some(line) = line {
         view.go_to_line(line);
     }
+    // a screen opens: a jump (this fork: history)
+    crate::history::opened_screen(editor);
     compositor.push(Box::new(view.with_nav(nav)));
 }
 
@@ -191,6 +193,7 @@ pub(crate) fn open_from_picker(cx: &mut crate::compositor::Context, change: &Fil
             editor, &change,
         ) {
             Ok(view) if view.has_changes() => {
+                crate::history::opened_screen(editor);
                 compositor.push(Box::new(view.with_on_open(|compositor| {
                     compositor.remove(picker::ID);
                 })))
@@ -219,7 +222,10 @@ pub(crate) fn open_current(editor: &mut Editor, compositor: &mut Compositor) {
         },
     };
     match view {
-        Ok(view) if view.has_changes() => compositor.push(Box::new(view)),
+        Ok(view) if view.has_changes() => {
+            crate::history::opened_screen(editor);
+            compositor.push(Box::new(view))
+        }
         Ok(_) => editor.set_status(format!("No changes in {}", doc_name(editor))),
         Err(err) => editor.set_error(err.to_string()),
     }
@@ -361,6 +367,8 @@ pub(crate) fn open_commit(
     if let Some(line) = line {
         view.go_to_line(line);
     }
+    // a screen opens: a jump (this fork: history)
+    crate::history::opened_screen(editor);
     compositor.push(Box::new(view.with_nav(nav)));
     Ok(())
 }

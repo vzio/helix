@@ -5,6 +5,7 @@
 //! (see `commands/hunks.rs`), and the diffs opened from a list of files (the uncommitted changes,
 //! a commit, a range) go on to the next file with `n`/`N`.
 
+use std::any::Any;
 use std::ops::Range;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
@@ -18,6 +19,7 @@ use vortex_vcs::staging::{self, HunkState, LineHunk};
 use vortex_vcs::FileChange;
 use vortex_view::editor::Action;
 use vortex_view::graphics::{Color, CursorKind, Modifier, Rect, Style};
+use vortex_view::history::{Jump, Place, Screen, ScreenKind, Step};
 use vortex_view::input::{Event, KeyEvent, MouseEventKind};
 use vortex_view::keyboard::{KeyCode, KeyModifiers};
 use vortex_view::{align_view, current, Align, DocumentId, Editor, Theme};
@@ -521,6 +523,9 @@ pub struct DiffView {
     /// Builds the sides again, after a hunk action or when `live` sees the working tree change.
     rebuild: Option<Rebuild>,
     live: Option<Live>,
+    /// The history place it was shown again from (this fork), refilled when it is left again so
+    /// that walking through history finds it there.
+    history: Option<vortex_view::history::Stash>,
     /// Stage, unstage and revert.
     actions: Option<Actions>,
     /// The other files of the entry, for `n`/`N`.
@@ -558,6 +563,7 @@ impl DiffView {
             current: 0,
             rebuild: None,
             live: None,
+            history: None,
             actions: None,
             nav: None,
             confirm: None,
@@ -1017,19 +1023,28 @@ impl DiffView {
         let line = self.current_right_line().unwrap_or(0);
         let on_open = self.on_open.take();
         EventResult::Consumed(Some(Box::new(move |compositor: &mut Compositor, cx| {
-            compositor.remove(ID);
+            // the diff is where the file was opened from: `ga` comes back to it (this fork)
+            let from = compositor.remove(ID).and_then(stash);
             if let Some(on_open) = on_open {
                 on_open(compositor);
             }
-            if let Err(err) = cx.editor.open(&path, Action::Replace) {
-                cx.editor.set_error(format!("{err}"));
-                return;
+            let opened = cx.editor.without_history(|editor| {
+                editor.open(&path, Action::Replace)?;
+                let (view, doc) = current!(editor);
+                let text = doc.text();
+                let pos = text.line_to_char(line.min(text.len_lines().saturating_sub(1)));
+                doc.set_selection(view.id, Selection::point(pos));
+                align_view(doc, view, Align::Center);
+                anyhow::Ok(())
+            });
+            match opened {
+                Ok(()) => {
+                    if let Some(from) = from {
+                        cx.editor.record_jump(Jump::Switch, from);
+                    }
+                }
+                Err(err) => cx.editor.set_error(format!("{err}")),
             }
-            let (view, doc) = current!(cx.editor);
-            let text = doc.text();
-            let pos = text.line_to_char(line.min(text.len_lines().saturating_sub(1)));
-            doc.set_selection(view.id, Selection::point(pos));
-            align_view(doc, view, Align::Center);
         })))
     }
 
@@ -1041,8 +1056,15 @@ impl DiffView {
             return self.answer(confirm, key, editor);
         }
 
+        // `gA`'s sticky state (this fork: history)
+        if let Some(result) = crate::history::menu_key(*key, editor, leave) {
+            return result;
+        }
+
         if let Some(prefix) = self.pending.take() {
             match (prefix, key.code) {
+                ('g', KeyCode::Char('a')) => return history_step(Step::Toggle),
+                ('g', KeyCode::Char('A')) => return history_step(Step::Back),
                 (']' | '[', KeyCode::Char('c')) => return self.step_hunk(prefix == ']', editor),
                 ('g', KeyCode::Char('g')) => self.scroll_to(0),
                 ('g', KeyCode::Char('e')) => self.scroll_to(usize::MAX),
@@ -1252,6 +1274,53 @@ fn layout(
         col += char_width;
     }
     (row + 1, col)
+}
+
+/// Takes a history step from the diff view on top (this fork): `ga`, `gA`.
+fn history_step(step: Step) -> EventResult {
+    EventResult::Consumed(Some(Box::new(
+        move |compositor: &mut Compositor, cx: &mut Context| {
+            let here = leave(compositor);
+            crate::history::step_from_screen(compositor, cx.editor, step, here);
+        },
+    )))
+}
+
+/// Takes the diff view off the compositor, with the pickers it was opened from (pickers are not
+/// history's places), and returns it as the place history leaves.
+fn leave(compositor: &mut Compositor) -> Option<Place> {
+    let place = compositor.remove(ID).and_then(stash);
+    compositor.pop_to_editor();
+    place
+}
+
+/// The diff view as a history place, without what ties it to the list it was opened from.
+fn stash(layer: Box<dyn Component>) -> Option<Place> {
+    let mut diff = layer.as_boxed_any().downcast::<DiffView>().ok()?;
+    diff.on_open = None;
+    if let Some(nav) = &mut diff.nav {
+        nav.closed = None;
+        nav.select = Rc::new(|_, _| {});
+    }
+    let screen = match diff.history.take() {
+        Some(stash) => {
+            *stash.borrow_mut() = Some(diff as Box<dyn Any>);
+            Screen {
+                kind: ScreenKind::Diff,
+                stash: Some(stash),
+            }
+        }
+        None => Screen::stashed(ScreenKind::Diff, diff),
+    };
+    Some(Place::Screen(screen))
+}
+
+impl DiffView {
+    /// Shown again from history (this fork): remembers the place, and reads its sides again.
+    pub fn returned(&mut self, editor: &Editor, stash: Option<vortex_view::history::Stash>) {
+        self.history = stash;
+        self.reload(editor);
+    }
 }
 
 impl Component for DiffView {
