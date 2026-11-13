@@ -97,7 +97,13 @@
   space .        files of the current file's directory
   space /        search the text of every file
   space '        open the last picker again, where you left it
-  space ?        every command, with its keys
+  space ?        every command, with its keys; the ones you
+                 ran this session come first
+
+ The space menu groups its keys under labels: files, search,
+ git, LSP... The fork's own lists (the commit log, the changes,
+ the worktrees, the bookmarks, the file tree) start in normal
+ mode, where letters are keys: s filters, ? lists their keys.
 
  In a picker:
 
@@ -339,13 +345,16 @@
                  the current one first, then the most recently
                  changed, each with its uncommitted changes and
                  unpushed commits; Enter goes to one, like :cd
-  :watch         follow an agent at work (fork, vx --watch):
-                 each change it makes is opened, jumped to and
-                 flashed, and marked ┃ in the gutter. Moving
-                 pauses it (WATCH 3 new), n N go through the
-                 changes in the order they happened, n to the
-                 newest follows again; editing ends it.
-                 :watch-changes lists them
+  :watch         follow an agent at work (fork, vx --watch, w
+                 on the dashboard): each change it makes is
+                 opened, jumped to and flashed, and marked ┃
+                 in the gutter. It is a mode, with a bar at the
+                 bottom: its state, the change, and its keys.
+                 Keys don't stop it by accident: v looks around
+                 with your own cursor (v again follows), n N go
+                 through the changes in the order they happened
+                 (n to the newest follows again), c lists them,
+                 Esc leaves it to edit where you are
   space i        yank the diagnostic under the cursor; with
                  none, and blame on, the line's commit hash
 
