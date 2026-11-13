@@ -19,6 +19,7 @@ use vortex_dap::{
 };
 use vortex_view::{
     debug::{
+        engine::LINE_REASON,
         spectator::{
             Change, Granularity, Mode, OriginRules, RunTo, StepInFlight, ThreadKey, BLOCKED_AFTER,
             MAX_STEP_OUTS,
@@ -118,7 +119,15 @@ pub fn origin_rules(editor: &Editor, session: DebugAdapterId) -> OriginRules {
         .debug_adapters
         .get_client(session)
         .and_then(|client| client.config.as_ref());
-    // the workspace, and the folders the launch names (`cwd`, the program's)
+    // the folders the configuration names, else the workspace and the folders the launch
+    // names (`cwd`, the program's)
+    if let Some(own) = config.and_then(|config| config.own_paths.clone()) {
+        return OriginRules::new(
+            own.into_iter().filter(|path| path.is_absolute()).collect(),
+            config.and_then(|config| config.std_paths.clone()),
+            config.and_then(|config| config.lib_paths.clone()),
+        );
+    }
     let mut roots = vec![vortex_loader::find_workspace().0];
     let args = editor
         .debug_adapters
@@ -193,6 +202,7 @@ pub fn play(editor: &mut Editor, mode: Mode) {
         editor.debug.spectator.baseline = baseline;
     }
     editor.debug.spectator.spectated = Some(key);
+    super::engine::sync_watch(editor);
     editor.debug.spectator.play(mode);
     if editor.debug.spectator.step.is_some() {
         // the step in flight goes on, and playback with it
@@ -261,7 +271,14 @@ fn pause_thread(editor: &mut Editor, key: ThreadKey) {
     });
 }
 
-/// Sends the next playback step of the spectated thread.
+/// Playback's next line of the spectated thread (once the engine's hidden breakpoints are back,
+/// when it waited for them).
+pub fn advance(editor: &mut Editor) {
+    send_step(editor, false);
+}
+
+/// Sends the next playback step of the spectated thread: a `continue` to its next line where
+/// the engine's hidden breakpoints are in place, else a step.
 fn send_step(editor: &mut Editor, single: bool) {
     let Some(key) = spectated(editor) else {
         editor.debug.spectator.pause();
@@ -283,6 +300,13 @@ fn send_step(editor: &mut Editor, single: bool) {
         .unwrap_or_default();
     let requester = client.requester();
     let top = frames.first().cloned();
+    let how = super::engine::advance_kind(editor, key, top.as_ref());
+    if how == super::engine::Advance::Wait {
+        // the hidden breakpoints are on their way back: playback goes on once they are
+        editor.debug.engine.pending_advance = true;
+        return;
+    }
+    let continued = how == super::engine::Advance::Continue;
     let from = top.as_ref().and_then(|frame| {
         let path = frame.source.as_ref()?.path.clone()?;
         Some((path, frame.line.saturating_sub(1)))
@@ -307,17 +331,51 @@ fn send_step(editor: &mut Editor, single: bool) {
         depth: frames.len(),
         cpu_before,
         single,
+        continued,
         alive: alive.clone(),
     });
-    send_request(
-        requester,
-        key,
-        StepKind::In,
-        granularity,
-        single_thread,
-        generation,
-    );
+    log::info!("playback: advance (continued: {continued})");
+    if continued {
+        send_continue(requester, key, single_thread, generation);
+    } else {
+        send_request(
+            requester,
+            key,
+            StepKind::In,
+            granularity,
+            single_thread,
+            generation,
+        );
+    }
     blocked_timer(alive);
+}
+
+/// Continues the spectated thread to its next line (the engine's hidden breakpoints stop it
+/// there).
+fn send_continue(requester: Requester, key: ThreadKey, single_thread: bool, generation: u64) {
+    let request = requester.continue_with(key.thread, single_thread);
+    tokio::spawn(async move {
+        let result = request.await;
+        job::dispatch(move |editor, _| match result {
+            Ok(all) => {
+                let stopped_since = editor.debug.generation != generation;
+                threads::mark_resumed(editor, key, generation);
+                if all != Some(false) && !stopped_since {
+                    if let Some(client) = editor.debug_adapters.get_client_mut(key.session) {
+                        for state in client.thread_states.values_mut() {
+                            *state = "running".to_owned();
+                        }
+                    }
+                }
+            }
+            Err(err) => {
+                editor.debug.spectator.finish_step();
+                editor.debug.spectator.pause();
+                editor.set_error(format!("Playback stopped: the continue failed: {err}"));
+            }
+        })
+        .await;
+    });
 }
 
 /// Sends one step request; the program shows as running once the adapter answers (unless it
@@ -369,7 +427,16 @@ pub fn on_stopped(
         session: id,
         thread,
     };
+    super::engine::on_frames(editor, key, frames);
     finish_run_to(editor, frames);
+    let line_hit = reason == LINE_REASON;
+    if line_hit
+        && editor.debug.spectator.step.is_none()
+        && !super::engine::manual_step_ends(editor, key, frames)
+    {
+        // a manual step goes on past this line
+        return Show::Quiet;
+    }
     let arrived = editor
         .debug
         .spectator
@@ -397,10 +464,11 @@ pub fn on_stopped(
     let Some(step) = in_flight else {
         // a breakpoint, a manual step, or the pause asked for to start playing
         editor.debug.spectator.spectated = Some(key);
+        editor.debug.engine.others_since = 0;
         let done = record::capture(editor, id, key, reason, frames.to_vec());
         let spectator = &editor.debug.spectator;
         if spectator.is_playing() {
-            if matches!(reason, "pause" | "step" | "entry" | "goto") {
+            if line_hit || matches!(reason, "pause" | "step" | "entry" | "goto") {
                 schedule(editor, done);
             } else {
                 editor.debug.spectator.pause();
@@ -410,7 +478,7 @@ pub fn on_stopped(
         return Show::Full { follow: false };
     };
 
-    if reason != "step" || step.key != key {
+    if !(reason == "step" || line_hit) || step.key != key {
         // something else stopped it: a breakpoint, an exception, a pause (the step of this thread
         // still took its time: a step that ends on a breakpoint is timed)
         if let Some(step) = editor.debug.spectator.finish_step() {
@@ -432,7 +500,7 @@ pub fn on_stopped(
         let origin = origin_rules(editor, id).classify(top);
         editor.debug.spectator.follow.allows(origin)
     });
-    if !allowed && frames.len() > 1 && step.requests <= MAX_STEP_OUTS {
+    if !step.continued && !allowed && frames.len() > 1 && step.requests <= MAX_STEP_OUTS {
         let Some(client) = editor.debug_adapters.get_client(id) else {
             return Show::Quiet;
         };
@@ -485,21 +553,51 @@ pub fn on_stopped(
     }
 }
 
-/// Gives the line a step left its time (and CPU time).
+/// Gives the line a step left its time (and CPU time), and keeps it on the lineline with its
+/// frame.
 fn time_step(editor: &mut Editor, step: &StepInFlight, frames: &[StackFrame]) {
-    let plain = frames.len() == step.depth
+    let mut plain = frames.len() == step.depth
         && frames.first().map(|frame| frame.name.as_str()) == Some(step.function.as_str());
     let cpu = step
         .cpu_before
         .zip(cpu_now(editor, step.key.thread))
         .map(|(before, after)| after.saturating_sub(before));
-    editor.debug.spectator.timing.record(
-        step.from.clone(),
-        step.times.first().copied().unwrap_or_default(),
-        step.times.get(1..).unwrap_or_default(),
-        plain,
-        cpu,
-    );
+    let mut first = step.times.first().copied().unwrap_or_default();
+    // in a session that stops every thread at a hit, each hit of another thread on the way
+    // cost a round trip
+    let others = std::mem::take(&mut editor.debug.engine.others_since);
+    if step.continued && others > 0 {
+        plain = false;
+        if !editor.debug.spectator.non_stop.contains(&step.key.session) {
+            let overhead = editor.debug.spectator.timing.overhead().unwrap_or_default();
+            first = first.saturating_sub(overhead * others);
+        }
+    }
+    let outs = step.times.get(1..).unwrap_or_default();
+    let corrected = editor.debug.spectator.timing.correct(first, outs);
+    editor
+        .debug
+        .spectator
+        .timing
+        .record(step.from.clone(), first, outs, plain, cpu);
+    let at = editor
+        .debug
+        .engine
+        .last_stop
+        .filter(|(stopped, _)| *stopped == step.key)
+        .map(|(_, at)| at);
+    if let (Some(at), Some((path, line))) = (at, step.from.as_ref()) {
+        editor.debug.engine.record.line_time(
+            at,
+            step.key,
+            path,
+            *line,
+            &step.function,
+            step.depth,
+            corrected,
+            cpu,
+        );
+    }
 }
 
 fn at_line(frames: &[StackFrame], target: &RunTo) -> bool {
@@ -708,7 +806,11 @@ pub fn run_to_cursor(editor: &mut Editor) {
         return;
     };
     if editor.debug.spectator.is_playing() {
-        editor.debug.spectator.run_to = Some(RunTo { path, line });
+        editor.debug.spectator.run_to = Some(RunTo {
+            path,
+            line,
+            breakpoint: false,
+        });
         editor.set_status(format!("Playing to line {}", line + 1));
         return;
     }
@@ -724,11 +826,23 @@ pub fn run_to_cursor(editor: &mut Editor) {
         editor.set_error("The thread runs already");
         return;
     }
+    // where the engine has a hidden breakpoint on the line, its hits are checked against it;
+    // else a temporary breakpoint
+    let covered = editor.debug.engine.is_ready(key.session)
+        && editor.debug.engine.sessions[&key.session]
+            .files
+            .get(&path)
+            .is_some_and(|file| file.lines.contains(&line) && !file.strays.contains(&line));
     editor.debug.spectator.run_to = Some(RunTo {
         path: path.clone(),
         line,
+        breakpoint: !covered,
     });
     editor.set_status(format!("Running to line {}", line + 1));
+    if covered {
+        threads::continue_thread(editor, key);
+        return;
+    }
     breakpoints::sync_then(editor, &path, key.session, move |editor| {
         threads::continue_thread(editor, key);
     });
@@ -743,7 +857,9 @@ fn finish_run_to(editor: &mut Editor, frames: &[StackFrame]) {
     let Some(target) = editor.debug.spectator.run_to.take() else {
         return;
     };
-    breakpoints::sync(editor, &target.path);
+    if target.breakpoint {
+        breakpoints::sync(editor, &target.path);
+    }
     if at_line(frames, &target) {
         editor.set_status(format!("Reached the cursor (line {})", target.line + 1));
     }
@@ -758,7 +874,7 @@ pub fn run_to_breakpoint(editor: &Editor, path: &std::path::Path) -> Option<usiz
     spectator
         .run_to
         .as_ref()
-        .filter(|target| target.path == path)
+        .filter(|target| target.breakpoint && target.path == path)
         .map(|target| target.line)
 }
 

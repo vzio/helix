@@ -177,6 +177,8 @@ impl Caps {
 pub struct Snapshot {
     /// Its number in the session, from 1.
     pub step: usize,
+    /// Its place on the lineline: the counter of its hit (the engine's), when it had one.
+    pub counter: Option<super::lineline::Counter>,
     pub key: ThreadKey,
     pub thread_name: String,
     /// The stop's reason: `step`, `breakpoint`, ...
@@ -185,6 +187,12 @@ pub struct Snapshot {
     /// The scopes of each frame, loaded within the caps; `None` when the frame's scopes couldn't
     /// be loaded.
     pub scopes: Vec<Option<Vec<VarNode>>>,
+    /// For each frame whose variables weren't fetched again but carried from an earlier stop
+    /// (see [`carried_frames`]): the step that fetched them.
+    pub carried: Vec<Option<usize>>,
+    /// What the capture was asked for (the caps and the follow mode decide how deep each frame
+    /// is loaded): a stop recorded differently can't lend its frames.
+    pub recipe: (Caps, super::spectator::Follow),
     pub watches: Vec<Watch>,
     /// The bytes of each open memory view, around what it showed.
     pub memory: Vec<MemoryWindow>,
@@ -233,6 +241,61 @@ impl Snapshot {
             .sum();
         self.bytes = std::mem::size_of::<Snapshot>() + frames + scopes + watches + memory;
     }
+}
+
+/// What the last recorded stop can lend a new stop of `key` at `frames` (see
+/// [`carried_frames`]). Nothing when it is another thread's (the first stop after a switch, like
+/// the first of a session, records everything), when it was recorded with other caps or another
+/// follow mode, or when the thread didn't come straight from it (`adjacent` is false: it ran
+/// lines in between that weren't recorded, at full speed or to the cursor).
+pub fn reusable(
+    previous: Option<&Snapshot>,
+    key: ThreadKey,
+    recipe: (Caps, super::spectator::Follow),
+    adjacent: bool,
+    frames: &[StackFrame],
+) -> Vec<Option<usize>> {
+    match previous {
+        Some(previous) if adjacent && previous.key == key && previous.recipe == recipe => {
+            carried_frames(previous, frames)
+        }
+        _ => vec![None; frames.len()],
+    }
+}
+
+/// Which frames of a new stop of the same thread can reuse the variables recorded at `previous`,
+/// the stop just before it: for each frame of `frames`, the index of the same frame in
+/// `previous`.
+///
+/// A frame is the same when it is at the same depth counted from the bottom of the stack (the
+/// top changes, the bottom doesn't), in the same function and source, at the same line: a
+/// caller waiting on a call at the same line hasn't run since. Frame ids can't tell (adapters
+/// give new ones at every stop). The top frame is always fetched again, and so is a frame whose
+/// line moved, which is how a return into a reused frame gets fetched again. A callee can still
+/// write a caller's locals through a pointer or a reference: those writes show when the caller
+/// is fetched again.
+pub fn carried_frames(previous: &Snapshot, frames: &[StackFrame]) -> Vec<Option<usize>> {
+    let same = |a: &StackFrame, b: &StackFrame| {
+        a.name == b.name
+            && a.line == b.line
+            && a.source.as_ref().map(|s| (&s.path, &s.name))
+                == b.source.as_ref().map(|s| (&s.path, &s.name))
+    };
+    let (len, previous_len) = (frames.len(), previous.frames.len());
+    frames
+        .iter()
+        .enumerate()
+        .map(|(index, frame)| {
+            if index == 0 {
+                return None;
+            }
+            // the same depth from the bottom
+            let from_bottom = len - 1 - index;
+            let other = previous_len.checked_sub(from_bottom + 1)?;
+            let recorded = previous.scopes.get(other).is_some_and(Option::is_some);
+            (recorded && same(frame, &previous.frames[other])).then_some(other)
+        })
+        .collect()
 }
 
 /// The bytes of a memory view recorded at a stop.
@@ -423,6 +486,7 @@ mod tests {
     fn snapshot(step: usize) -> Snapshot {
         Snapshot {
             step,
+            counter: None,
             key: key(),
             thread_name: "main".into(),
             reason: "step".into(),
@@ -433,7 +497,165 @@ mod tests {
             requests: 10,
             bytes: 100,
             truncated: false,
+            carried: Vec::new(),
+            recipe: (Caps::default(), super::super::spectator::Follow::Own),
         }
+    }
+
+    fn frame(id: usize, name: &str, line: usize) -> StackFrame {
+        StackFrame {
+            id,
+            name: name.into(),
+            source: Some(vortex_dap::Source {
+                path: Some(format!("/src/{name}.rs").into()),
+                ..Default::default()
+            }),
+            line,
+            column: 1,
+            end_line: None,
+            end_column: None,
+            can_restart: None,
+            instruction_pointer_reference: None,
+            module_id: None,
+            presentation_hint: None,
+        }
+    }
+
+    /// A stop at `frames` (top first, as `(function, line)`), every frame recorded.
+    fn stop(step: usize, frames: &[(&str, usize)]) -> Snapshot {
+        Snapshot {
+            frames: frames
+                .iter()
+                .enumerate()
+                .map(|(index, (name, line))| frame(step * 100 + index, name, *line))
+                .collect(),
+            scopes: frames.iter().map(|_| Some(Vec::new())).collect(),
+            ..snapshot(step)
+        }
+    }
+
+    fn carried(previous: &Snapshot, frames: &[(&str, usize)]) -> Vec<Option<usize>> {
+        carried_frames(previous, &stop(99, frames).frames)
+    }
+
+    #[test]
+    fn another_thread_other_caps_or_a_gap_lend_nothing() {
+        let previous = stop(1, &[("deposit", 11), ("worker", 26), ("start", 3)]);
+        let frames = stop(2, &[("deposit", 12), ("worker", 26), ("start", 3)]).frames;
+        let recipe = previous.recipe;
+        let lent = |previous: Option<&Snapshot>, key, recipe, adjacent| {
+            reusable(previous, key, recipe, adjacent, &frames)
+        };
+        assert_eq!(
+            lent(Some(&previous), key(), recipe, true),
+            vec![None, Some(1), Some(2)]
+        );
+        // the first stop of a session
+        assert_eq!(lent(None, key(), recipe, true), vec![None; 3]);
+        // the first stop after a thread switch
+        let other = ThreadKey {
+            thread: serde_json::from_str("2").unwrap(),
+            ..key()
+        };
+        assert_eq!(lent(Some(&previous), other, recipe, true), vec![None; 3]);
+        // other caps, another follow mode
+        let deeper = Caps {
+            depth: Some(5),
+            ..recipe.0
+        };
+        assert_eq!(
+            lent(Some(&previous), key(), (deeper, recipe.1), true),
+            vec![None; 3]
+        );
+        let lib = (recipe.0, super::super::spectator::Follow::Lib);
+        assert_eq!(lent(Some(&previous), key(), lib, true), vec![None; 3]);
+        // lines ran in between that weren't recorded
+        assert_eq!(lent(Some(&previous), key(), recipe, false), vec![None; 3]);
+    }
+
+    #[test]
+    fn the_frames_under_the_top_one_are_reused_when_nothing_moved() {
+        let previous = stop(1, &[("fib", 16), ("fib", 19), ("main", 55), ("start", 3)]);
+        // the top moved a line, the callers wait at the same lines: new frame ids don't matter
+        assert_eq!(
+            carried(
+                &previous,
+                &[("fib", 17), ("fib", 19), ("main", 55), ("start", 3)]
+            ),
+            vec![None, Some(1), Some(2), Some(3)]
+        );
+    }
+
+    #[test]
+    fn a_frame_whose_line_moved_is_fetched_again() {
+        let previous = stop(1, &[("deposit", 11), ("worker", 26), ("start", 3)]);
+        // deposit returned into worker, which moved on: worker is the top now
+        assert_eq!(
+            carried(&previous, &[("worker", 27), ("start", 3)]),
+            vec![None, Some(2)]
+        );
+        // a caller whose line moved (the callee was shown, then it returned and called again)
+        assert_eq!(
+            carried(&previous, &[("deposit", 10), ("worker", 25), ("start", 3)]),
+            vec![None, None, Some(2)]
+        );
+    }
+
+    #[test]
+    fn a_return_into_a_reused_frame_fetches_it_again() {
+        let calling = stop(1, &[("fib", 16), ("fib", 19), ("main", 55), ("start", 3)]);
+        // fib returned into its caller: the caller is the top now, fetched; main stays carried
+        assert_eq!(
+            carried(&calling, &[("fib", 19), ("main", 55), ("start", 3)]),
+            vec![None, Some(2), Some(3)]
+        );
+    }
+
+    #[test]
+    fn frames_are_matched_by_their_depth_from_the_bottom() {
+        let previous = stop(1, &[("fib", 19), ("fib", 19), ("main", 55), ("start", 3)]);
+        // one more level of recursion: the old top now waits at line 19 under the new one, at
+        // the same depth from the bottom, so it lends what it recorded as the top
+        let deeper = carried(
+            &previous,
+            &[
+                ("fib", 16),
+                ("fib", 19),
+                ("fib", 19),
+                ("main", 55),
+                ("start", 3),
+            ],
+        );
+        assert_eq!(deeper, vec![None, Some(0), Some(1), Some(2), Some(3)]);
+        // a stack of another shape: nothing in common at the same depths
+        assert_eq!(
+            carried(&previous, &[("helper", 4), ("main", 60), ("start", 3)]),
+            vec![None, None, Some(3)]
+        );
+    }
+
+    #[test]
+    fn a_frame_not_recorded_or_in_another_function_or_source_is_fetched() {
+        let mut previous = stop(1, &[("deposit", 11), ("worker", 26), ("start", 3)]);
+        previous.scopes[1] = None;
+        assert_eq!(
+            carried(&previous, &[("deposit", 12), ("worker", 26), ("start", 3)]),
+            vec![None, None, Some(2)]
+        );
+        let mut other_source = stop(2, &[("deposit", 11), ("worker", 26), ("start", 3)]);
+        other_source.frames[1].source.as_mut().unwrap().path = Some("/src/other.rs".into());
+        assert_eq!(
+            carried(
+                &other_source,
+                &[("deposit", 12), ("worker", 26), ("start", 3)]
+            ),
+            vec![None, None, Some(2)]
+        );
+        let fresh = stop(3, &[("deposit", 11), ("worker", 26), ("start", 3)]);
+        assert_eq!(
+            carried(&fresh, &[("deposit", 12), ("helper", 26), ("start", 3)]),
+            vec![None, None, Some(2)]
+        );
     }
 
     fn history(n: usize, limit: Option<usize>) -> History {

@@ -420,7 +420,8 @@
   space G b      add or remove a breakpoint on this line
   space G C-c    a condition for the breakpoint
   space G C-l    a log message for it instead of a stop
-  space G c      continue; space G h pauses
+  space G c      continue at full speed to your next breakpoint
+  space G h      pause
   space G n      step to the next line
   space G i  o   step into the call, out of the function
   space G p      show or hide the panel
@@ -459,7 +460,18 @@
 
  Watch the program like a video: it plays line by line at a
  speed you choose, following one thread, and every stop is kept
- so you can scrub back to what you missed. In the panel (C-g):
+ so you can scrub back to what you missed.
+
+ When the session starts, Vortex puts a hidden breakpoint on
+ every line of your code (the panel shows them going in), so the
+ program stops at the first line of yours that runs. Playing
+ continues it to its next line, wherever that is; the other
+ threads run on. space G c runs at full speed to your next
+ breakpoint. e to lib or std hides them in the libraries too: a
+ work in progress, and absurdly slow. With engine = "stepping"
+ under [editor.debugger], playback steps instead.
+
+ In the panel (C-g):
 
   space          play or pause; n makes one step
   + -            faster, slower: 0.5 to 25 lines a second

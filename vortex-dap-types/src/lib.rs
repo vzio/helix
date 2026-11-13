@@ -522,6 +522,67 @@ pub mod requests {
 
     #[derive(Debug, Default, PartialEq, Eq, Clone, Deserialize, Serialize)]
     #[serde(rename_all = "camelCase")]
+    pub struct BreakpointLocationsArguments {
+        pub source: Source,
+        pub line: usize,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        pub column: Option<usize>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        pub end_line: Option<usize>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        pub end_column: Option<usize>,
+    }
+
+    #[derive(Debug, Default, PartialEq, Eq, Clone, Deserialize, Serialize)]
+    #[serde(rename_all = "camelCase")]
+    pub struct BreakpointLocation {
+        pub line: usize,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        pub column: Option<usize>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        pub end_line: Option<usize>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        pub end_column: Option<usize>,
+    }
+
+    #[derive(Debug, Default, PartialEq, Eq, Clone, Deserialize, Serialize)]
+    #[serde(rename_all = "camelCase")]
+    pub struct BreakpointLocationsResponse {
+        #[serde(default)]
+        pub breakpoints: Vec<BreakpointLocation>,
+    }
+
+    #[derive(Debug)]
+    pub enum BreakpointLocations {}
+
+    impl Request for BreakpointLocations {
+        type Arguments = BreakpointLocationsArguments;
+        type Result = BreakpointLocationsResponse;
+        const COMMAND: &'static str = "breakpointLocations";
+    }
+
+    #[derive(Debug, Default, PartialEq, Eq, Clone, Deserialize, Serialize)]
+    #[serde(rename_all = "camelCase")]
+    pub struct LoadedSourcesArguments {}
+
+    #[derive(Debug, Default, PartialEq, Eq, Clone, Deserialize, Serialize)]
+    #[serde(rename_all = "camelCase")]
+    pub struct LoadedSourcesResponse {
+        #[serde(default)]
+        pub sources: Vec<Source>,
+    }
+
+    #[derive(Debug)]
+    pub enum LoadedSources {}
+
+    impl Request for LoadedSources {
+        type Arguments = Option<LoadedSourcesArguments>;
+        type Result = LoadedSourcesResponse;
+        const COMMAND: &'static str = "loadedSources";
+    }
+
+    #[derive(Debug, Default, PartialEq, Eq, Clone, Deserialize, Serialize)]
+    #[serde(rename_all = "camelCase")]
     pub struct ContinueArguments {
         pub thread_id: ThreadId,
         #[serde(skip_serializing_if = "Option::is_none")]

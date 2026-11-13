@@ -81,6 +81,7 @@ pub fn spectate(editor: &mut Editor, key: ThreadKey) {
             key.thread
         ));
     }
+    super::engine::sync_watch(editor);
 }
 
 /// Spectates the next (`by` = 1) or previous (-1) thread, across sessions.
@@ -122,6 +123,8 @@ pub fn toggle_freeze(editor: &mut Editor, key: ThreadKey) {
         return;
     }
     let frozen = editor.debug.spectator.toggle_frozen(key);
+    // the client's fast path continues other threads' hits alone while a thread is frozen
+    super::engine::sync_watch(editor);
     let name = editor.debug.thread_name(key);
     if frozen {
         if !playback::is_stopped(editor, key) {
@@ -270,6 +273,13 @@ pub fn step(editor: &mut Editor, kind: StepKind) {
         editor.set_error("This thread is frozen: thaw it to step it");
         return;
     }
+    if super::engine::manual_step(editor, key, kind) {
+        // the hidden breakpoints stop it at its next line, and the step ends where it would
+        return;
+    }
+    let Some(client) = editor.debug_adapters.get_client(key.session) else {
+        return;
+    };
     let requester = client.requester();
     let alone = playback::single_thread(editor, key);
     let granularity = playback::granularity(editor, key.session);
@@ -293,6 +303,7 @@ pub fn event(editor: &mut Editor, session: DebugAdapterId, reason: &str, thread:
     let key = ThreadKey { session, thread };
     match reason {
         "started" => {
+            editor.debug.engine.record.thread_started(key);
             let mut threads = editor.debug.threads_of(session).to_vec();
             if !threads.iter().any(|t| t.id == thread) {
                 threads.push(vortex_dap::Thread {
@@ -305,6 +316,7 @@ pub fn event(editor: &mut Editor, session: DebugAdapterId, reason: &str, thread:
             editor.set_status(format!("Thread {thread} joined · {keys} to spectate"));
         }
         "exited" => {
+            editor.debug.engine.record.thread_exited(key);
             let mut threads = editor.debug.threads_of(session).to_vec();
             threads.retain(|t| t.id != thread);
             editor.debug.set_threads(session, threads);

@@ -138,13 +138,23 @@ impl OriginRules {
             (None, Some(name)) => name.clone(),
             (None, None) => return Origin::Std,
         };
+        self.classify_text(&text, source.path.as_deref())
+    }
+
+    /// The origin of a source file by its path.
+    pub fn classify_path(&self, path: &Path) -> Origin {
+        let text = path.to_string_lossy().replace('\\', "/");
+        self.classify_text(&text, Some(path))
+    }
+
+    fn classify_text(&self, text: &str, path: Option<&Path>) -> Origin {
         if self.std.iter().any(|piece| text.contains(piece.as_str())) {
             return Origin::Std;
         }
         if self.lib.iter().any(|piece| text.contains(piece.as_str())) {
             return Origin::Lib;
         }
-        match &source.path {
+        match path {
             Some(path)
                 if path.is_absolute() && self.roots.iter().any(|root| path.starts_with(root)) =>
             {
@@ -218,6 +228,8 @@ pub struct StepInFlight {
     pub cpu_before: Option<Duration>,
     /// One step (`n`): playback pauses after it.
     pub single: bool,
+    /// A `continue` to the next line (the engine's hidden breakpoints), not a step.
+    pub continued: bool,
     /// Cleared when the step ends: the blocked timer's ticks stop.
     pub alive: Arc<AtomicBool>,
 }
@@ -228,6 +240,8 @@ pub struct RunTo {
     pub path: PathBuf,
     /// 0-based.
     pub line: usize,
+    /// It runs through a temporary breakpoint (else: the engine's hits are checked against it).
+    pub breakpoint: bool,
 }
 
 /// A watched value at the start of a fast forward, and what it became.
@@ -603,6 +617,7 @@ mod tests {
             depth: 1,
             cpu_before: None,
             single: false,
+            continued: false,
             alive: Arc::new(AtomicBool::new(true)),
         });
         assert!(spectator

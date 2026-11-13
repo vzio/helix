@@ -1330,6 +1330,8 @@ async fn a_breakpoint_wins_over_a_bookmark_while_a_debug_session_is_active() -> 
         "no session: the bookmark wins"
     );
 
+    // the test is about the gutter, not playback
+    h.app.editor.debug.engine.kind = vortex_view::debug::engine::EngineKind::Stepping;
     vortex_term::debug::start(
         &mut h.app.editor,
         Some(fake.addr),
@@ -1341,6 +1343,7 @@ async fn a_breakpoint_wins_over_a_bookmark_while_a_debug_session_is_active() -> 
             port_arg: None,
             templates: Vec::new(),
             quirks: Default::default(),
+            own_paths: None,
             std_paths: None,
             lib_paths: None,
             capabilities: None,

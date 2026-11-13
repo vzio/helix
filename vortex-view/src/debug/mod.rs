@@ -8,7 +8,9 @@ use std::path::{Path, PathBuf};
 use vortex_dap::{registry::DebugAdapterId, StackFrame, Thread, ThreadId};
 
 pub mod config;
+pub mod engine;
 pub mod history;
+pub mod lineline;
 pub mod spectator;
 pub mod timing;
 
@@ -225,6 +227,8 @@ pub enum Role {
     Rewind,
     /// The badge of a value whose memory can be shown.
     Memory,
+    /// In rewind, a frame whose variables were carried from an earlier stop.
+    Carried,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -402,6 +406,8 @@ pub struct DebugState {
     pub generation: u64,
     /// Playback, threads, history and time labels.
     pub spectator: Spectator,
+    /// The per-line breakpoint engine, and the lineline.
+    pub engine: engine::Engine,
 }
 
 /// The threads of one session.
@@ -465,6 +471,21 @@ impl DebugState {
         self.console.clear();
         self.generation += 1;
         self.spectator.start_session();
+        self.engine.start_session();
+    }
+
+    /// Applies `[editor.debugger]`: the defaults of playback and recording, and the engine.
+    pub fn apply_config(&mut self, config: &config::DebuggerConfig) {
+        let spectator = &mut self.spectator;
+        spectator.speed = config.speed_index();
+        spectator.follow = config.follow.into();
+        spectator.caps = config.caps();
+        spectator.history.trim(spectator.caps.history);
+        spectator.timing.enabled = config.time_labels;
+        spectator.timing.threshold =
+            std::time::Duration::from_secs_f64(config.time_threshold.max(0.0) / 1000.0);
+        self.engine.kind = config.engine.into();
+        self.engine.record.set_cap(config.line_record);
     }
 
     /// The threads of `session`.
@@ -526,6 +547,17 @@ impl DebugState {
         }
     }
 
+    /// In rewind, the step the shown frame's variables were carried from, when they weren't
+    /// fetched at this stop (the frame hadn't moved since).
+    pub fn shown_carried(&self) -> Option<usize> {
+        let snapshot = self.spectator.history.current()?;
+        snapshot
+            .carried
+            .get(self.spectator.history.frame)
+            .copied()
+            .flatten()
+    }
+
     /// The watches shown: the live ones, or in rewind the recorded ones.
     pub fn shown_watches(&self) -> &[Watch] {
         match self.spectator.history.current() {
@@ -556,6 +588,7 @@ impl DebugState {
             watch.node = None;
         }
         self.spectator.end_session();
+        self.engine.end_session();
         self.hide();
     }
 
@@ -742,6 +775,14 @@ impl DebugState {
                     Status::Running | Status::Starting => "Running: the variables show at a stop",
                     _ => "No debug session",
                 }));
+            }
+            if let Some(step) = self.shown_carried() {
+                rows.push(Row {
+                    depth: 0,
+                    marker: Marker::None,
+                    parts: vec![(format!("carried from step {step}"), Role::Carried)],
+                    target: Target::None,
+                });
             }
             for scope in scopes {
                 let path = VarPath {

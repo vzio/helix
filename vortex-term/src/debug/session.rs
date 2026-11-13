@@ -89,7 +89,7 @@ pub fn start(
 pub async fn handle_message(editor: &mut Editor, id: DebugAdapterId, payload: Payload) -> bool {
     match payload {
         Payload::Event(event) => match Event::parse(&event.event, event.body) {
-            Ok(event) => handle_event(editor, id, event),
+            Ok(parsed) => handle_event(editor, id, parsed, event.taken),
             Err(dap::Error::Unhandled) => {
                 log::debug!("Discarding unknown DAP event '{}'", event.event);
                 false
@@ -107,7 +107,12 @@ pub async fn handle_message(editor: &mut Editor, id: DebugAdapterId, payload: Pa
     }
 }
 
-fn handle_event(editor: &mut Editor, id: DebugAdapterId, event: Event) -> bool {
+fn handle_event(
+    editor: &mut Editor,
+    id: DebugAdapterId,
+    event: Event,
+    taken: Option<vortex_dap::hits::Taken>,
+) -> bool {
     // output still counts after its session ended (a child's last words may come after its
     // parent's `terminated`)
     if let Event::Output(events::OutputBody {
@@ -126,108 +131,150 @@ fn handle_event(editor: &mut Editor, id: DebugAdapterId, event: Event) -> bool {
     if editor.debug_adapters.get_client(id).is_none() {
         return false;
     }
+    let redraw = handle_session_event(editor, id, event, taken);
+    super::engine::sync_watch(editor);
+    redraw
+}
+
+fn handle_session_event(
+    editor: &mut Editor,
+    id: DebugAdapterId,
+    event: Event,
+    taken: Option<vortex_dap::hits::Taken>,
+) -> bool {
     match event {
         Event::Initialized(_) => configure(editor, id),
-        Event::Stopped(events::StoppedBody {
-            thread_id,
-            description,
-            text,
-            reason,
-            all_threads_stopped,
-            preserve_focus_hint,
-            ..
-        }) => {
-            // An adapter that stops every thread may report each of them, hinting that only one
-            // caused the stop (lldb-dap: the others keep the reason of their last stop). Those
-            // only update their thread's state, unless no other stop comes soon after.
-            if preserve_focus_hint == Some(true) {
-                let client = editor.debug_adapters.get_client_mut(id).unwrap();
-                if let Some(thread) = thread_id {
-                    client.thread_states.insert(thread, reason.clone());
-                }
-                let generation = editor.debug.generation;
-                let body = events::StoppedBody {
-                    reason,
-                    description,
-                    thread_id,
-                    preserve_focus_hint: Some(false),
-                    text,
-                    all_threads_stopped,
-                    hit_breakpoint_ids: None,
-                };
-                tokio::spawn(async move {
-                    tokio::time::sleep(std::time::Duration::from_millis(150)).await;
-                    job::dispatch(move |editor, _| {
-                        if editor.debug.generation == generation
-                            && editor.debug_adapters.get_client(id).is_some()
-                        {
-                            handle_event(editor, id, Event::Stopped(body));
-                        }
-                    })
-                    .await;
-                });
-                return true;
-            }
-            let reason_for_playback = reason.clone();
-            editor.debug.spectator.stop_arrived = Some(
-                editor
-                    .debug_adapters
-                    .get_client(id)
-                    .and_then(|client| client.last_stop_received())
-                    .unwrap_or_else(std::time::Instant::now),
-            );
-            match all_threads_stopped {
-                Some(false) => {
-                    editor.debug.spectator.non_stop.insert(id);
-                }
-                Some(true) => {
-                    editor.debug.spectator.non_stop.remove(&id);
-                }
-                None => {}
-            }
-            let client = editor.debug_adapters.get_client_mut(id).unwrap();
-            let all = all_threads_stopped.unwrap_or_default();
-            if let Some(thread) = thread_id {
-                client.thread_states.insert(thread, reason.clone());
-            }
-            if all {
-                for state in client.thread_states.values_mut() {
-                    *state = reason.clone();
-                }
-            }
-            let session_name = client.name.clone();
-            editor.debug_adapters.set_active_client(id);
-            let description = description.or(text).filter(|d| !d.is_empty());
-            editor.debug.status = Status::Stopped {
-                reason,
-                description,
+        Event::Stopped(body) => {
+            // the engine takes the hits of its hidden breakpoints first
+            let reason = match super::engine::on_stopped(editor, id, &body, taken) {
+                super::engine::Outcome::Done(redraw) => return redraw,
+                super::engine::Outcome::Proceed(reason) => reason,
             };
-            editor.debug.session_name = session_name;
-            editor.debug.generation += 1;
-            super::memory::on_stop(editor, id);
-            load::after_stop(editor, id, thread_id, reason_for_playback);
+            return handle_stop(editor, id, events::StoppedBody { reason, ..body });
         }
+        event => return handle_other_event(editor, id, event),
+    }
+    true
+}
+
+fn handle_stop(editor: &mut Editor, id: DebugAdapterId, body: events::StoppedBody) -> bool {
+    let events::StoppedBody {
+        thread_id,
+        description,
+        text,
+        reason,
+        all_threads_stopped,
+        preserve_focus_hint,
+        ..
+    } = body;
+    // An adapter that stops every thread may report each of them, hinting that only one
+    // caused the stop (lldb-dap: the others keep the reason of their last stop). Those
+    // only update their thread's state, unless no other stop comes soon after.
+    if preserve_focus_hint == Some(true) {
+        let client = editor.debug_adapters.get_client_mut(id).unwrap();
+        if let Some(thread) = thread_id {
+            client.thread_states.insert(thread, reason.clone());
+        }
+        let generation = editor.debug.generation;
+        let body = events::StoppedBody {
+            reason,
+            description,
+            thread_id,
+            preserve_focus_hint: Some(false),
+            text,
+            all_threads_stopped,
+            hit_breakpoint_ids: None,
+        };
+        tokio::spawn(async move {
+            tokio::time::sleep(std::time::Duration::from_millis(150)).await;
+            job::dispatch(move |editor, _| {
+                if editor.debug.generation == generation
+                    && editor.debug_adapters.get_client(id).is_some()
+                {
+                    handle_event(editor, id, Event::Stopped(body), None);
+                }
+            })
+            .await;
+        });
+        return true;
+    }
+    let reason_for_playback = reason.clone();
+    editor.debug.spectator.stop_arrived = Some(
+        editor
+            .debug_adapters
+            .get_client(id)
+            .and_then(|client| client.last_stop_received())
+            .unwrap_or_else(std::time::Instant::now),
+    );
+    match all_threads_stopped {
+        Some(false) => {
+            editor.debug.spectator.non_stop.insert(id);
+        }
+        Some(true) => {
+            editor.debug.spectator.non_stop.remove(&id);
+        }
+        None => {}
+    }
+    let client = editor.debug_adapters.get_client_mut(id).unwrap();
+    let all = all_threads_stopped.unwrap_or_default();
+    if let Some(thread) = thread_id {
+        client.thread_states.insert(thread, reason.clone());
+    }
+    if all {
+        for state in client.thread_states.values_mut() {
+            *state = reason.clone();
+        }
+    }
+    let session_name = client.name.clone();
+    editor.debug_adapters.set_active_client(id);
+    let description = description.or(text).filter(|d| !d.is_empty());
+    editor.debug.status = Status::Stopped {
+        reason,
+        description,
+    };
+    editor.debug.session_name = session_name;
+    editor.debug.generation += 1;
+    super::memory::on_stop(editor, id);
+    load::after_stop(editor, id, thread_id, reason_for_playback);
+    true
+}
+
+fn handle_other_event(editor: &mut Editor, id: DebugAdapterId, event: Event) -> bool {
+    match event {
         Event::Continued(events::ContinuedBody {
             thread_id,
             all_threads_continued,
         }) => {
+            let status = editor.debug.status.clone();
             let client = editor.debug_adapters.get_client_mut(id).unwrap();
-            if all_threads_continued.unwrap_or_default() {
+            let all = all_threads_continued.unwrap_or_default();
+            // the hits the engine continues bring one of these each: they change nothing that
+            // shows, and redrawing for each would cost more than the hit
+            let stopped_before = client
+                .thread_states
+                .iter()
+                .any(|(thread, state)| (all || *thread == thread_id) && state != "running");
+            if all {
                 for state in client.thread_states.values_mut() {
                     *state = "running".to_owned();
                 }
             }
             client.thread_states.insert(thread_id, "running".to_owned());
-            let current =
-                client.thread_id == Some(thread_id) || all_threads_continued.unwrap_or_default();
+            let current = client.thread_id == Some(thread_id) || all;
             if current {
                 client.resume_application();
                 if editor.debug_adapters.get_active_client().map(|c| c.id()) == Some(id) {
                     editor.debug.resumed();
                 }
             }
+            return stopped_before || editor.debug.status != status;
         }
         Event::Exited(events::ExitedBody { exit_code }) => {
+            editor
+                .debug
+                .engine
+                .record
+                .mark(vortex_view::debug::lineline::MarkKind::End);
             editor.debug.exit_code = Some(exit_code);
             editor
                 .debug
@@ -240,7 +287,7 @@ fn handle_event(editor: &mut Editor, id: DebugAdapterId, event: Event) -> bool {
         }
         Event::Output(_) => {}
         Event::Breakpoint(events::BreakpointBody { reason, breakpoint }) => {
-            breakpoints::event(editor, id, &reason, breakpoint)
+            return breakpoints::event(editor, id, &reason, breakpoint);
         }
         Event::ProgressStart(body) => {
             let status = editor
@@ -289,6 +336,7 @@ fn handle_event(editor: &mut Editor, id: DebugAdapterId, event: Event) -> bool {
         Event::Module(_) | Event::LoadedSource(_) => {
             return false;
         }
+        Event::Initialized(_) | Event::Stopped(_) => {}
     }
     true
 }
@@ -318,6 +366,30 @@ fn configure(editor: &mut Editor, id: DebugAdapterId) {
         return;
     }
     client.configured = true;
+    editor.debug_adapters.set_active_client(id);
+    if editor.debug.status == Status::Starting {
+        editor.debug.status = Status::Running;
+    }
+    if super::engine::wanted(editor) {
+        // the hidden breakpoints first (with yours in the files they cover), then the rest
+        super::engine::install(editor, id, move |editor, covered| {
+            send_configuration(editor, id, covered)
+        });
+    } else {
+        send_configuration(editor, id, Default::default());
+    }
+}
+
+/// The rest of the configuration: your breakpoints in the files the engine didn't cover, the
+/// exception filters, then `configurationDone`.
+fn send_configuration(
+    editor: &mut Editor,
+    id: DebugAdapterId,
+    covered: std::collections::HashSet<std::path::PathBuf>,
+) {
+    let Some(client) = editor.debug_adapters.get_client(id) else {
+        return;
+    };
     let requester = client.requester();
     let filters = client.caps.as_ref().and_then(|caps| {
         let available = caps.exception_breakpoint_filters.as_ref()?;
@@ -330,12 +402,10 @@ fn configure(editor: &mut Editor, id: DebugAdapterId) {
                 .collect(),
         })
     });
-    let files = breakpoints::to_send(editor);
-
-    editor.debug_adapters.set_active_client(id);
-    if editor.debug.status == Status::Starting {
-        editor.debug.status = Status::Running;
-    }
+    let files: Vec<_> = breakpoints::to_send(editor)
+        .into_iter()
+        .filter(|(path, _)| !covered.contains(path))
+        .collect();
 
     tokio::spawn(async move {
         let mut results = Vec::new();

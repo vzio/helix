@@ -73,7 +73,7 @@ async fn env(script: impl FnOnce(&str) -> Script) -> anyhow::Result<Env> {
     env_with(AppBuilder::new(), source_file()?, script).await
 }
 
-fn adapter_config() -> DebugAdapterConfig {
+fn adapter_config(path: &std::path::Path) -> DebugAdapterConfig {
     DebugAdapterConfig {
         name: "fake".into(),
         transport: "tcp".into(),
@@ -82,6 +82,11 @@ fn adapter_config() -> DebugAdapterConfig {
         port_arg: None,
         templates: Vec::new(),
         quirks: Default::default(),
+        own_paths: Some(
+            path.parent()
+                .map(|dir| vec![dir.to_owned()])
+                .unwrap_or_default(),
+        ),
         std_paths: None,
         lib_paths: None,
         capabilities: None,
@@ -91,10 +96,12 @@ fn adapter_config() -> DebugAdapterConfig {
 impl Env {
     /// Starts the session with `debug::start`.
     fn launch(&mut self) -> anyhow::Result<()> {
+        // these tests are about the panel, not playback: the engine has its own tests
+        self.h.app.editor.debug.engine.kind = vortex_view::debug::engine::EngineKind::Stepping;
         debug::start(
             &mut self.h.app.editor,
             Some(self.fake.addr),
-            &adapter_config(),
+            &adapter_config(&self.path),
             "fake",
             "launch",
             json!({"program": "prog"}),

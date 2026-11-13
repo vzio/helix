@@ -118,7 +118,7 @@ Each feature lives in its own modules, to keep rebasing on upstream cheap:
 | `x` on an empty line | `vortex-term/src/handlers/line_select.rs` |
 | Move lines | `vortex-term/src/commands/move_lines.rs` |
 | Terminal panel | `vortex-terminal/` (the shell: pty, emulator, OSC 133, bash/zsh integration), `vortex-view/src/terminal.rs` (panel state, `[editor.terminal]`), `vortex-term/src/terminal/` (drawing, focus, input encoding, the `vx` shim), `vortex-term/tests/test/terminal.rs` |
-| The debugger | `vortex-term/src/debug/` (`session.rs` the sessions, the adapter's events and reverse requests, `load.rs` what the panel loads at a stop, `breakpoints.rs` breakpoints per session, `panel.rs` the keys and the mouse, `render.rs` the drawing; spectator mode: `playback.rs` automatic stepping, fast forward and run to cursor, `threads.rs` spectating, freezing and running threads alone, `record.rs` what each stop records, `rewind.rs` scrubbing, `cpu.rs` a thread's CPU time from the OS; `memory.rs` a debugged program's memory in the hex view: opening, reading, refreshing, writing, recording for rewind), `vortex-view/src/debug/` (`mod.rs` the panel's state and rows; `spectator.rs`, `history.rs`, `timing.rs`, `config.rs` spectator mode's state, `[editor.debugger]`), `vortex-term/src/ui/text_decorations/step_times.rs` (the time per line), `vortex-dap/src/requester.rs` (requests that borrow nothing, for background tasks), child sessions in `vortex-dap/src/registry.rs`, `vortex-term/src/commands/dap.rs` (the `space G` commands, the templates), `vortex-term/tests/test/debug/` (a scripted fake adapter and the tests) |
+| The debugger | `vortex-term/src/debug/` (`session.rs` the sessions, the adapter's events and reverse requests, `load.rs` what the panel loads at a stop, `breakpoints.rs` breakpoints per session (yours and the engine's hidden ones in one request), `engine.rs` the per-line breakpoint engine: finding and installing hidden breakpoints, full-speed runs, the hit decision, `panel.rs` the keys and the mouse, `render.rs` the drawing; spectator mode: `playback.rs` automatic stepping, fast forward and run to cursor, `threads.rs` spectating, freezing and running threads alone, `record.rs` what each stop records, `rewind.rs` scrubbing, `cpu.rs` a thread's CPU time from the OS; `memory.rs` a debugged program's memory in the hex view: opening, reading, refreshing, writing, recording for rewind), `vortex-view/src/debug/` (`mod.rs` the panel's state and rows; `spectator.rs`, `history.rs`, `timing.rs`, `config.rs` spectator mode's state, `[editor.debugger]`; `engine.rs` the engine's state and decisions, `lineline.rs` the record of every hit), `vortex-dap/src/hits.rs` (the engine's fast path: hits of unwatched threads continued by the client), `vortex-term/src/ui/text_decorations/step_times.rs` (the time per line), `vortex-dap/src/requester.rs` (requests that borrow nothing, for background tasks), child sessions in `vortex-dap/src/registry.rs`, `vortex-term/src/commands/dap.rs` (the `space G` commands, the templates), `vortex-term/tests/test/debug/` (a scripted fake adapter and the tests) |
 | Hex view | `vortex-view/src/hex/mod.rs` (the bytes: windowed reads, the overwritten bytes, undo, cursors, search, the row layout), `vortex-view/src/hex/memory.rs` (a debugged program's memory as the bytes: the page cache, what each byte is as drawn), `vortex-term/src/ui/hex_view.rs` (drawing, the statusline texts), `vortex-term/src/commands/hex.rs` (keys, mouse, prompts, `:hex`), `vortex-term/tests/test/hex_view.rs` |
 | Dashboard | `vortex-term/src/dashboard.rs` (when it is up, its keys), `vortex-term/src/dashboard/` (`stats.rs` the background reading, `languages.rs` the line counts, `render.rs` the layout and the panels, `timeline.rs` when things move, `title.rs` the title, `vortex.rs` the vortex, `wrap.rs` long values on two rows, `snapshots/` the drawings the tests compare with), `vortex-vcs/src/git/summary.rs` (the git summary), `vortex-term/tests/test/dashboard.rs` |
 | Worktrees | `vortex-term/src/commands/worktrees.rs` (the `:worktrees` picker: its rows, columns, background jobs and `Enter`), `vortex-vcs/src/git/summary.rs` (the worktrees, missing ones flagged; `Repo::status`, the last modified time; `Repo::dated_worktrees`; `Worktree::details`), `vortex-stdx/src/time.rs` (`format_ago`), the dashboard's worktree rows and `t` in `vortex-term/src/dashboard/`, `vortex-term/tests/test/worktrees.rs` |
@@ -204,7 +204,15 @@ leaving its keys to an open sticky menu, in `ui/editor.rs`; `:debug-memory` and 
 in `typed.rs`; a name for buffers without a path and the memory note in `ui/statusline.rs`;
 `readMemory`/`writeMemory`, `supportsMemoryReferences` and `supportsMemoryEvent` in `vortex-dap`
 and `vortex-dap-types`; a `capabilities` event merged into the capabilities instead of replacing
-them, in `vortex-term/src/debug/session.rs`.
+them, in `vortex-term/src/debug/session.rs`. The engine adds: `stopped` events going through the
+engine first, the configuration installing hidden breakpoints before the rest, `continued` and
+`breakpoint` events redrawing only when something shown changed, in `debug/session.rs`; every send
+of your breakpoints carrying the hidden ones, in `debug/breakpoints.rs`; `space G c` running at full
+speed in `commands/dap.rs`; the loading animation in the `debug` statusline element; the
+`own-paths` of `DebugAdapterConfig` (`vortex-core`); `[editor.debugger]` applied at startup and on
+reload (`DebugState::apply_config`, called from `Editor::new` and `refresh_config`); in `vortex-dap`
+the client's hit filter and `Event::taken`, `breakpointLocations` and `loadedSources`; `BreakpointLocations` and `LoadedSources` in `vortex-dap-types`; the vortex
+theme's loading scopes in `theme.toml`.
 
 The hex view changes core files: the `hex` field of `Document` and what it changes there
 (`open_hex`, `enter_hex`/`leave_hex`, `apply` refusing transactions, `is_modified`, `save_impl`
@@ -1317,7 +1325,7 @@ says how to start them (see [Adapters](#adapters)).
 | `space G l` | Launch (or attach): pick a template of the language, answer its prompts |
 | `space G b` | Add or remove a breakpoint on the cursor's line (also a click in the gutter) |
 | `space G C-c`, `space G C-l` | The condition, or the log message (a logpoint), of the breakpoint on the line |
-| `space G c`, `h` | Continue; pause |
+| `space G c`, `h` | Continue (with the [engine](#engine): at full speed to your next breakpoint); pause |
 | `space G n`, `i`, `o` | Step over, into, out |
 | `space G p` | Show or hide the panel |
 | `space G v` | The panel's variables, focused |
@@ -1407,30 +1415,37 @@ Watch the program like a video, or a game's spectator mode: it plays line by lin
 choose, you follow one thread and cut to others as they come, pause anywhere to look or change a
 value, and scrub back through what you already watched.
 
-**Playback** is automatic stepping: step, wait for the stop, draw it, wait out the speed's
-interval, repeat. Speeds go from 0.5 to 25 lines per second (0.5, 1, 2, 3, 5, 8, 12, 18, 25; 2 by
-default). Breakpoints, exceptions, a pause and the program's end pause it; so does a stop on
-another thread, and the camera cuts to that thread. Values load at every stop like at any stop
+**Playback** runs on the [engine](#engine): a hidden breakpoint on every line of your code, so
+the program continues and stops at its next line, wherever it is; Vortex waits out the speed's
+interval there, and continues it again. With `engine = "stepping"` it steps instead: step, wait for
+the stop, draw it, wait out the interval, repeat. Speeds go from 0.5 to 25 lines per second (0.5,
+1, 2, 3, 5, 8, 12, 18, 25; 2 by default). Your breakpoints, exceptions, a pause and the program's
+end pause it; so does a stop at one of your breakpoints on another thread, and the camera cuts to
+that thread. Values load at every stop like at any stop
 (only the open nodes), changes marked; while playing the view scrolls only when the line leaves
 it, instead of centering at every step. With `supportsSteppingGranularity` the step's unit can be
 a statement or an instruction (`u`); line by default.
 
 **What playback follows**, cycled with `e` (shown in the panel's status): `own` (the default)
-stays in your code, `lib` also steps into libraries, `std` into everything, the language's runtime
-included. A playback step is a `stepIn`; when the frame it lands in isn't one the mode follows,
-`stepOut`s until it is, all counted as one step. Frames are classified by their source path:
+stays in your code, `lib` also goes into libraries, `std` into everything, the language's runtime
+included. On the engine, that is which files get hidden breakpoints (`lib` and `std` are a work in
+progress: see [Engine](#engine)). With `engine = "stepping"`, a playback step is a `stepIn`; when
+the frame it lands in isn't one the mode follows, `stepOut`s until it is, all counted as one
+step. Frames are classified by their source path:
 **std** when they have no source, or their path (or source name) contains one of the runtime's
 pieces: `/rustc/` and `/lib/rustlib/src/` (Rust's sysroot as rustc records it, and as rustup
 installs it), `/usr/include/`, `/usr/lib/`, `/usr/src/` (C headers and system sources), `node:` and
 `<node_internals>` (Node's internals); **lib** when it contains a library's piece
 (`/.cargo/registry/`, `/.cargo/git/`, `/node_modules/`, `/vendor/`) or is outside your folders;
-**own** inside the workspace, or the launch's `cwd` or program's folder when they are elsewhere.
-Both lists can be set per language, in its debugger:
+**own** inside the workspace, or the launch's `cwd` or program's folder when they are elsewhere
+(or inside the folders `own-paths` names, when it is set). The lists can be set per language, in
+its debugger:
 
 ```toml
 [language.debugger]
 std-paths = ["/rustc/", "/lib/rustlib/src/"]
 lib-paths = ["/.cargo/registry/", "/third_party/"]
+own-paths = ["/home/me/work/app/server"]   # instead of the workspace and the launch's folders
 ```
 
 A step that doesn't stop (blocking I/O, a lock, a sleep) shows `blocked in <function>` and a
@@ -1438,12 +1453,16 @@ running timer after half a second, in the panel and the statusline; `space` paus
 `pause`), so you see where it waits.
 
 **Fast forward** (`f`) plays as fast as the adapter goes, without moving the view, and compares at
-each stop the watch expressions and the variables you marked (`*`, `◆` in the tree) with their
-values when it started; it stops at the first change and says `old -> new` (status line and
-console). Breakpoints and the program's end stop it too; `f` or `space` cancels it.
+each of the spectated thread's stops the watch expressions and the variables you marked (`*`, `◆`
+in the tree) with their values when it started; it stops at the first change and says `old -> new`
+(status line and console). Your breakpoints and the program's end stop it too; `f` or `space`
+cancels it.
 
-**Run to cursor** (`r`): paused, the program continues to the cursor's line through a temporary
-breakpoint, removed at the next stop, whatever it is; playing, playback goes on until that line.
+**Run to cursor** (`r`): paused, the program runs until the spectated thread reaches the cursor's
+line: on the engine, its hits are checked against that line by their position alone (no frames are
+loaded on the way); where the line has no hidden breakpoint (or with `engine = "stepping"`),
+through a temporary breakpoint, removed at the next stop, whatever it is. Playing, playback goes on
+until that line.
 
 **Threads.** Playback follows one thread, `◉ spectating` in the call stack (where every thread of
 every session is, under its session's name when there are several: js-debug runs each worker in a
@@ -1469,17 +1488,23 @@ which assumes capabilities over the adapter's `initialize` answer:
 capabilities = { supportsSingleThreadExecutionRequests = true }
 ```
 
-lldb-dap (18 and 20) doesn't advertise it: lldb-dap 18 ignores `singleThread`; lldb-dap 20
+lldb-dap (18, 20 and 21) doesn't advertise it: lldb-dap 18 ignores `singleThread`; lldb-dap 20
 honours it for `next` and `stepIn` but not for `stepOut`, which runs every thread (so with it,
 playback's step outs of library code let frozen threads run: force interleavings with
-`space G n`). An adapter that stops every thread may also report each of them in a `stopped` event
+`space G n`); lldb-dap 21 answers a `continue` with `singleThread` (`allThreadsContinued: false`)
+and then runs nothing at all, so with the capability forced on, playback on the engine (which
+continues) stands still while a thread is frozen. An adapter that stops every thread may also report each of them in a `stopped` event
 of its own (lldb-dap does, with the reason of their last stop); those marked `preserveFocusHint`
 only update their thread's state, so they don't move the camera or pause playback.
 
 **Time per line.** After each playback step, the line the program left gets a greyed label at its
 end, like inline blame (`ui.virtual.step-time`): how long the step took, minus the cost of stepping
 itself, e.g. `12 ms`, or `12 ms (3 cpu)` when the CPU time can be read, and `×4` when several steps
-counted. Labels stay on the lines visited this session, adding up, so the code turns into a rough
+counted. On the engine a step is the time from the `continue` to the spectated thread's next hit,
+minus the overhead of a hit (calibrated the same way, on plain continues: the next hit in the same
+function at the same depth, no other thread's hit between them) and, with an adapter that stops
+every thread at a hit, the overhead of each other thread's hit on the way. Each time is also kept
+on the [lineline](#the-record) with the thread and the frame (function and depth) it ran in. Labels stay on the lines visited this session, adding up, so the code turns into a rough
 flame graph; `x` clears them. The method:
 
 - each request of a step (the step in, then any step out of library code) is timed from when it is
@@ -1516,10 +1541,25 @@ go). Where a level costs much and says little, less is recorded: frames playback
 (the runtime's, in `own` mode: a Rust stack has a dozen of them under `main`) keep their own
 variables, not what is inside them; registers keep their groups; an expensive scope (js-debug's
 global object) and a scope without a hint that every frame repeats (lldb's globals) are recorded in
-the top frame only. With lldb-dap and rustc's formatters a stop of the example program costs about
-70 requests and 50 KB. Recording runs in the background, so the screen never waits on it; playback waits for it before
-its next step (a stop's references are only valid until the program moves), which may lower the top
-speed. `R` opens the capture settings in the panel: depth, collection size and history length
+the top frame only. Frames that can't have changed since the stop before aren't fetched again:
+playing line by line, the frames under the top one are mostly the same calls, waiting at the same
+lines, and those carry the variables recorded then. A frame is the same when it is on the same
+thread, at the same depth counted from the bottom of the stack (the top changes, the bottom
+doesn't), in the same function and source, at the same line (adapters give frames new ids at every
+stop, so ids can't tell). The top frame is always fetched, and so is a frame whose line moved,
+which is how a return into a carried frame fetches it again. Nothing is carried at the first stop
+of a session, the first after a thread switch, after the capture settings or the follow mode
+changed, after the thread ran lines that weren't recorded (a full-speed run, a run to the cursor),
+or while hidden breakpoints are still going in. In rewind a carried frame says so above its
+variables, `carried from step 128` (`ui.debug.carried`): the step that fetched them. A callee can
+change a caller's locals through a pointer or a reference while the caller isn't on top, and a
+frame that runs again at the same line between two stops (a loop on one line; library code that
+isn't recorded calling back into yours) keeps the values it had: those changes show when the frame
+is fetched again (its line moves, or it is the top). The requests of a stop go out together, a
+level of the tree at a time, at most 16 at once. With lldb-dap and rustc's formatters a stop of the
+example program costs about 15 requests (74 when every frame is fetched) and 50 KB. Recording runs
+in the background, so the screen never waits on it; playback waits for it before its next step (a
+stop's references are only valid until the program moves), which may lower the top speed. `R` opens the capture settings in the panel: depth, collection size and history length
 (`unlimited` allowed, with a warning), with the cost measured over the last stops (requests per stop,
 memory per stop and in all) or estimated before any. `[` and `]` (`{` `}` by ten) scrub back and
 forward: the editor and the panel show that stop, read-only, under an unmissable marker,
@@ -1528,7 +1568,7 @@ forward: the editor and the panel show that stop, read-only, under an unmissable
 and evaluating are refused in rewind. `L`, `]` past the last stop, playing or stepping go back to
 live.
 
-The defaults are settings:
+The defaults are settings (read at startup and when the config is reloaded):
 
 ```toml
 [editor.debugger]
@@ -1540,7 +1580,159 @@ history = 2000             # stops; 0 records nothing; or "unlimited"
 capture-memory = 4096      # bytes per memory view; 0 records none; or "unlimited"
 time-labels = true
 time-threshold = 1         # milliseconds
+engine = "breakpoints"     # or "stepping"
+line-record = 1000000      # hits of every thread kept on the lineline; or "unlimited"
 ```
+
+### Engine
+
+Playback's engine: **hidden breakpoints on every executable line** of the code the follow mode
+covers. The program runs (`continue`), stops at each line, and Vortex decides at each hit whether
+to pause there or to continue, and when. It replaces stepping (`stepIn`, then `stepOut`s) as the
+way playback advances; `engine = "stepping"` keeps the old way, to compare both on the same program
+or for an adapter that can't do breakpoints on lines (a session whose adapter verifies no line
+breakpoint at all falls back to it by itself, and says so).
+
+**Which files.** In `own` mode: every source file of the session's languages (the languages whose
+debugger is the session's adapter; for an adapter no language names, the languages of the open
+documents) in the folders of your code: the workspace, and the launch's `cwd` and program folder
+when they are elsewhere, or `own-paths` when set (see [Spectator mode](#spectator-mode)). That is
+git-tracked and untracked files that aren't ignored, at most 5,000 files. `lib` and `std` are a
+**work in progress**: they add the sources the adapter lists (`loadedSources`, where it offers it:
+js-debug does, lldb-dap doesn't) and, as the spectated thread's frames show them, the files of the
+frames the mode follows; files that can't be enumerated upfront (all of lldb's libraries and
+runtime until a stack reaches them; code without debug info, which can't have breakpoints) are
+covered by stepping for the spectated thread, as before the engine. Switching to `lib` or `std`
+warns first, in the status line and the panel's console: absurdly slow, and programs with timeouts
+may fail.
+
+**Which lines.** DAP `breakpointLocations` where the adapter offers it and answers with lines.
+Otherwise (or when it answers nothing for a file) a breakpoint on every line, keeping only the ones
+the adapter verifies on the line asked for: adapters move a breakpoint on a line without code to the
+next line with code, and those duplicates are dropped by sending the file again with the kept lines.
+A breakpoint the adapter can't resolve yet (verified false without a line: js-debug before the
+script loads) is kept, and its `breakpoint` event decides later: moved, it becomes a stray (its hits
+are ignored, and the file is sent again without it). What the adapters do:
+
+| Adapter | `breakpointLocations` | Without it |
+| --- | --- | --- |
+| lldb-dap 21 (Rust) | offered, but answers no location for Rust sources (it looks the file up by compile unit, and rustc's units aren't named after files) | verify and drop: answers at once, moved lines verified on the next line with code, lines outside any function unverified |
+| js-debug | offered; it answers only once the script is loaded, so before the launch it times out (after 1 s for all the files at once) | every breakpoint unverified, no line; `breakpoint` events verify them as the script loads, moved ones to their real line |
+
+lldb-dap 18 and 20 weren't available to test. lldb-dap 21 ends the session on a request bigger than
+64 KiB, so no `setBreakpoints` carries more than 4,000 breakpoints: a bigger file is probed in
+chunks, and a file with more executable lines than that gets hidden breakpoints on its first 4,000
+(the console says so). The lines found are remembered for the editor's session (in memory, by file
+and modification time), so a restart sends them without finding them again.
+
+**Merged with yours.** `setBreakpoints` replaces every breakpoint of a source, so each request for
+a covered file carries your breakpoints first and the hidden ones after, and the answer is split the
+same way: your breakpoints keep their ids, verification, conditions, hit counts and log messages
+exactly as before. A line with one of your breakpoints gets no hidden one (lldb-dap merges two
+breakpoints on a line into one). The engine knows its breakpoints by the ids the adapter gave them;
+they never show in the gutter or the panel's breakpoints, and don't follow edits made while
+debugging (like yours).
+
+**Installing.** At the session's configuration, before `configurationDone`: the files are found on
+a background thread, then sent four requests at a time, the files likely to run first ahead of the
+rest: the open buffers, the launch's program when it is a source file, and the files with your
+breakpoints. Once those are in, your breakpoints in other files and the exception filters follow,
+then `configurationDone`, and the program starts while the rest go in behind it, with the loading
+animation saying so (`installing breakpoints · 120/486 files: lines in the rest aren't counted
+yet`): until a file is in, its lines aren't hit, so playback passes through them unseen and the
+lineline doesn't count them (the spectated thread, when it stops in such a file, steps through it
+as without the engine). When the last file is in, the lineline gets a `covered` mark: before it,
+coverage was partial. When none of the files is one of those (nothing open, no breakpoint), the
+program waits for all of them, as before. The program stops at the first line of your code that
+runs, on whichever thread: that thread is spectated, playback paused (`Stopped at the first line of
+your code that ran: Space plays`). Switching the follow mode (`e`) sends the whole set again for the
+new mode, and the restore after a full-speed run puts it back, both in the same order (the
+spectated thread's file first) and both letting playback go on once those are in. `space G c` waits
+until a set is complete (it says so). While breakpoints are installed, lifted or restored, the panel's last row
+shows the loading animation (a spinner, a bar that fills as files are done with a glow running along
+it, `installing breakpoints · 12/48 files · 3,410 lines`) and the statusline `DBG … · ◜ 12/48`; the
+editor stays usable.
+
+**At each hit.** Where a hit is comes from its breakpoint id, not from a `stackTrace`, so a hit of a
+thread nobody watches costs the `stopped` event, a lookup and a `continue`: the DAP client itself
+continues those as they come off the connection (`vortex-dap/src/hits.rs`), without waiting for the
+editor, which only records them. Then:
+
+- the spectated thread's hit is a stop, shown and recorded whole as rewind does; playing, it waits
+  out the speed's interval and continues; paused, it stays;
+- another thread's hit is recorded and continued at once, unpaced. With an adapter that stops every
+  thread at a hit (lldb's all-stop) that continue runs them all, so while a thread is frozen (`z`)
+  every continue goes alone, with `singleThread`, the other threads' hits too: the frozen thread
+  never moves, and in an all-stop session only the thread you continue runs (`o` as before);
+- a hit of one of your breakpoints goes through one decision (`breakpoint_pauses` in
+  `vortex-view/src/debug/engine.rs`: the breakpoint, the thread, the main thread), which pauses for
+  now; a stop at yours on another thread cuts the camera to it, as before. Exceptions, a pause and
+  the program's end pause playback as before;
+- `space G n`, `i`, `o` continue the thread and end at its next hit where the step would have: the
+  next line anywhere for `i`, the next line not deeper for `n`, the next line above for `o`.
+
+**Full-speed runs.** `space G c` lifts every hidden breakpoint (each covered file sent again with
+yours alone), continues at full speed, and puts them back at the next stop, whatever it is,
+behind the loading animation. The lines run at full speed aren't counted: the lineline gets one
+`full speed` mark with how long it took.
+
+#### The record
+
+The **lineline** (`vortex-view/src/debug/lineline.rs`) is one counter of lines executed, shared by
+every thread of every session: each hit (of any thread, and every other stop) advances it by one,
+and everything is recorded against it:
+
+- every hit, compactly: its counter is its place, its file and thread are indexes into small tables
+  (`u16`), its line a `u32`, and why it stopped is a line unless a sparse list of reasons says
+  otherwise. **8 bytes a hit: 800 KB per 100,000 hits** (measured in a unit test); capped at
+  `line-record` hits (1,000,000 by default, about 8 MB), the oldest go first, with what was recorded
+  against them;
+- marks: your breakpoints, exceptions, pauses, switches of the spectated thread, full-speed gaps,
+  threads starting and exiting, the program's end, the point where every covered file had its
+  hidden breakpoints after the program ran on a partial set (`covered`) (room is left for the selected variable's reads
+  and writes);
+- each thread's lifetime: the counter when it started, its first and last hit, when it exited; and
+  the main thread, the first one the adapter reported;
+- the time of each line of the spectated thread, with its thread and frame (function and depth);
+- rewind's snapshots carry the counter of their stop.
+
+`where_at(thread, counter)` says where a thread was at any point.
+
+#### Measured
+
+Measured in a slow shared container (numbers are lower bounds), in a release build (a debug build
+spends about 0.7 s drawing each stop, which hides everything else), with lldb-dap 21 on a small
+Rust program and js-debug on a small TypeScript one, in `own`, rewind recording on. *Before* fetches
+every frame at every stop; *after* carries the frames that can't have changed (see rewind in
+[Spectator mode](#spectator-mode)). Requests and time are per stop, medians, from the `stopped` event to the last
+answer:
+
+| | Engine, before | Engine, after | Stepping, before | Stepping, after |
+| --- | --- | --- | --- | --- |
+| Rust, asked 2 / 8 / 25 lines/s | 1.9 / 1.9 / 1.9 | 2.0 / 7.6 / 12.8 | 1.8 / 2.1 / 2.2 | 2.0 / 7.8 / 11.1 |
+| Rust, a stop | 74 requests, 460-560 ms | 14-16 requests, 72-81 ms | 67-71 requests, 360-380 ms | 14-16 requests, 71-75 ms |
+| TypeScript, asked 2 / 8 / 25 lines/s | 0.53 / 0.53 / 0.53 | 0.66 / 0.66 / 0.66 | 0.53 / 0.53 / 0.53 | 0.73 / 0.66 / 0.66 |
+| TypeScript, a stop | 184 requests, 1.7 s | 119 requests, 1.35-1.45 s | 183 requests, 1.4-1.5 s | 116 requests, 1.3-1.4 s |
+
+- **Recording each stop sets the top speed.** lldb-dap answers one request at a time (about 6 ms
+  each, however many are in flight), so what counts is how many a stop sends: carrying the
+  unchanged frames takes a Rust stop from 74 to 14, and playback from under 2 lines/s to about 13
+  (the engine) or 11 (stepping). With js-debug most of a stop is the top frame itself: its scopes
+  (Local, the module, Global) and the objects in them, about 95 `variables` requests, which nothing
+  can carry since that frame is the one that moved.
+- **A line of another thread** (lldb-dap): 15-17 ms, about 460 hits/s, one thread or several,
+  against about 25 ms a step for stepping; js-debug: 55-100 ms, about 22 hits/s.
+- **Installing**: 41 hidden breakpoints in one Rust file in 44 ms; 32 in one TypeScript file (in
+  both js-debug sessions). Debugging Vortex itself (`vx --health rust` with `vortex-term/src/main.rs`
+  open; 487 files, about 180,000 lines): `configurationDone` went out 4.5 s after the launch, once
+  that file was in (it was 13 minutes when every file went in first), and the program stopped at
+  its first line 50 s after the launch, lldb-dap still indexing the debug info. The rest went in
+  behind it in 20 minutes: 51,219 hidden breakpoints in the 283 files that have code in the
+  program, lldb-dap growing to 2.1 GB. For those 20 minutes the lines of the files not yet in run
+  unseen: playback passes through them and the lineline doesn't count them. Set in a running
+  program, some files took lldb-dap over 20 s, so the install waits up to 5 minutes for each
+  answer. On a program that big, set `own-paths` to the part you care about.
+- **Memory**: 8 bytes a hit, 800 KB per 100,000 hits.
 
 ### Memory
 
@@ -1680,6 +1872,8 @@ default `outFiles`, and breakpoints in TypeScript sources land only after the co
 | `ui.debug.hint` | the keys at the bottom of the panel | `ui.text.inactive` |
 | `ui.virtual.step-time` | the time per line | `ui.virtual.inline-blame`, then `ui.virtual.inlay-hint` |
 | `ui.debug.memory` | `▦`, a value whose memory can be shown | `info` |
+| `ui.debug.carried` | `carried from step 128`, a frame rewind reused from an earlier stop | `ui.text.inactive`, italic |
+| `ui.debug.loading`, `.bar`, `.glow`, `.track` | the [engine](#engine)'s loading animation: its spinner and text, the bar's filled part, the glow running along it, the empty part | `ui.debug.active` (else `ui.text.focus`); its color; bold; `ui.text.inactive` |
 | `ui.hex.changed`, `ui.hex.unreadable`, `ui.hex.unrecorded` | in a [memory view](#memory): bytes the program changed since the stop before, `??`, `··` | bold `ui.debug.value.changed` (else `warning`); `ui.text.inactive`; `ui.virtual.whitespace` |
 
 The vortex theme sets them all.
@@ -1709,9 +1903,21 @@ DEBUGGER" section.
   address opened by `:debug-memory` without a view of the session open needs an adapter whose
   references are addresses. lldb-dap writes memory from LLVM 21 (20 only reads it).
 - Spectator mode: rewind is history, never re-execution (no `stepBack`); it records the spectated
-  thread's frames, not the other threads'. Stepping out of library code skips any of your code it
-  calls back (a closure given to a library function). Fast forward compares values as text. An
-  expensive scope (registers, globals, as the adapter marks them) records only its own variables.
+  thread's frames, not the other threads' (the lineline records where every thread was). With
+  `engine = "stepping"`, stepping out of library code skips any of your code it calls back (a
+  closure given to a library function); the engine stops there. Fast forward compares values as
+  text. An expensive scope (registers, globals, as the adapter marks them) records only its own
+  variables.
+- The engine: recording each stop whole sets the top speed of playback, not the hidden breakpoints
+  (see [Measured](#measured)). A line with one of your breakpoints that doesn't stop (a condition
+  that is false, a log message) isn't counted on the lineline. With an adapter that stops every
+  thread at a hit, the spectated thread waits for every other thread's hit (each a round trip), and
+  while it is paused at a line every thread is. `lib` and `std` are a work in progress. On a big
+  program the files that aren't first in line take minutes to get their hidden breakpoints, and
+  their lines aren't counted until then (they run at full speed, the lineline doesn't see them);
+  the adapter grows by gigabytes (see [Measured](#measured)). Hidden breakpoints don't follow edits made while
+  debugging. js-debug gets the hidden breakpoints in its
+  parent session too (it can't be told upfront which session will run the program).
 
 ## Hex view
 

@@ -115,6 +115,15 @@ impl Requester {
         &self,
         arguments: R::Arguments,
     ) -> impl Future<Output = Result<Value>> + Send + 'static {
+        self.call_within::<R>(arguments, REQUEST_TIMEOUT)
+    }
+
+    /// [`call`](Self::call), waiting up to `limit` for the response.
+    pub fn call_within<R: vortex_dap_types::Request + 'static>(
+        &self,
+        arguments: R::Arguments,
+        limit: Duration,
+    ) -> impl Future<Output = Result<Value>> + Send + 'static {
         let server_tx = self.server_tx.clone();
         let id = self.next_request_id();
         let arguments = serde_json::to_value(arguments).map_err(Error::from);
@@ -134,7 +143,7 @@ impl Requester {
                 .send(Payload::Request(req))
                 .map_err(|_| Error::StreamClosed)?;
 
-            let response: Response = timeout(REQUEST_TIMEOUT, callback_rx.recv())
+            let response: Response = timeout(limit, callback_rx.recv())
                 .await
                 .map_err(|_| Error::Timeout(id))?
                 .ok_or(Error::StreamClosed)??;
@@ -428,21 +437,78 @@ impl Requester {
         path: PathBuf,
         breakpoints: Vec<SourceBreakpoint>,
     ) -> impl Future<Output = Result<Option<Vec<Breakpoint>>>> + Send + 'static {
-        let request = self.request::<requests::SetBreakpoints>(requests::SetBreakpointsArguments {
-            source: Source {
-                path: Some(path),
-                name: None,
-                source_reference: None,
-                presentation_hint: None,
-                origin: None,
-                sources: None,
-                adapter_data: None,
-                checksums: None,
+        self.set_breakpoints_within(path, breakpoints, REQUEST_TIMEOUT)
+    }
+
+    /// [`set_breakpoints`](Self::set_breakpoints), waiting up to `limit` for the answer: an
+    /// adapter can take minutes to set thousands of breakpoints in a running program, and an
+    /// answer that comes after the request gave up leaves breakpoints nobody knows the ids of.
+    pub fn set_breakpoints_within(
+        &self,
+        path: PathBuf,
+        breakpoints: Vec<SourceBreakpoint>,
+        limit: Duration,
+    ) -> impl Future<Output = Result<Option<Vec<Breakpoint>>>> + Send + 'static {
+        let call = self.call_within::<requests::SetBreakpoints>(
+            requests::SetBreakpointsArguments {
+                source: Source {
+                    path: Some(path),
+                    name: None,
+                    source_reference: None,
+                    presentation_hint: None,
+                    origin: None,
+                    sources: None,
+                    adapter_data: None,
+                    checksums: None,
+                },
+                breakpoints: Some(breakpoints),
+                source_modified: Some(false),
             },
-            breakpoints: Some(breakpoints),
-            source_modified: Some(false),
-        });
-        async move { Ok(request.await?.breakpoints) }
+            limit,
+        );
+        async move {
+            let response: requests::SetBreakpointsResponse = parse_body(call.await?)?;
+            Ok(response.breakpoints)
+        }
+    }
+
+    /// The breakpoint locations of `path` between `line` and `end_line` (1-based, inclusive):
+    /// the lines (each once) where a breakpoint would stop.
+    pub fn breakpoint_locations(
+        &self,
+        path: PathBuf,
+        line: usize,
+        end_line: usize,
+    ) -> impl Future<Output = Result<Vec<usize>>> + Send + 'static {
+        let request =
+            self.request::<requests::BreakpointLocations>(requests::BreakpointLocationsArguments {
+                source: Source {
+                    path: Some(path),
+                    ..Default::default()
+                },
+                line,
+                column: None,
+                end_line: Some(end_line),
+                end_column: None,
+            });
+        async move {
+            let mut lines: Vec<usize> = request
+                .await?
+                .breakpoints
+                .into_iter()
+                .map(|location| location.line)
+                .collect();
+            lines.sort_unstable();
+            lines.dedup();
+            Ok(lines)
+        }
+    }
+
+    /// The sources the program loaded (`loadedSources`).
+    pub fn loaded_sources(&self) -> impl Future<Output = Result<Vec<Source>>> + Send + 'static {
+        let request =
+            self.request::<requests::LoadedSources>(Some(requests::LoadedSourcesArguments {}));
+        async move { Ok(request.await?.sources) }
     }
 
     pub fn set_exception_breakpoints(

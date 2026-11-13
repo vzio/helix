@@ -91,6 +91,43 @@
 //!   `start` and `count` (the children `start..start+count`). A `Var::indexed()` variable
 //!   also says `indexedVariables: <number of children>` in the `variables` response of its
 //!   container, the way adapters announce the length of a collection.
+//! * Breakpoint ids: `setBreakpoints` gives every breakpoint an id, unique per (path, line asked)
+//!   and kept when the same line is asked again. A `stopped` event of reason `"breakpoint"` carries
+//!   `hitBreakpointIds`: the ids of all the session's breakpoints whose actual line (see
+//!   `executable_lines`) is the stop's line in the file of its top frame (same file rule as
+//!   above), except the ones skipped by their condition and the logpoints; the field is left out
+//!   when no id remains.
+//! * `Script::executable_lines(file, lines)`: the lines of a file with code. `setBreakpoints`
+//!   answers a breakpoint on a line without code like real adapters: moved to the next line with
+//!   code (`verified: true`, `line: next`), or, past the last one, `verified: false` on the line
+//!   asked. Without executable lines for a file every line is verified on itself. The actual line
+//!   is the one that hits.
+//! * `Script::breakpoint_locations(file, lines)` (once per file): advertises
+//!   `supportsBreakpointLocationsRequest` and answers `breakpointLocations` (`source.path`, `line`,
+//!   `endLine`) with `{"breakpoints": [{"line": n}, ..]}` for the configured lines within the range
+//!   (a file without lines: an empty list). `breakpoint_locations_empty()` advertises it and
+//!   always answers an empty list (like lldb-dap 21 for Rust). Without either, the request is
+//!   "unsupported" and the capability is not advertised.
+//! * Line mode (`Script::lines()`): a stop with reason `"step"` is a line the program runs. A
+//!   `continue` (or the launch) stops at such a stop only when a breakpoint is on its line (actual
+//!   line, with the condition and logpoint rules of `"breakpoint"` stops) and reports it with
+//!   reason `"breakpoint"` and `hitBreakpointIds`. Steps (`next`/`stepIn`/`stepOut`) are the very
+//!   next stop with reason `"step"`, as before. Stops of other reasons hit as always.
+//! * `Script::all_stop_continue()` (thread mode): a `continue` of thread T without `singleThread`
+//!   resumes every stopped thread, as lldb does. Each resumed thread runs to its next hitting
+//!   stop; the lowest thread that reached one sends `stopped`, the others stay stopped silently
+//!   (every stop is in `stops_sent`). With `singleThread: true` only T runs.
+//! * `Script::pending_breakpoints()` (like js-debug): `setBreakpoints` answers
+//!   `verified: false` without a line; after the launch response (and after every later
+//!   `setBreakpoints`) a `breakpoint` event (`reason: "changed"`, id, `verified`, the actual
+//!   `line`, `source.path`) per breakpoint says what it really is (moved lines as above).
+//! * `Script::hold_answers(k)`: the answers to `scopes` and `variables` are held until `k` of
+//!   them wait (or 250 ms passed since the last one came), then sent in reverse order of
+//!   arrival, so a client that sends its requests together gets its answers out of order.
+//!   `FakeAdapter::max_in_flight()` is the most `scopes`/`variables` requests that were
+//!   received and not yet answered at one moment (counted always, held or not).
+//! * `Script::slow_breakpoints(ms, fast)`: `setBreakpoints` of a path that contains none of the
+//!   `fast` strings is answered `ms` after the request (the breakpoints are set at once).
 //! * `child()` mode (like js-debug): connection 0 is the parent: it has no thread and no stops;
 //!   after the launch response it sends the reverse request `startDebugging` (launch, name
 //!   `child [1]`, `__pendingTargetId` `t1`). Every later connection is a child and the program:
@@ -324,6 +361,22 @@ pub struct Script {
     read_errors: bool,
     bytes_written: Option<usize>,
     memory: Vec<(u64, Vec<u8>)>,
+    /// `breakpointLocations`: the lines with code per file.
+    locations: Vec<(String, Vec<u64>)>,
+    /// `breakpointLocations` is advertised and always answers an empty list.
+    locations_empty: bool,
+    /// The lines with code per file: `setBreakpoints` moves a breakpoint on another line.
+    executable: Vec<(String, Vec<u64>)>,
+    /// Line mode: a `"step"` stop is a line the program runs.
+    lines: bool,
+    /// Thread mode: a `continue` without `singleThread` resumes every stopped thread.
+    all_stop_continue: bool,
+    /// js-debug style: `setBreakpoints` answers unverified, `breakpoint` events say the rest.
+    pending_breakpoints: bool,
+    /// `scopes`/`variables` answers wait for this many requests, then go out reversed.
+    hold: usize,
+    /// `setBreakpoints` answers delayed by this many ms, except for the paths with these parts.
+    slow_breakpoints: Option<(u64, Vec<String>)>,
 }
 
 impl Script {
@@ -353,7 +406,74 @@ impl Script {
             read_errors: false,
             bytes_written: None,
             memory: Vec::new(),
+            locations: Vec::new(),
+            locations_empty: false,
+            executable: Vec::new(),
+            lines: false,
+            all_stop_continue: false,
+            pending_breakpoints: false,
+            hold: 0,
+            slow_breakpoints: None,
         }
+    }
+    /// The answers to `scopes` and `variables` wait until `k` are held, then go out reversed.
+    pub fn hold_answers(mut self, k: usize) -> Script {
+        self.hold = k;
+        self
+    }
+    /// `setBreakpoints` of a path without any of the `fast` strings is answered `ms` late.
+    pub fn slow_breakpoints(mut self, ms: u64, fast: &[&str]) -> Script {
+        self.slow_breakpoints = Some((ms, fast.iter().map(|f| f.to_string()).collect()));
+        self
+    }
+    /// `supportsBreakpointLocationsRequest`: `breakpointLocations` of `file` answers `lines` (the
+    /// ones within the range asked for). Once per file; a file without lines answers nothing.
+    pub fn breakpoint_locations(mut self, file: &str, lines: &[u64]) -> Script {
+        self.locations.push((file.to_string(), lines.to_vec()));
+        self
+    }
+    /// `supportsBreakpointLocationsRequest`, but `breakpointLocations` always answers an empty
+    /// list (lldb-dap 21 does for Rust).
+    pub fn breakpoint_locations_empty(mut self) -> Script {
+        self.locations_empty = true;
+        self
+    }
+    /// The lines of `file` with code: a breakpoint on another line is moved by `setBreakpoints`
+    /// to the next one (`verified: true`, the new `line`), or, past the last, left unverified on
+    /// the line asked for. A file without executable lines verifies every line on itself.
+    pub fn executable_lines(mut self, file: &str, lines: &[u64]) -> Script {
+        let mut lines = lines.to_vec();
+        lines.sort_unstable();
+        self.executable.push((file.to_string(), lines));
+        self
+    }
+    /// Line mode: a stop with reason `"step"` is a line the program runs. A `continue` stops at
+    /// it only when a breakpoint is on its line (and reports it as a `"breakpoint"`).
+    pub fn lines(mut self) -> Script {
+        self.lines = true;
+        self
+    }
+    /// Thread mode: a `continue` without `singleThread` resumes every stopped thread (as lldb
+    /// does): each runs to its next hitting stop, the lowest thread that reached one sends
+    /// `stopped`, the others stay stopped silently.
+    pub fn all_stop_continue(mut self) -> Script {
+        self.all_stop_continue = true;
+        self
+    }
+    /// js-debug style: `setBreakpoints` answers `verified: false` without a line, and after the
+    /// launch response a `breakpoint` event (`changed`) per breakpoint says what it really is.
+    pub fn pending_breakpoints(mut self) -> Script {
+        self.pending_breakpoints = true;
+        self
+    }
+    fn advertises_locations(&self) -> bool {
+        self.locations_empty || !self.locations.is_empty()
+    }
+    fn executable_of(&self, file: &str) -> Option<&[u64]> {
+        self.executable
+            .iter()
+            .find(|(f, _)| same_file(f, file))
+            .map(|(_, lines)| lines.as_slice())
     }
     /// `supportsReadMemoryRequest`: `readMemory` works.
     pub fn read_memory(mut self) -> Script {
@@ -541,6 +661,9 @@ impl Script {
             .map(|(id, label)| json!({"filter": id, "label": label}))
             .collect();
         caps.insert("exceptionBreakpointFilters".into(), filters.into());
+        if self.advertises_locations() {
+            caps.insert("supportsBreakpointLocationsRequest".into(), true.into());
+        }
         for (k, v) in &self.extra_capabilities {
             caps.insert(k.clone(), v.clone());
         }
@@ -577,6 +700,10 @@ struct Shared {
     sent: Mutex<Vec<(i64, u64, String)>>,
     /// The readable bytes of the simulated memory.
     memory: Mutex<BTreeMap<u64, u8>>,
+    /// Held `scopes`/`variables` answers: (connection, request, body).
+    held: Mutex<Vec<(Arc<Out>, Req, Value)>>,
+    in_flight: AtomicUsize,
+    max_in_flight: AtomicUsize,
 }
 
 pub struct FakeAdapter {
@@ -610,6 +737,9 @@ impl FakeAdapter {
             parent_out: Mutex::new(None),
             sent: Mutex::new(Vec::new()),
             memory: Mutex::new(memory),
+            held: Mutex::new(Vec::new()),
+            in_flight: AtomicUsize::new(0),
+            max_in_flight: AtomicUsize::new(0),
         });
         let sh = shared.clone();
         let task = tokio::spawn(async move {
@@ -707,6 +837,11 @@ impl FakeAdapter {
     /// How many stops of `thread` were reported so far (how far its queue advanced).
     pub fn advanced(&self, thread: i64) -> usize {
         self.stops_sent().iter().filter(|s| s.0 == thread).count()
+    }
+
+    /// The most `scopes`/`variables` requests waiting for their answer at one moment.
+    pub fn max_in_flight(&self) -> usize {
+        self.shared.max_in_flight.load(Ordering::SeqCst)
     }
 
     /// Number of connections accepted so far.
@@ -921,7 +1056,12 @@ type Target = (usize, usize, Vec<usize>);
 
 #[derive(Clone)]
 struct Bp {
+    /// The line asked for.
     line: u64,
+    /// The line it is on (moved to code), `None` while it isn't verified.
+    actual: Option<u64>,
+    id: i64,
+    verified: bool,
     condition: Option<String>,
     log: Option<String>,
 }
@@ -1224,6 +1364,7 @@ fn same_file(a: &str, b: &str) -> bool {
 // A session
 // ---------------------------------------------------------------------------------------------
 
+#[derive(Clone)]
 struct Req {
     seq: i64,
     command: String,
@@ -1249,6 +1390,30 @@ struct Session {
     quiet: bool,
     /// The `stopped` event carries `preserveFocusHint: true`.
     hint: bool,
+    /// `stopped` events actually sent (not the silent ones).
+    loud: usize,
+    /// The launch was answered.
+    launched: bool,
+}
+
+fn send_response(out: &Out, req: &Req, body: Option<Value>) {
+    out.send(|seq| {
+        let mut m = json!({"seq": seq, "type": "response", "request_seq": req.seq,
+            "success": true, "command": req.command});
+        if let Some(b) = body {
+            m["body"] = b;
+        }
+        m
+    });
+}
+
+/// Sends the held answers, the last one that came first.
+fn flush_held(shared: &Shared) {
+    let held = std::mem::take(&mut *shared.held.lock().unwrap());
+    for (out, req, body) in held.into_iter().rev() {
+        shared.in_flight.fetch_sub(1, Ordering::SeqCst);
+        send_response(&out, &req, (!body.is_null()).then_some(body));
+    }
 }
 
 async fn serve(stream: TcpStream, shared: Arc<Shared>, index: usize) {
@@ -1278,6 +1443,8 @@ async fn serve(stream: TcpStream, shared: Arc<Shared>, index: usize) {
         fire,
         quiet: false,
         hint: false,
+        loud: 0,
+        launched: false,
     };
     let mut framer = Framer::default();
     let mut buf = [0u8; 4096];
@@ -1304,17 +1471,38 @@ async fn serve(stream: TcpStream, shared: Arc<Shared>, index: usize) {
 
 impl Session {
     fn respond(&self, req: &Req, body: Option<Value>) {
-        self.out.send(|seq| {
-            let mut m = json!({"seq": seq, "type": "response", "request_seq": req.seq,
-                "success": true, "command": req.command});
-            if let Some(b) = body {
-                m["body"] = b;
+        let tracked = matches!(req.command.as_str(), "scopes" | "variables");
+        let hold = self.shared.script.hold;
+        if tracked && hold > 0 {
+            let mut held = self.shared.held.lock().unwrap();
+            held.push((self.out.clone(), req.clone(), body.unwrap_or(Value::Null)));
+            if held.len() >= hold {
+                drop(held);
+                flush_held(&self.shared);
+            } else {
+                let len = held.len();
+                drop(held);
+                let shared = self.shared.clone();
+                tokio::spawn(async move {
+                    tokio::time::sleep(Duration::from_millis(250)).await;
+                    // only when nothing came since
+                    if shared.held.lock().unwrap().len() == len {
+                        flush_held(&shared);
+                    }
+                });
             }
-            m
-        });
+            return;
+        }
+        if tracked {
+            self.shared.in_flight.fetch_sub(1, Ordering::SeqCst);
+        }
+        send_response(&self.out, req, body);
     }
 
     fn fail(&self, req: &Req, message: &str) {
+        if matches!(req.command.as_str(), "scopes" | "variables") {
+            self.shared.in_flight.fetch_sub(1, Ordering::SeqCst);
+        }
         self.out.send(|seq| {
             json!({"seq": seq, "type": "response", "request_seq": req.seq,
                 "success": false, "command": req.command, "message": message})
@@ -1346,6 +1534,10 @@ impl Session {
             command: req.command.clone(),
             arguments: req.args.clone(),
         });
+        if matches!(req.command.as_str(), "scopes" | "variables") {
+            let now = self.shared.in_flight.fetch_add(1, Ordering::SeqCst) + 1;
+            self.shared.max_in_flight.fetch_max(now, Ordering::SeqCst);
+        }
         let script = self.shared.script.clone();
         match req.command.as_str() {
             "initialize" => {
@@ -1369,6 +1561,9 @@ impl Session {
                 }
             }
             "setBreakpoints" => self.set_breakpoints(&req),
+            "breakpointLocations" if script.advertises_locations() => {
+                self.breakpoint_locations(&req)
+            }
             "setExceptionBreakpoints" => self.respond(&req, None),
             "threads" => {
                 let threads: Vec<Value> = self
@@ -1426,7 +1621,15 @@ impl Session {
                 } else {
                     Mode::Step
                 };
-                self.resume(thread, mode);
+                if mode == Mode::Continue
+                    && !single
+                    && script.thread_mode
+                    && script.all_stop_continue
+                {
+                    self.resume_all(thread);
+                } else {
+                    self.resume(thread, mode);
+                }
             }
             "pause" => {
                 self.respond(&req, None);
@@ -1502,6 +1705,13 @@ impl Session {
             json!({"name": self.shared.script.source, "systemProcessId": std::process::id(),
                 "isLocalProcess": true, "startMethod": "launch"}),
         );
+        self.launched = true;
+        if self.shared.script.pending_breakpoints {
+            let paths: Vec<String> = self.prog.bps.keys().cloned().collect();
+            for path in paths {
+                self.breakpoint_events(&path);
+            }
+        }
         self.out
             .event("thread", json!({"reason": "started", "threadId": 1}));
         for (category, text) in &self.shared.script.outputs {
@@ -1530,40 +1740,118 @@ impl Session {
             .or_else(|| req.args["source"]["name"].as_str())
             .unwrap_or("")
             .to_string();
-        let wanted: Vec<Bp> = match req.args["breakpoints"].as_array() {
-            Some(list) => list
-                .iter()
-                .map(|b| Bp {
-                    line: b["line"].as_u64().unwrap_or(0),
-                    condition: b["condition"].as_str().map(String::from),
-                    log: b["logMessage"].as_str().map(String::from),
-                })
-                .collect(),
-            None => req.args["lines"]
-                .as_array()
-                .map(|l| {
-                    l.iter()
-                        .map(|l| Bp {
-                            line: l.as_u64().unwrap_or(0),
-                            condition: None,
-                            log: None,
-                        })
-                        .collect()
-                })
-                .unwrap_or_default(),
-        };
+        let asked: Vec<(u64, Option<String>, Option<String>)> =
+            match req.args["breakpoints"].as_array() {
+                Some(list) => list
+                    .iter()
+                    .map(|b| {
+                        (
+                            b["line"].as_u64().unwrap_or(0),
+                            b["condition"].as_str().map(String::from),
+                            b["logMessage"].as_str().map(String::from),
+                        )
+                    })
+                    .collect(),
+                None => req.args["lines"]
+                    .as_array()
+                    .map(|l| {
+                        l.iter()
+                            .map(|l| (l.as_u64().unwrap_or(0), None, None))
+                            .collect()
+                    })
+                    .unwrap_or_default(),
+            };
+        let script = self.shared.script.clone();
+        let executable = script.executable_of(&path);
+        let mut wanted = Vec::new();
         let mut answer = Vec::new();
-        for bp in &wanted {
+        for (line, condition, log) in asked {
             let next_id = self.prog.bp_ids.len() as i64 + 1;
             let id = *self
                 .prog
                 .bp_ids
-                .entry((path.clone(), bp.line))
+                .entry((path.clone(), line))
                 .or_insert(next_id);
-            answer.push(json!({"id": id, "verified": true, "line": bp.line}));
+            // a line without code moves to the next one with code, past the last it isn't verified
+            let actual = match executable {
+                None => Some(line),
+                Some(lines) => lines.iter().copied().find(|l| *l >= line),
+            };
+            if script.pending_breakpoints {
+                answer.push(json!({"id": id, "verified": false}));
+            } else {
+                match actual {
+                    Some(actual) => {
+                        answer.push(json!({"id": id, "verified": true, "line": actual}))
+                    }
+                    None => answer.push(json!({"id": id, "verified": false, "line": line})),
+                }
+            }
+            wanted.push(Bp {
+                line,
+                actual,
+                id,
+                verified: actual.is_some(),
+                condition,
+                log,
+            });
         }
-        self.prog.bps.insert(path, wanted);
-        self.respond(req, Some(json!({ "breakpoints": answer })));
+        self.prog.bps.insert(path.clone(), wanted);
+        let slow = script
+            .slow_breakpoints
+            .as_ref()
+            .filter(|(_, fast)| !fast.iter().any(|f| path.contains(f.as_str())))
+            .map(|(ms, _)| *ms);
+        match slow {
+            Some(ms) => {
+                let (out, req) = (self.out.clone(), req.clone());
+                tokio::spawn(async move {
+                    tokio::time::sleep(Duration::from_millis(ms)).await;
+                    send_response(&out, &req, Some(json!({ "breakpoints": answer })));
+                });
+            }
+            None => self.respond(req, Some(json!({ "breakpoints": answer }))),
+        }
+        if script.pending_breakpoints && self.launched {
+            self.breakpoint_events(&path);
+        }
+    }
+
+    /// js-debug style: a `breakpoint` event (`changed`) per breakpoint of `path` with what it
+    /// really is.
+    fn breakpoint_events(&self, path: &str) {
+        let Some(list) = self.prog.bps.get(path) else {
+            return;
+        };
+        for bp in list {
+            let mut breakpoint = json!({"id": bp.id, "verified": bp.verified,
+                "source": {"path": path}});
+            breakpoint["line"] = bp.actual.unwrap_or(bp.line).into();
+            self.out.event(
+                "breakpoint",
+                json!({"reason": "changed", "breakpoint": breakpoint}),
+            );
+        }
+    }
+
+    fn breakpoint_locations(&self, req: &Req) {
+        let path = req.args["source"]["path"].as_str().unwrap_or("");
+        let from = req.args["line"].as_u64().unwrap_or(0);
+        let to = req.args["endLine"].as_u64().unwrap_or(from);
+        let script = &self.shared.script;
+        let lines: Vec<Value> = if script.locations_empty {
+            Vec::new()
+        } else {
+            script
+                .locations
+                .iter()
+                .filter(|(file, _)| same_file(file, path))
+                .flat_map(|(_, lines)| lines.iter().copied())
+                .filter(|line| (from..=to).contains(line))
+                .map(|line| json!({"line": line}))
+                .collect()
+        };
+        self.respond(req, Some(json!({ "breakpoints": lines })));
     }
 
     fn stack_trace(&self, req: &Req) {
@@ -1784,41 +2072,16 @@ impl Session {
                 found = Some((i, reason.to_string()));
                 break;
             }
-            if stop.reason != "breakpoint" {
+            // in line mode a "step" stop is a line the program runs: it hits like a breakpoint
+            let line_stop = shared.script.lines && stop.reason == "step";
+            if stop.reason != "breakpoint" && !line_stop {
                 found = Some((i, stop.reason.clone()));
                 break;
             }
             let cur = Current::build(stop, self.prog.epoch + 1, &self.prog.overrides);
-            let path = &stop.frames[0].path;
-            let candidates: Vec<Bp> = self
-                .prog
-                .bps
-                .iter()
-                .filter(|(p, _)| same_file(p, path))
-                .flat_map(|(_, v)| v.iter().cloned())
-                .filter(|bp| bp.line == stop.line)
-                .collect();
-            let mut hit = false;
-            for bp in candidates {
-                if let Some(cond) = &bp.condition {
-                    if let Ok((v, ..)) = cur.evaluate(cond, None) {
-                        if v == "false" || v == "0" {
-                            continue;
-                        }
-                    }
-                }
-                if let Some(m) = &bp.log {
-                    self.out.event(
-                        "output",
-                        json!({"category": "console", "output": format!("{m}\n")}),
-                    );
-                    continue;
-                }
-                hit = true;
-                break;
-            }
+            let hit = !self.bp_hits(stop, &cur, true).is_empty();
             if hit {
-                found = Some((i, stop.reason.clone()));
+                found = Some((i, "breakpoint".to_string()));
                 break;
             }
             i += 1;
@@ -1879,6 +2142,78 @@ impl Session {
         }
     }
 
+    /// The ids of the breakpoints that hit at `stop`: those whose actual line is the stop's line
+    /// in the file of its top frame, unless their condition is false or they are logpoints (which
+    /// print instead, when `log`).
+    fn bp_hits(&self, stop: &Stop, cur: &Current, log: bool) -> Vec<i64> {
+        let path = &stop.frames[0].path;
+        let mut files: Vec<&String> = self
+            .prog
+            .bps
+            .keys()
+            .filter(|file| same_file(file, path))
+            .collect();
+        files.sort();
+        let mut ids = Vec::new();
+        for file in files {
+            for bp in &self.prog.bps[file] {
+                if bp.actual != Some(stop.line) {
+                    continue;
+                }
+                if let Some(cond) = &bp.condition {
+                    if let Ok((v, ..)) = cur.evaluate(cond, None) {
+                        if v == "false" || v == "0" {
+                            continue;
+                        }
+                    }
+                }
+                if let Some(m) = &bp.log {
+                    if log {
+                        self.out.event(
+                            "output",
+                            json!({"category": "console", "output": format!("{m}\n")}),
+                        );
+                    }
+                    continue;
+                }
+                ids.push(bp.id);
+            }
+        }
+        ids.sort_unstable();
+        ids.dedup();
+        ids
+    }
+
+    /// `continue` of `thread` in an all-stop session: every stopped thread resumes, each runs to
+    /// its next hitting stop; the lowest thread that reached one sends `stopped`, the others
+    /// stay stopped silently.
+    fn resume_all(&mut self, thread: i64) {
+        let mut threads: Vec<i64> = self.prog.currents().map(|c| c.stop.thread).collect();
+        threads.push(thread);
+        threads.sort_unstable();
+        threads.dedup();
+        let all_stopped = self.shared.script.all_stopped;
+        let mut sender = None;
+        for id in threads {
+            let before = self.loud;
+            self.quiet = all_stopped && sender.is_some();
+            self.resume(id, Mode::Continue);
+            if self.loud > before && sender.is_none() {
+                sender = Some(id);
+            }
+        }
+        self.quiet = false;
+        // the thread that reported is the one the requests without a thread are about
+        if let Some(id) = sender {
+            if let Some(cur) = self.prog.others.remove(&id) {
+                if let Some(old) = self.prog.current.take() {
+                    self.prog.others.insert(old.stop.thread, old);
+                }
+                self.prog.current = Some(cur);
+            }
+        }
+    }
+
     /// A delayed stop is due.
     fn fire_due(&mut self, thread: i64, token: u64) {
         if self.prog.pending.get(&thread).map(|p| p.token) != Some(token) {
@@ -1919,6 +2254,11 @@ impl Session {
             }
         }
         let cur = Current::build(stop, self.prog.epoch, &self.prog.overrides);
+        let ids = if reason == "breakpoint" {
+            self.bp_hits(stop, &cur, false)
+        } else {
+            Vec::new()
+        };
         self.prog.install(cur, shared.script.thread_mode);
         shared
             .sent
@@ -1931,6 +2271,10 @@ impl Session {
             if self.hint {
                 body["preserveFocusHint"] = true.into();
             }
+            if !ids.is_empty() {
+                body["hitBreakpointIds"] = ids.into();
+            }
+            self.loud += 1;
             self.out.event("stopped", body);
         }
     }
@@ -2525,5 +2869,294 @@ async fn fake_adapter_memory_reads_writes_and_pokes() -> Result<()> {
     }
     assert_eq!(base64_encode(b"Man"), "TWFu");
     assert_eq!(base64_encode(b"Ma"), "TWE=");
+    Ok(())
+}
+
+/// Connects, initializes and launches (setBreakpoints in between, one `(path, lines)` per file),
+/// and returns the client once the launch was answered.
+async fn launched(
+    fake: &FakeAdapter,
+    breakpoints: &[(&str, &[u64])],
+) -> Result<(RawClient, Value)> {
+    let mut c = RawClient::connect(fake.addr).await?;
+    let caps = c.call("initialize", json!({})).await?;
+    c.expect_event("initialized").await?;
+    for (path, lines) in breakpoints {
+        let list: Vec<Value> = lines.iter().map(|l| json!({"line": l})).collect();
+        c.call(
+            "setBreakpoints",
+            json!({"source": {"path": path}, "breakpoints": list}),
+        )
+        .await?;
+    }
+    c.call("configurationDone", json!({})).await?;
+    let seq = c.request("launch", json!({})).await?;
+    c.response(seq).await?;
+    Ok((c, caps))
+}
+
+#[tokio::test]
+async fn fake_adapter_lines_move_breakpoints_and_report_their_ids() -> Result<()> {
+    let file = "/tmp/m.rs";
+    let script = Script::new(file)
+        .lines()
+        .executable_lines(file, &[2, 4, 6, 8])
+        .breakpoint_locations(file, &[2, 4, 6, 8])
+        .stop(Stop::new(2, "step"))
+        .stop(Stop::new(4, "step"))
+        .stop(Stop::new(5, "step"))
+        .stop(Stop::new(6, "step"))
+        .stop(Stop::new(8, "step"))
+        .stop(Stop::new(9, "exception"));
+    let fake = FakeAdapter::start(script).await?;
+    let mut c = RawClient::connect(fake.addr).await?;
+    let caps = c.call("initialize", json!({})).await?;
+    assert_eq!(caps["body"]["supportsBreakpointLocationsRequest"], true);
+    c.expect_event("initialized").await?;
+
+    // breakpointLocations: the lines with code within the range, per file
+    let lines = |r: &Value| -> Vec<i64> {
+        r["body"]["breakpoints"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|b| b["line"].as_i64().unwrap())
+            .collect()
+    };
+    let r = c
+        .call(
+            "breakpointLocations",
+            json!({"source": {"path": file}, "line": 1, "endLine": 10}),
+        )
+        .await?;
+    assert_eq!(lines(&r), [2, 4, 6, 8]);
+    let r = c
+        .call(
+            "breakpointLocations",
+            json!({"source": {"path": file}, "line": 3, "endLine": 6}),
+        )
+        .await?;
+    assert_eq!(lines(&r), [4, 6]);
+    let r = c
+        .call(
+            "breakpointLocations",
+            json!({"source": {"path": "/tmp/other.rs"}, "line": 1, "endLine": 10}),
+        )
+        .await?;
+    assert!(lines(&r).is_empty());
+
+    // setBreakpoints: a line without code moves to the next one, past the last it isn't verified;
+    // ids stay the same per (path, line asked)
+    let asked = json!({"source": {"path": file},
+        "breakpoints": [{"line": 1}, {"line": 2}, {"line": 3}, {"line": 7}, {"line": 9}]});
+    let r = c.call("setBreakpoints", asked.clone()).await?;
+    let answers = r["body"]["breakpoints"].as_array().unwrap().clone();
+    let shown: Vec<(i64, bool, i64)> = answers
+        .iter()
+        .map(|b| {
+            (
+                b["id"].as_i64().unwrap(),
+                b["verified"].as_bool().unwrap(),
+                b["line"].as_i64().unwrap(),
+            )
+        })
+        .collect();
+    assert_eq!(
+        shown,
+        [
+            (1, true, 2),
+            (2, true, 2),
+            (3, true, 4),
+            (4, true, 8),
+            (5, false, 9)
+        ]
+    );
+    let again = c.call("setBreakpoints", asked).await?;
+    assert_eq!(again["body"]["breakpoints"], r["body"]["breakpoints"]);
+
+    c.call("configurationDone", json!({})).await?;
+    let seq = c.request("launch", json!({})).await?;
+    c.response(seq).await?;
+    // line mode: the first line with a breakpoint, reported as a breakpoint with the ids of every
+    // breakpoint now on that line
+    let stopped = c.until(|m| m["event"] == "stopped").await?;
+    assert_eq!(stopped["body"]["reason"], "breakpoint");
+    assert_eq!(stopped["body"]["hitBreakpointIds"], json!([1, 2]));
+    // continue passes over line 4? no: a breakpoint moved there, so it stops
+    let seq = c.request("continue", json!({"threadId": 1})).await?;
+    c.response(seq).await?;
+    let stopped = c.until(|m| m["event"] == "stopped").await?;
+    assert_eq!(stopped["body"]["reason"], "breakpoint");
+    assert_eq!(stopped["body"]["hitBreakpointIds"], json!([3]));
+    // a step is the very next stop, as a step, without ids (line 5 has no breakpoint)
+    let seq = c.request("next", json!({"threadId": 1})).await?;
+    c.response(seq).await?;
+    let stopped = c.until(|m| m["event"] == "stopped").await?;
+    assert_eq!(stopped["body"]["reason"], "step");
+    assert!(stopped["body"].get("hitBreakpointIds").is_none());
+    // continue passes line 6 (no breakpoint) and stops at 8 (the one asked on 7)
+    let seq = c.request("continue", json!({"threadId": 1})).await?;
+    c.response(seq).await?;
+    let stopped = c.until(|m| m["event"] == "stopped").await?;
+    assert_eq!(stopped["body"]["hitBreakpointIds"], json!([4]));
+    let r = c.call("stackTrace", json!({"threadId": 1})).await?;
+    assert_eq!(r["body"]["stackFrames"][0]["line"], 8);
+    // the exception stop is reported as it is
+    let seq = c.request("continue", json!({"threadId": 1})).await?;
+    c.response(seq).await?;
+    let stopped = c.until(|m| m["event"] == "stopped").await?;
+    assert_eq!(stopped["body"]["reason"], "exception");
+    assert!(stopped["body"].get("hitBreakpointIds").is_none());
+    assert_eq!(
+        fake.stops_sent().iter().map(|s| s.1).collect::<Vec<_>>(),
+        [2, 4, 5, 8, 9]
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn fake_adapter_without_lines_or_locations_nothing_changes() -> Result<()> {
+    let file = "/tmp/m.rs";
+    let script = Script::new(file)
+        .stop(Stop::new(2, "step"))
+        .stop(Stop::new(3, "breakpoint"))
+        .breakpoint_locations_empty();
+    let fake = FakeAdapter::start(script).await?;
+    let (mut c, caps) = launched(&fake, &[(file, &[3, 40])]).await?;
+    // advertised, and always empty
+    assert_eq!(caps["body"]["supportsBreakpointLocationsRequest"], true);
+    // not line mode: the "step" stop is an ordinary stop of its own reason, the breakpoint one
+    // reports its id
+    let stopped = c.until(|m| m["event"] == "stopped").await?;
+    assert_eq!(stopped["body"]["reason"], "step");
+    assert!(stopped["body"].get("hitBreakpointIds").is_none());
+    let r = c
+        .call(
+            "breakpointLocations",
+            json!({"source": {"path": file}, "line": 1, "endLine": 50}),
+        )
+        .await?;
+    assert_eq!(r["body"]["breakpoints"], json!([]));
+    let seq = c.request("continue", json!({"threadId": 1})).await?;
+    c.response(seq).await?;
+    let stopped = c.until(|m| m["event"] == "stopped").await?;
+    assert_eq!(stopped["body"]["reason"], "breakpoint");
+    assert_eq!(stopped["body"]["hitBreakpointIds"], json!([1]));
+
+    // without the capability the request is unsupported, and every line verifies on itself
+    let fake = FakeAdapter::start(Script::new(file)).await?;
+    let (mut c, caps) = launched(&fake, &[]).await?;
+    assert!(caps["body"]
+        .get("supportsBreakpointLocationsRequest")
+        .is_none());
+    let r = c
+        .call(
+            "breakpointLocations",
+            json!({"source": {"path": file}, "line": 1}),
+        )
+        .await?;
+    assert_eq!(r["message"], "unsupported");
+    let r = c
+        .call(
+            "setBreakpoints",
+            json!({"source": {"path": file}, "breakpoints": [{"line": 99}]}),
+        )
+        .await?;
+    assert_eq!(r["body"]["breakpoints"][0]["line"], 99);
+    assert_eq!(r["body"]["breakpoints"][0]["verified"], true);
+    Ok(())
+}
+
+#[tokio::test]
+async fn fake_adapter_all_stop_continue_resumes_every_thread() -> Result<()> {
+    let file = "/tmp/m.rs";
+    let queue =
+        |lines: &[u64]| -> Vec<Stop> { lines.iter().map(|l| Stop::new(*l, "entry")).collect() };
+    let script = Script::new(file)
+        .threads()
+        .all_stop_continue()
+        .thread_program(1, queue(&[2, 3]))
+        .thread_program(2, queue(&[10, 11, 12]));
+    let fake = FakeAdapter::start(script).await?;
+    let (mut c, _) = launched(&fake, &[]).await?;
+    let stopped = c.until(|m| m["event"] == "stopped").await?;
+    assert_eq!(stopped["body"]["threadId"], 1);
+    // thread 2 is at its first stop, silently
+    assert_eq!(
+        fake.stops_sent(),
+        [(1, 2, "entry".into()), (2, 10, "entry".into())]
+    );
+
+    // continue of 1 without singleThread: thread 2 runs too, only the lowest reports
+    let seq = c.request("continue", json!({"threadId": 1})).await?;
+    assert_eq!(c.response(seq).await?["body"]["allThreadsContinued"], true);
+    let stopped = c.until(|m| m["event"] == "stopped").await?;
+    assert_eq!(stopped["body"]["threadId"], 1);
+    assert_eq!(fake.advanced(1), 2);
+    assert_eq!(fake.advanced(2), 2, "thread 2 ran to its next stop");
+    let r = c.call("stackTrace", json!({"threadId": 2})).await?;
+    assert_eq!(
+        r["body"]["stackFrames"][0]["line"], 11,
+        "and is stopped there"
+    );
+
+    // with singleThread only thread 2 runs
+    let seq = c
+        .request("continue", json!({"threadId": 2, "singleThread": true}))
+        .await?;
+    assert_eq!(c.response(seq).await?["body"]["allThreadsContinued"], false);
+    let stopped = c.until(|m| m["event"] == "stopped").await?;
+    assert_eq!(stopped["body"]["threadId"], 2);
+    assert_eq!((fake.advanced(1), fake.advanced(2)), (2, 3));
+
+    // once thread 1 is out of stops, the lowest thread that reaches one reports
+    let seq = c.request("continue", json!({"threadId": 1})).await?;
+    c.response(seq).await?;
+    let exited = c
+        .until(|m| m["event"] == "thread" && m["body"]["reason"] == "exited")
+        .await?;
+    assert_eq!(exited["body"]["threadId"], 1);
+    Ok(())
+}
+
+#[tokio::test]
+async fn fake_adapter_pending_breakpoints_are_verified_by_events() -> Result<()> {
+    let file = "/tmp/m.rs";
+    let script = Script::new(file)
+        .pending_breakpoints()
+        .executable_lines(file, &[4, 6])
+        .stop(Stop::new(4, "breakpoint"));
+    let fake = FakeAdapter::start(script).await?;
+    let mut c = RawClient::connect(fake.addr).await?;
+    c.call("initialize", json!({})).await?;
+    c.expect_event("initialized").await?;
+    let r = c
+        .call(
+            "setBreakpoints",
+            json!({"source": {"path": file}, "breakpoints": [{"line": 3}, {"line": 6}, {"line": 9}]}),
+        )
+        .await?;
+    let answers = r["body"]["breakpoints"].as_array().unwrap().clone();
+    assert!(answers
+        .iter()
+        .all(|b| b["verified"] == false && b.get("line").is_none()));
+    c.call("configurationDone", json!({})).await?;
+    let seq = c.request("launch", json!({})).await?;
+    c.response(seq).await?;
+    let mut events = Vec::new();
+    for _ in 0..3 {
+        let e = c.until(|m| m["event"] == "breakpoint").await?;
+        assert_eq!(e["body"]["reason"], "changed");
+        let b = &e["body"]["breakpoint"];
+        events.push((
+            b["id"].as_i64().unwrap(),
+            b["verified"].as_bool().unwrap(),
+            b["line"].as_i64().unwrap(),
+        ));
+    }
+    // line 3 moved to 4, line 6 stays, line 9 has no code after it
+    assert_eq!(events, [(1, true, 4), (2, true, 6), (3, false, 9)]);
+    let stopped = c.until(|m| m["event"] == "stopped").await?;
+    assert_eq!(stopped["body"]["hitBreakpointIds"], json!([1]));
     Ok(())
 }
