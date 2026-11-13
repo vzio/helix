@@ -1445,17 +1445,6 @@ pub(crate) mod tests {
             .unwrap()
     }
 
-    fn symbols(surface: &Surface) -> Vec<String> {
-        let area = surface.area;
-        let mut out = Vec::new();
-        for y in area.top()..area.bottom() {
-            for x in area.left()..area.right() {
-                out.push(surface[(x, y)].symbol.to_string());
-            }
-        }
-        out
-    }
-
     #[test]
     fn the_runes_logo_settled() {
         let born = Instant::now();
@@ -1602,7 +1591,7 @@ pub(crate) mod tests {
         );
         let glitches = RefCell::new(Glitches::default());
         let mut changes = 0;
-        let mut seen = std::collections::HashSet::new();
+        let mut seen = std::collections::HashSet::<char>::new();
         for k in 0..30 {
             let now = settled(born) + Duration::from_millis(k * 50);
             let plain = surface_themed(&theme, &stats, (160, 50), still, now, None);
@@ -1618,7 +1607,7 @@ pub(crate) mod tests {
                 let c = glitched[(x, y)].symbol.chars().next().unwrap();
                 assert!(glitch::CHARS.contains(&(c as u8)), "{c:?}");
                 changes += 1;
-                seen.insert(symbols(&glitched)[y as usize * 160 + x as usize].clone());
+                seen.insert(c);
             }
             // the panels and the title are as without the glitch
             for y in 0..50 {

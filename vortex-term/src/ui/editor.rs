@@ -2065,3 +2065,165 @@ pub(crate) fn canonicalize_key(key: &mut KeyEvent) {
         key.modifiers.remove(KeyModifiers::SHIFT)
     }
 }
+
+#[cfg(test)]
+mod glitch_tests {
+    use super::*;
+    use crate::{compositor::Component, job::Jobs};
+    use arc_swap::{access::Map, ArcSwap};
+    use std::sync::Arc;
+    use vortex_core::{
+        diagnostic::{Diagnostic, DiagnosticProvider, LanguageServerId, Range, Severity},
+        Transaction,
+    };
+    use vortex_view::{
+        annotations::diagnostics::DiagnosticFilter,
+        editor::{Action, Config as EditorConfig},
+    };
+
+    fn theme(effects: &str) -> vortex_view::Theme {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(dir.path().join("themes")).unwrap();
+        std::fs::write(
+            dir.path().join("themes/glitchy.toml"),
+            format!("inherits = \"vortex\"\n[effects]\n{effects}\n"),
+        )
+        .unwrap();
+        vortex_view::theme::Loader::new(&[dir.path().to_path_buf()])
+            .load("glitchy")
+            .unwrap()
+    }
+
+    fn row(surface: &Surface, y: u16) -> String {
+        (0..surface.area.width)
+            .map(|x| surface[(x, y)].symbol.as_str())
+            .collect()
+    }
+
+    fn diagnostic(line: usize, range: Range, severity: Severity, message: &str) -> Diagnostic {
+        Diagnostic {
+            range,
+            ends_at_word: true,
+            starts_at_word: true,
+            zero_width: false,
+            line,
+            message: message.to_string(),
+            severity: Some(severity),
+            code: None,
+            provider: DiagnosticProvider::Lsp {
+                server_id: LanguageServerId::default(),
+                identifier: None,
+            },
+            tags: Vec::new(),
+            source: None,
+            data: None,
+        }
+    }
+
+    /// Only the ghost text of the error is recorded for the glitch, never the warning's nor
+    /// the text of the buffer; and nothing without `glitch-diagnostics` in the theme.
+    #[tokio::test]
+    async fn only_the_error_ghost_text_is_kept_for_the_glitch() {
+        let area = Rect::new(0, 0, 80, 12);
+        let mut config = crate::config::Config::default();
+        config.editor = EditorConfig {
+            end_of_line_diagnostics: DiagnosticFilter::Enable(Severity::Hint),
+            ..config.editor
+        };
+        let config = Arc::new(ArcSwap::from_pointee(config));
+        let handlers = crate::handlers::setup(config.clone());
+        let mut editor = Editor::new(
+            area,
+            Arc::new(vortex_view::theme::Loader::new(&[])),
+            Arc::new(ArcSwap::from_pointee(
+                vortex_core::config::default_lang_loader(),
+            )),
+            Arc::new(Map::new(
+                Arc::clone(&config),
+                |config: &crate::config::Config| &config.editor,
+            )),
+            handlers,
+            vortex_loader::workspace_trust::WorkspaceTrust::fully_trusted(),
+        );
+        editor.new_file(Action::VerticalSplit);
+        {
+            let (view, doc) = vortex_view::current!(editor);
+            let text = "let first = 1;\nlet second = 2;\nlet third = 3;\n";
+            let sel = doc.selection(view.id).clone();
+            let transaction = Transaction::change_by_selection(doc.text(), &sel, |_| {
+                (0, doc.text().len_chars(), Some(text.into()))
+            });
+            doc.apply(&transaction, view.id);
+            // "first" on line 0 is an error, "third" on line 2 a warning
+            doc.replace_diagnostics(
+                [
+                    diagnostic(
+                        0,
+                        Range { start: 4, end: 9 },
+                        Severity::Error,
+                        "ERRMSG here",
+                    ),
+                    diagnostic(
+                        2,
+                        Range { start: 35, end: 40 },
+                        Severity::Warning,
+                        "WARNMSG here",
+                    ),
+                ],
+                &[],
+                None,
+            );
+            assert_eq!(doc.diagnostics().len(), 2);
+        }
+        let mut jobs = Jobs::new();
+        let mut view = EditorView::new(crate::keymap::Keymaps::default());
+
+        let mut render = |editor: &mut Editor, view: &mut EditorView| {
+            let mut surface = Surface::empty(area);
+            let mut cx = crate::compositor::Context {
+                editor,
+                scroll: None,
+                jobs: &mut jobs,
+            };
+            view.render(area, &mut surface, &mut cx);
+            surface
+        };
+
+        // no `glitch-diagnostics`: both messages show, nothing is recorded
+        let surface = render(&mut editor, &mut view);
+        let rows: Vec<String> = (0..area.height).map(|y| row(&surface, y)).collect();
+        assert!(rows.iter().any(|r| r.contains("ERRMSG here")), "{rows:#?}");
+        assert!(rows.iter().any(|r| r.contains("WARNMSG here")), "{rows:#?}");
+        assert!(view.diagnostic_cells.borrow().is_empty());
+        assert!(view.diagnostic_glitch.get().is_none());
+
+        // with it: the cells of the error's message, and only those
+        editor.set_theme(theme("glitch-diagnostics = 1.0")).unwrap();
+        let surface = render(&mut editor, &mut view);
+        let rows: Vec<String> = (0..area.height).map(|y| row(&surface, y)).collect();
+        let error_row = rows.iter().position(|r| r.contains("ERRMSG here")).unwrap();
+        let warning_row = rows
+            .iter()
+            .position(|r| r.contains("WARNMSG here"))
+            .unwrap();
+        assert!(view.diagnostic_glitch.get().is_some());
+        let mut cells = view.diagnostic_cells.borrow().clone();
+        assert!(!cells.is_empty());
+        cells.sort_by_key(|&(x, y)| (y, x));
+        assert!(
+            cells.iter().all(|&(_, y)| y as usize == error_row),
+            "{cells:?} error on row {error_row}, warning on {warning_row}"
+        );
+        // they spell the message: the characters, not the space between the words
+        let spelled: String = cells
+            .iter()
+            .map(|&(x, y)| surface[(x, y)].symbol.as_str())
+            .collect();
+        assert_eq!(spelled, "ERRMSGhere");
+        // and sit after the buffer's text of the line
+        let text_end = rows[error_row].find("let first = 1;").unwrap() + "let first = 1;".len();
+        assert!(cells.iter().all(|&(x, _)| x as usize >= text_end));
+        // the warning stays as it is
+        assert!(rows[warning_row].contains("WARNMSG here"));
+    }
+}

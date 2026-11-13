@@ -1381,7 +1381,11 @@ the vortex and error diagnostics use it now, each with its own rate and duration
   minute at rest with an error diagnostic on screen, its message 44 characters long: with
   `glitch-diagnostics = 0.01`, 0.7 frames a second (one to start each glitch and one to end it),
   50 bytes a second written to the terminal, 0.08% of a CPU; the same file in a theme without
-  effects, 0 frames and 0%. MATRIX_DASHBOARD
+  effects, 0 frames and 0%.
+  The Matrix's fast logo glitch is the one that keeps frames coming: on its dashboard (with a
+  `static` vortex) about 75 glitches a second over the classic title's 126 letters draw 24 frames
+  a second, writing 4 KiB/s and taking 3.5% of a CPU. Each of those frames draws the whole
+  dashboard, but a still vortex reuses the light of its last frame.
 - **Error diagnostics.** Only the ghost text Vortex draws for diagnostics of severity error, at
   the end of the line and inline under it, over its characters (not the spaces between words);
   never warnings, info or hints, never their `┘├─` connectors, never the buffer's own text.
@@ -2396,7 +2400,8 @@ the CPU is the whole editor's):
 | `static` | 2.1 ms | 0 | 0 | 0% |
 | `off` | 0.27 ms | 0 | 0 | 0% |
 
-The first frame of a full vortex also computes its geometry for the window (the rest of the 2 ms
+First frames vary by a few tenths of a millisecond from run to run. The first frame of a full
+vortex also computes its geometry for the window (the rest of the 2 ms
 over a frame's 1.3); starting empty skips both, and the vortex costs only what it reaches while it
 grows. A spinning vortex writes about 30 KiB a frame, mostly colors (the shades of the gradient are
 few so that neighbor cells share them). The modes that stop write nothing and draw no frames once
