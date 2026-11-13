@@ -420,8 +420,8 @@
   space G b      add or remove a breakpoint on this line
   space G C-c    a condition for the breakpoint
   space G C-l    a log message for it instead of a stop
-  space G c      continue at full speed to your next breakpoint;
-                 space G h pauses
+  space G c      continue at full speed to your next breakpoint
+  space G h      pause
   space G n      step to the next line
   space G i  o   step into the call, out of the function
   space G p      show or hide the panel

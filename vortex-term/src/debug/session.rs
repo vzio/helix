@@ -158,88 +158,84 @@ fn handle_session_event(
 }
 
 fn handle_stop(editor: &mut Editor, id: DebugAdapterId, body: events::StoppedBody) -> bool {
-    match Event::Stopped(body) {
-        Event::Stopped(events::StoppedBody {
-            thread_id,
-            description,
-            text,
-            reason,
-            all_threads_stopped,
-            preserve_focus_hint,
-            ..
-        }) => {
-            // An adapter that stops every thread may report each of them, hinting that only one
-            // caused the stop (lldb-dap: the others keep the reason of their last stop). Those
-            // only update their thread's state, unless no other stop comes soon after.
-            if preserve_focus_hint == Some(true) {
-                let client = editor.debug_adapters.get_client_mut(id).unwrap();
-                if let Some(thread) = thread_id {
-                    client.thread_states.insert(thread, reason.clone());
-                }
-                let generation = editor.debug.generation;
-                let body = events::StoppedBody {
-                    reason,
-                    description,
-                    thread_id,
-                    preserve_focus_hint: Some(false),
-                    text,
-                    all_threads_stopped,
-                    hit_breakpoint_ids: None,
-                };
-                tokio::spawn(async move {
-                    tokio::time::sleep(std::time::Duration::from_millis(150)).await;
-                    job::dispatch(move |editor, _| {
-                        if editor.debug.generation == generation
-                            && editor.debug_adapters.get_client(id).is_some()
-                        {
-                            handle_event(editor, id, Event::Stopped(body), None);
-                        }
-                    })
-                    .await;
-                });
-                return true;
-            }
-            let reason_for_playback = reason.clone();
-            editor.debug.spectator.stop_arrived = Some(
-                editor
-                    .debug_adapters
-                    .get_client(id)
-                    .and_then(|client| client.last_stop_received())
-                    .unwrap_or_else(std::time::Instant::now),
-            );
-            match all_threads_stopped {
-                Some(false) => {
-                    editor.debug.spectator.non_stop.insert(id);
-                }
-                Some(true) => {
-                    editor.debug.spectator.non_stop.remove(&id);
-                }
-                None => {}
-            }
-            let client = editor.debug_adapters.get_client_mut(id).unwrap();
-            let all = all_threads_stopped.unwrap_or_default();
-            if let Some(thread) = thread_id {
-                client.thread_states.insert(thread, reason.clone());
-            }
-            if all {
-                for state in client.thread_states.values_mut() {
-                    *state = reason.clone();
-                }
-            }
-            let session_name = client.name.clone();
-            editor.debug_adapters.set_active_client(id);
-            let description = description.or(text).filter(|d| !d.is_empty());
-            editor.debug.status = Status::Stopped {
-                reason,
-                description,
-            };
-            editor.debug.session_name = session_name;
-            editor.debug.generation += 1;
-            super::memory::on_stop(editor, id);
-            load::after_stop(editor, id, thread_id, reason_for_playback);
+    let events::StoppedBody {
+        thread_id,
+        description,
+        text,
+        reason,
+        all_threads_stopped,
+        preserve_focus_hint,
+        ..
+    } = body;
+    // An adapter that stops every thread may report each of them, hinting that only one
+    // caused the stop (lldb-dap: the others keep the reason of their last stop). Those
+    // only update their thread's state, unless no other stop comes soon after.
+    if preserve_focus_hint == Some(true) {
+        let client = editor.debug_adapters.get_client_mut(id).unwrap();
+        if let Some(thread) = thread_id {
+            client.thread_states.insert(thread, reason.clone());
         }
-        _ => {}
+        let generation = editor.debug.generation;
+        let body = events::StoppedBody {
+            reason,
+            description,
+            thread_id,
+            preserve_focus_hint: Some(false),
+            text,
+            all_threads_stopped,
+            hit_breakpoint_ids: None,
+        };
+        tokio::spawn(async move {
+            tokio::time::sleep(std::time::Duration::from_millis(150)).await;
+            job::dispatch(move |editor, _| {
+                if editor.debug.generation == generation
+                    && editor.debug_adapters.get_client(id).is_some()
+                {
+                    handle_event(editor, id, Event::Stopped(body), None);
+                }
+            })
+            .await;
+        });
+        return true;
     }
+    let reason_for_playback = reason.clone();
+    editor.debug.spectator.stop_arrived = Some(
+        editor
+            .debug_adapters
+            .get_client(id)
+            .and_then(|client| client.last_stop_received())
+            .unwrap_or_else(std::time::Instant::now),
+    );
+    match all_threads_stopped {
+        Some(false) => {
+            editor.debug.spectator.non_stop.insert(id);
+        }
+        Some(true) => {
+            editor.debug.spectator.non_stop.remove(&id);
+        }
+        None => {}
+    }
+    let client = editor.debug_adapters.get_client_mut(id).unwrap();
+    let all = all_threads_stopped.unwrap_or_default();
+    if let Some(thread) = thread_id {
+        client.thread_states.insert(thread, reason.clone());
+    }
+    if all {
+        for state in client.thread_states.values_mut() {
+            *state = reason.clone();
+        }
+    }
+    let session_name = client.name.clone();
+    editor.debug_adapters.set_active_client(id);
+    let description = description.or(text).filter(|d| !d.is_empty());
+    editor.debug.status = Status::Stopped {
+        reason,
+        description,
+    };
+    editor.debug.session_name = session_name;
+    editor.debug.generation += 1;
+    super::memory::on_stop(editor, id);
+    load::after_stop(editor, id, thread_id, reason_for_playback);
     true
 }
 

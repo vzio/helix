@@ -1680,12 +1680,14 @@ program and js-debug on a small TypeScript one, in `own`:
 | Playback asked 2 / 8 / 25 lines/s, rewind recording on (Rust) | 0.8 / 0.7 / 0.8 | 0.7 / 0.6 / 0.7 |
 | Same, `history = 0` (Rust) | 2.0 / 7.9 / 21 | 2.0 / 7.6 / 12.6 |
 | Cost of a line, other threads' hits (lldb-dap) | 15-17 ms; ~460 hits/s, one thread or several | ~25 ms a step |
+| Playback asked 25 lines/s, recording on / `history = 0` (TypeScript) | 0.5 / 5.6 | 0.5 / 5.6 |
 | Cost of a line (js-debug) | 55-100 ms; ~22 hits/s | about the same |
 
 - **Recording each stop whole sets the top speed**, not how playback advances: on that program a
   stop's capture takes about 1.3 s (67 requests with lldb-dap, most of them rustc's formatters;
   about 1 s and 174 requests with js-debug). With recording off, the engine keeps up to about
-  21 lines/s where stepping tops out near 13.
+  21 lines/s with lldb-dap where stepping tops out near 13; with js-debug both stop near 6, the
+  time it takes to show a stop at all.
 - **Installing**: 41 hidden breakpoints in one Rust file in 44 ms; 32 in one TypeScript file (in
   both js-debug sessions). Debugging Vortex itself (486 files, about 180,000 lines) took about
   13 minutes for 42,290 breakpoints, and lldb-dap grew to 2 GB: on a program that big, set

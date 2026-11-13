@@ -641,6 +641,6 @@ mod tests {
         }
         // 800 KB of hits, and the vector's growth on top
         let bytes = record.bytes();
-        assert!(bytes >= 800_000 && bytes < 1_700_000, "{bytes}");
+        assert!((800_000..1_700_000).contains(&bytes), "{bytes}");
     }
 }
