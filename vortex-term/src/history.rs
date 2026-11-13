@@ -132,6 +132,14 @@ pub fn step(
     count: usize,
     here: Option<Place>,
 ) -> bool {
+    // a step may open another buffer or screen: it ends watch mode, also from the keys that
+    // don't go through the keymap (the sticky state, the hex view, a diff on top)
+    let name = match step {
+        Step::Toggle => "history_toggle",
+        Step::Back => "history_back",
+        Step::Forward => "history_forward",
+    };
+    crate::watch::before_command(editor, name);
     let left = here.clone();
     let here = here.unwrap_or_else(|| editor.place());
     match editor.history_step(step, count, here.clone()) {

@@ -250,7 +250,8 @@ screen in `ui/editor.rs`; `ga`/`gA`, leaving and coming back in `ui/diff_view.rs
 `Compositor::pop_to_editor`; `ga`/`gA` in the hex view (`commands/hex.rs`); entering the debug panel
 (`debug/panel.rs`) and the debugger's stops not recording (`handlers/dap.rs`); the opening of each
 diff (`commands/diff_view.rs`); the keys in `keymap/default.rs`; `ui.gutter.bookmark` in both
-themes.
+themes. With watch mode: its command lists (`vortex-term/src/watch.rs`) know the new commands, and
+its following and `n`/`N` run without recording.
 
 To build: `cargo install --path vortex-term --locked`.
 
@@ -2094,11 +2095,20 @@ The view never jumps while you're reading: new changes are counted in the status
 the newest change follows again, and the statusline says `WATCH following`.
 
 **Anything else ends watch mode**: an edit, insert mode, opening a file yourself (`:open`, `gf`,
-`ga`, `gd`, a buffer switch), a picker, a split, a command other than `:goto` and the watch
-commands. The session's markers, `n`/`N` and `:watch-changes` stay until the next `:watch` or
+`gd`, a buffer switch), [history](#history-and-bookmarks)'s `ga` and `gA` and the bookmarks'
+`C-i`, `C-o` and `space j` (they can open another buffer or screen), a picker, a split, a command
+other than `:goto` and the watch commands. The session's markers, `n`/`N` and `:watch-changes` stay until the next `:watch` or
 `:watch-clear`; the working tree is no longer watched, so they show the changes up to then. `Esc`,
 the command line (`:`) and the palette themselves, and the [terminal panel](#terminal-panel)
 (`C-t`), change nothing: an agent can run in the panel while its changes are followed above it.
+Setting or removing a bookmark (`C-s`) changes nothing either.
+
+**History and bookmarks.** Following and `n`/`N` through the session's changes are not
+[history](#history-and-bookmarks)'s jumps: the session has its own order and its picker, and
+following would otherwise fill the history with every change an agent makes. So `ga` after watch
+mode goes back to where your own last jump left, not to the change followed before. A change
+picked in `:watch-changes` is a jump, as in any picker. Bookmarks set while watching stay on their
+lines while the files change under them (a reload maps them like any edit).
 
 ### The statusline
 
@@ -2255,8 +2265,9 @@ rule in `vortex_view::history::records`):
 and `Alt-o`/`Alt-i`, `gw` and its labels on the screen), scrolling, a mouse click in the same
 buffer, selections (`s`, `S`, `K`... even though they use a regex prompt like `/`), edits, the
 terminal panel (a drawer, not a screen), history's own steps, the debugger's stops (stepping
-through files would fill the history; spectator mode steps many times a second) and switching
-windows. A jump that lands on the line it left records nothing, and a place on the same buffer
+through files would fill the history; spectator mode steps many times a second),
+[watch mode](#watch-mode)'s following and its `n`/`N` (the session has its own order and picker)
+and switching windows. A jump that lands on the line it left records nothing, and a place on the same buffer
 and line as the last one recorded replaces it rather than adding a second one.
 
 **Screens are places.** `ga` from a file opened from a diff (`Enter`) comes back to the diff, as
@@ -2340,6 +2351,9 @@ screen" is this: screens are places.
 - **A bookmark is a line**, stored as the start of the line: text typed at the very start of the
   line, or a line opened above it, leaves it on its line. Of two bookmarks joined onto one line
   (`J`), the older stays.
+- **In watch mode**, `ga`, `gA`, `C-i`, `C-o` and `space j` end it, as opening a file yourself
+  does (also from the keys that bypass the keymap: the sticky state, the hex view, a diff);
+  `C-s` changes nothing.
 - **`Ctrl-x` removes a bookmark** in the picker: no picker or prompt key uses it.
 - **`◆`** marks the bookmarks past the ninth; numbers are drawn in `ui.gutter.bookmark`, bold
   purple in the vortex theme, bold honey in upstream's.
@@ -2347,7 +2361,8 @@ screen" is this: screens are places.
 ### Limitations
 
 - Undo brings a deleted line back, not its bookmark.
-- Moving a line (`Alt-j`/`Alt-k` of move lines) deletes and inserts it: its bookmark goes.
+- Moving a line with [move lines](#move-lines) (`j`/`k` in move mode, `M`; the `move_lines_down`
+  and `move_lines_up` commands) deletes and inserts it: its bookmark goes.
 - The hex view's history places are buffers, not offsets: `ga` comes back to the hex view where
   its cursor is now, not to the offset before a `G` or a search.
 - A diff left by history is kept as it was and read again when it comes back; leaving it with
