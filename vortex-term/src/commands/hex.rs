@@ -1,7 +1,7 @@
 //! The keys and commands of the hex view (this fork). A document in the hex view shows its bytes
 //! (see `ui/hex_view.rs` and `vortex_view::hex`); its keys are handled here, before the keymap,
 //! which still gets the ones the view leaves alone: `:`, `space`, and the keys with `Ctrl` or
-//! `Alt` that it doesn't use (`C-w` for the windows, `C-o`/`C-i` for the jumplist...). The text of
+//! `Alt` that it doesn't use (`C-w` for the windows, `C-o`/`C-i` for the bookmarks...). The text of
 //! the document can't change meanwhile (`Document::apply` refuses), so no command reaching the
 //! keymap can edit it unseen.
 //!
@@ -331,6 +331,12 @@ fn undo(cx: &mut Context, undo: bool) {
 
 /// The second key of a `g` sequence.
 fn goto_key(cx: &mut Context, prefix: char, key: KeyEvent) {
+    // history (this fork): the hex view is a place like any buffer
+    match (prefix, key.code) {
+        ('g', KeyCode::Char('a')) => return crate::history::toggle(cx),
+        ('g', KeyCode::Char('A')) => return crate::history::back(cx),
+        _ => {}
+    }
     let Some(mut target) = Target::of(cx.editor) else {
         return;
     };

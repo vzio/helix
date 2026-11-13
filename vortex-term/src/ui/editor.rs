@@ -28,6 +28,7 @@ use vortex_view::{
     document::{Mode, SCRATCH_BUFFER_NAME},
     editor::{CompleteAction, CursorShapeConfig},
     graphics::{Color, CursorKind, Modifier, Rect, Style},
+    history::Place,
     input::{KeyEvent, MouseButton, MouseEvent, MouseEventKind},
     keyboard::{KeyCode, KeyModifiers},
     Document, Editor, Theme, View,
@@ -84,15 +85,32 @@ impl EditorView {
 
     /// Opens the dashboard over the focused view (this fork, `:dashboard` and startup).
     pub fn open_dashboard(&mut self, editor: &mut Editor) {
+        let from = editor.place();
         self.dashboard = Some(crate::dashboard::Dashboard::open(editor, &self.keymaps));
+        Self::opened_screen(editor, from, vortex_view::history::ScreenKind::Dashboard);
     }
 
     /// `:vortex` (this fork): only the dashboard's vortex.
     pub fn open_vortex(&mut self, editor: &mut Editor) {
+        let from = editor.place();
         self.dashboard = Some(crate::dashboard::Dashboard::open_vortex(
             editor,
             &self.keymaps,
         ));
+        Self::opened_screen(editor, from, vortex_view::history::ScreenKind::Vortex);
+    }
+
+    /// The dashboard is a screen (this fork: history): opening it is a jump from `from`, and the
+    /// place is the dashboard while it is up.
+    fn opened_screen(editor: &mut Editor, from: Place, kind: vortex_view::history::ScreenKind) {
+        // the empty buffer it is drawn over is not a place to come back to
+        let empty_scratch = matches!(&from, Place::Text { doc, .. }
+            if editor.tree.get(editor.tree.focus).doc == *doc
+                && editor.document(*doc).is_some_and(|doc| doc.path().is_none() && !doc.is_modified()));
+        if !empty_scratch {
+            editor.record_jump(vortex_view::history::Jump::Screen, from);
+        }
+        crate::history::cover(editor, kind);
     }
 
     /// The dashboard, if it is still up; it is dropped as soon as it isn't.
@@ -1602,6 +1620,11 @@ impl Component for EditorView {
 
                 // clear status
                 cx.editor.status_msg = None;
+
+                // `gA`'s sticky state (this fork: history) takes `A`, `a` and `Esc` first
+                if let Some(result) = crate::history::menu_key(key, cx.editor, |_| None) {
+                    return result;
+                }
 
                 let mode = cx.editor.mode();
 

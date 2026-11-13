@@ -98,7 +98,7 @@ naive = "llll...a;<esc>..."             # brute force without the feature, earli
   `<` or `>` is `<lt>` or `<gt>`. Every key event is one keystroke. Par is computed, never written.
 - Shell commands (`|`) only in the `shell` chapter, with POSIX tools (`sort`, `uniq`, `tr`, `cut`,
   `nl`, `rev`).
-- An exercise doesn't rely on state it doesn't set up itself (registers, the jumplist, the last
+- An exercise doesn't rely on state it doesn't set up itself (registers, history, bookmarks, the last
   search); `before` is how it gets an undo history.
 - Use this fork's keymap (`vortex-term/src/keymap/default.rs`), which differs from upstream in places.
 

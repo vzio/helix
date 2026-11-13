@@ -359,12 +359,67 @@ pub fn diagnostics_or_breakpoints<'doc>(
     let mut diagnostics = diagnostic(editor, doc, view, theme, is_focused);
     let mut breakpoints = breakpoints(editor, doc, view, theme, is_focused);
     let mut execution_pause_indicator = execution_pause_indicator(editor, doc, theme, is_focused);
+    let mut bookmarks = bookmarks(editor, doc, view, theme, is_focused);
+    // a breakpoint wins over a bookmark while a debug session runs (this fork)
+    let debugging = editor.debug_adapters.get_active_client().is_some();
 
     Box::new(move |line, selected, first_visual_line: bool, out| {
-        execution_pause_indicator(line, selected, first_visual_line, out)
-            .or_else(|| breakpoints(line, selected, first_visual_line, out))
+        execution_pause_indicator(line, selected, first_visual_line, out).or_else(|| {
+            if debugging {
+                breakpoints(line, selected, first_visual_line, out)
+                    .or_else(|| bookmarks(line, selected, first_visual_line, out))
+            } else {
+                bookmarks(line, selected, first_visual_line, out)
+                    .or_else(|| breakpoints(line, selected, first_visual_line, out))
+            }
             .or_else(|| diagnostics(line, selected, first_visual_line, out))
+        })
     })
+}
+
+/// The marker of a bookmark past the ninth.
+pub const BOOKMARK_SYMBOL: &str = "◆";
+
+/// Bookmarks (this fork): their number, `1` to `9`, then [`BOOKMARK_SYMBOL`]; in the color of a
+/// diagnostic on the same line, so that it isn't lost.
+pub fn bookmarks<'doc>(
+    editor: &'doc Editor,
+    doc: &'doc Document,
+    view: &View,
+    theme: &Theme,
+    is_focused: bool,
+) -> GutterFn<'doc> {
+    let numbers = editor.bookmark_numbers(doc.id());
+    if numbers.is_empty() {
+        return Box::new(|_, _, _, _| None);
+    }
+    let style = theme
+        .try_get("ui.gutter.bookmark")
+        .unwrap_or_else(|| theme.get("ui.linenr.selected"));
+    let mut diagnostics = diagnostic(editor, doc, view, theme, is_focused);
+    let mut scratch = String::new();
+
+    Box::new(
+        move |line: usize, selected: bool, first_visual_line: bool, out: &mut String| {
+            if !first_visual_line {
+                return None;
+            }
+            let &(_, number) = numbers.iter().find(|&&(at, _)| at == line)?;
+            match number {
+                1..=9 => write!(out, "{number}").ok()?,
+                _ => write!(out, "{BOOKMARK_SYMBOL}").ok()?,
+            }
+            scratch.clear();
+            let style = match diagnostics(line, selected, first_visual_line, &mut scratch) {
+                Some(diagnostic) => Style {
+                    fg: diagnostic.fg.or(style.fg),
+                    ..style
+                },
+                None => style,
+            };
+            Some(style)
+        },
+    )
 }
 
 pub fn code_action_hint<'doc>(

@@ -72,13 +72,13 @@
  one is on screen.
 
   gn  gp         next and previous buffer
-  ga             the buffer you were in before (back and forth)
   gm             the buffer you last changed
   space b        pick a buffer from a list
   :bc            close the buffer (:bc! when it has changes)
   :new           a new empty buffer
 
- Try it: :o README.md (or any file), then ga twice.
+ Try it: :o README.md (or any file), then ga twice: ga goes back
+ to where you came from, and back again (section 5).
 
 
 
@@ -131,19 +131,49 @@
 
 
 =================================================================
-=                       5 THE JUMPLIST                          =
+=               5 HISTORY AND BOOKMARKS (FORK)                  =
 =================================================================
 
- Big moves, like a search, gg, ge or going to a definition, are
- jumps: Vortex remembers where you were before each one.
+ History is automatic: each teleport remembers where it left.
+ Teleports are gd and the other goto keys, a search (/ ? n N),
+ gg, ge, :12, a result picked in a picker, another buffer, and
+ another screen (the dashboard, a diff, the debug panel). Moving
+ through the text around the cursor (hjkl w b f } % gt...) never
+ counts, so history stays short enough to trust.
 
-  C-o            back to where you were
-  C-i  (Tab)     forward again
-  C-s            remember this place yourself
-  space j        pick a place from the jumplist
+  ga             back to where the last jump left, and again to
+                 return: ga ga is where you were
+  gA             one step further back each time; then A goes on
+                 back, a forward, Esc stops, any other key stops
+                 and does what it always does
 
- Try it: search for PICKERS with /PICKERS and Enter, then C-o
- and C-i.
+ After a walk with gA, ga returns to where the walk started.
+ Jumping somewhere new from the middle of a walk forgets the
+ steps ahead of it, like an edit after u forgets the redo.
+
+ Try it: in code with a language server, gd twice into other
+ files (or :o two files of your own), then gAAA, a, and ga.
+
+ Bookmarks are places you set yourself and keep coming back to:
+ a working set across files, in the order you set them.
+
+  C-s            set a bookmark on the cursor's line, or remove
+                 the one there (with several cursors, on each
+                 cursor's line)
+  C-i  (Tab)     the next bookmark, in the order they were set;
+                 past the last, the first again
+  C-o            the previous bookmark
+  space j        the bookmarks in a list: Enter goes to one,
+                 C-x removes it
+
+ The gutter shows each bookmark's number, 1 to 9, then ◆. They
+ move with the text when lines come and go above them, and go
+ with their line when it is deleted. They last until Vortex
+ quits. Removing one renumbers the ones after it.
+
+ Try it: C-s on three lines in two files, then C-i C-i C-i and
+ C-o to go round them; then space j, C-x on number 2, and see
+ 3 become 2 in the gutter. C-i records a jump too: ga is back.
 
 
 

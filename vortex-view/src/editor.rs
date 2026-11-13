@@ -1453,6 +1453,14 @@ pub struct Editor {
     pub terminal: crate::terminal::Panel,
     /// The debug panel and what it shows (fork feature).
     pub debug: crate::debug::DebugState,
+    /// The screen drawn over a buffer, the dashboard, for history (this fork).
+    pub screen_cover: Option<crate::history::ScreenCover>,
+    /// No jump records while set: history's own steps, the debugger's stops (this fork).
+    pub history_paused: bool,
+    /// After `gA`: `A` goes back, `a` forward, until another key (this fork).
+    pub history_menu: bool,
+    /// The bookmarks of closed files and the one the ring is at (this fork).
+    pub bookmark_state: crate::bookmarks::Bookmarks,
     /// Messages shown instead of `'file' written` when the save of these documents completes
     /// (fork feature: a hunk revert says how to undo it).
     pub save_messages: HashMap<DocumentId, String>,
@@ -1639,6 +1647,10 @@ impl Editor {
             theme_loader,
             last_theme: None,
             last_selection: None,
+            screen_cover: None,
+            history_paused: false,
+            history_menu: false,
+            bookmark_state: Default::default(),
             registers: Registers::new(Box::new(arc_swap::access::Map::new(
                 Arc::clone(&config),
                 |config: &Config| &config.clipboard_provider,
@@ -2140,6 +2152,8 @@ impl Editor {
 
         let focust_lost = match action {
             Action::Replace => {
+                // another buffer is a jump (this fork: history)
+                let from = self.place();
                 let (view, doc) = current_ref!(self);
                 // If the current view is an empty scratch buffer and is not displayed in any other views, delete it.
                 // Boolean value is determined before the call to `view_mut` because the operation requires a borrow
@@ -2167,13 +2181,11 @@ impl Editor {
                     let id = doc.id;
                     self.documents.remove(&id);
 
-                    // Remove the scratch buffer from any jumplists
+                    // Remove the scratch buffer from any history
                     for (view, _) in self.tree.views_mut() {
                         view.remove_document(&id);
                     }
                 } else {
-                    let jump = (view.doc, doc.selection(view.id).clone());
-                    view.push_jump(doc, jump);
                     // Set last accessed doc if it is a different document
                     if doc.id != id {
                         view.add_to_history(view.doc);
@@ -2187,6 +2199,7 @@ impl Editor {
                 }
 
                 self.replace_document_in_view(view_id, id);
+                self.record_jump(crate::history::Jump::Switch, from);
 
                 dispatch(DocumentFocusLost {
                     editor: self,
@@ -2253,7 +2266,11 @@ impl Editor {
         self.next_document_id =
             DocumentId(unsafe { NonZeroUsize::new_unchecked(self.next_document_id.0.get() + 1) });
         doc.id = id;
+        let path = doc.path().map(Path::to_path_buf);
         self.documents.insert(id, doc);
+        if let Some(path) = path {
+            self.adopt_closed_bookmarks(id, &path);
+        }
 
         let (save_sender, save_receiver) = tokio::sync::mpsc::unbounded_channel();
         self.saves.insert(id, save_sender);
@@ -2375,6 +2392,7 @@ impl Editor {
 
         // This will also disallow any follow-up writes
         self.saves.remove(&doc_id);
+        self.keep_closed_bookmarks(doc_id);
 
         enum Action {
             Close(ViewId),
@@ -2501,7 +2519,7 @@ impl Editor {
         let (view, doc) = current!(self);
         doc.append_changes_to_history(view);
         self.ensure_cursor_in_view(view_id);
-        // Update jumplist selections with new document changes.
+        // Update history places with new document changes.
         for (view, _focused) in self.tree.views_mut() {
             let doc = doc_mut!(self, &view.doc);
             view.sync_changes(doc);
@@ -2840,26 +2858,12 @@ impl Editor {
         self.last_cwd.as_deref()
     }
 
-    pub fn jump_forward(&mut self, view_id: ViewId, count: usize) {
-        if let Some((doc_id, selection)) = view_mut!(self, view_id).jumps.forward(count).cloned() {
-            self.jump_to(view_id, doc_id, selection);
-        }
-    }
-
-    pub fn jump_backward(&mut self, view_id: ViewId, count: usize) {
-        let view = view_mut!(self, view_id);
-        let doc = doc_mut!(self, &view.doc);
-        // `backward` may push the current selection (valid at the document's
-        // current revision) onto the jumplist. Sync first so the view's
-        // `doc_revisions` matches, otherwise that entry would be left ahead of
-        // it and a later sync would map it out of bounds.
-        view.sync_changes(doc);
-        if let Some((doc_id, selection)) = view.jumps.backward(view_id, doc, count).cloned() {
-            self.jump_to(view_id, doc_id, selection);
-        }
-    }
-
-    fn jump_to(&mut self, view_id: ViewId, dest_doc_id: DocumentId, mut selection: Selection) {
+    pub(crate) fn jump_to(
+        &mut self,
+        view_id: ViewId,
+        dest_doc_id: DocumentId,
+        mut selection: Selection,
+    ) {
         let view = view_mut!(self, view_id);
         let old_doc_id = view.doc;
         if old_doc_id != dest_doc_id {

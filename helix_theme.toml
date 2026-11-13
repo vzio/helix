@@ -48,6 +48,7 @@ tabstop = { modifiers = ["italic"], bg = "bossanova" }
 "ui.background.separator" = { fg = "comet" }
 "ui.linenr" = { fg = "comet" }
 "ui.linenr.selected" = { fg = "lilac" }
+"ui.gutter.bookmark" = { fg = "honey", modifiers = ["bold"] }
 "ui.statusline" = { fg = "lilac", bg = "revolver" }
 "ui.statusline.inactive" = { fg = "lavender", bg = "revolver" }
 "ui.popup" = { bg = "revolver" }

@@ -59,6 +59,7 @@ use vortex_view::{
     document::{FormatterError, Mode, SCRATCH_BUFFER_NAME},
     editor::{Action, Motion},
     expansion,
+    history::{Jump, Place},
     info::Info,
     input::KeyEvent,
     keyboard::KeyCode,
@@ -423,7 +424,7 @@ impl MappableCommand {
         file_explorer_in_current_directory, "Open file explorer at current working directory",
         code_action, "Perform code action",
         buffer_picker, "Open buffer picker",
-        jumplist_picker, "Open jumplist picker",
+        bookmark_picker, "Open the bookmark picker",
         symbol_picker, "Open symbol picker",
         syntax_symbol_picker, "Open symbol picker from syntax information",
         lsp_or_syntax_symbol_picker, "Open symbol picker from LSP or syntax information",
@@ -546,9 +547,12 @@ impl MappableCommand {
         select_prev_sibling, "Select previous sibling the in syntax tree",
         select_all_siblings, "Select all siblings of the current node",
         select_all_children, "Select all children of the current node",
-        jump_forward, "Jump forward on jumplist",
-        jump_backward, "Jump backward on jumplist",
-        save_selection, "Save current selection to jumplist",
+        history_toggle, "Go back to the last jump, or return to where a walk started",
+        history_back, "Go one jump back in history",
+        history_forward, "Go one jump forward in history",
+        toggle_bookmark, "Set or remove a bookmark on the cursor's line",
+        next_bookmark, "Go to the next bookmark",
+        prev_bookmark, "Go to the previous bookmark",
         jump_view_right, "Jump to right split",
         jump_view_left, "Jump to left split",
         jump_view_up, "Jump to split above",
@@ -1350,8 +1354,9 @@ fn goto_file_start_impl(cx: &mut Context, movement: Movement) {
             .selection(view.id)
             .clone()
             .transform(|range| range.put_cursor(text, 0, movement == Movement::Extend));
-        push_jump(view, doc);
+        let from = jump_from(view, doc);
         doc.set_selection(view.id, selection);
+        cx.editor.record_jump(Jump::FileEdge, from);
     }
 }
 
@@ -1371,8 +1376,9 @@ fn goto_file_end_impl(cx: &mut Context, movement: Movement) {
         .selection(view.id)
         .clone()
         .transform(|range| range.put_cursor(text, pos, movement == Movement::Extend));
-    push_jump(view, doc);
+    let from = jump_from(view, doc);
     doc.set_selection(view.id, selection);
+    cx.editor.record_jump(Jump::FileEdge, from);
 }
 
 fn goto_file(cx: &mut Context) {
@@ -2241,6 +2247,7 @@ fn select_regex(cx: &mut Context) {
         "select:".into(),
         Some(reg),
         ui::completers::none,
+        None,
         move |cx, regex, event| {
             let (view, doc) = current!(cx.editor);
             if !matches!(event, PromptEvent::Update | PromptEvent::Validate) {
@@ -2265,6 +2272,7 @@ fn split_selection(cx: &mut Context) {
         "split:".into(),
         Some(reg),
         ui::completers::none,
+        None,
         move |cx, regex, event| {
             let (view, doc) = current!(cx.editor);
             if !matches!(event, PromptEvent::Update | PromptEvent::Validate) {
@@ -2421,6 +2429,7 @@ fn searcher(cx: &mut Context, direction: Direction) {
                 .map(|comp| (0.., comp.clone().into()))
                 .collect()
         },
+        Some(Jump::Search),
         move |cx, regex, event| {
             if event == PromptEvent::Validate {
                 cx.editor.registers.last_search_register = reg;
@@ -2472,6 +2481,7 @@ fn search_next_or_prev_impl(cx: &mut Context, movement: Movement, direction: Dir
             )
             .build(&query)
         {
+            let from = cx.editor.place();
             for _ in 0..count {
                 search_impl(
                     cx.editor,
@@ -2483,6 +2493,7 @@ fn search_next_or_prev_impl(cx: &mut Context, movement: Movement, direction: Dir
                     true,
                 );
             }
+            cx.editor.record_jump(Jump::Search, from);
         } else {
             let error = format!("Invalid regex: {}", query);
             cx.editor.set_error(error);
@@ -3459,94 +3470,6 @@ fn buffer_picker(cx: &mut Context) {
     cx.push_layer(Box::new(overlaid(picker)));
 }
 
-fn jumplist_picker(cx: &mut Context) {
-    struct JumpMeta<'a> {
-        id: DocumentId,
-        path: Option<Cow<'a, Path>>,
-        selection: Selection,
-        line_start: usize,
-        text: String,
-        is_current: bool,
-    }
-
-    for (view, _) in cx.editor.tree.views_mut() {
-        for doc_id in view.jumps.iter().map(|e| e.0).collect::<Vec<_>>().iter() {
-            let doc = doc_mut!(cx.editor, doc_id);
-            view.sync_changes(doc);
-        }
-    }
-
-    let new_meta = |view: &View, doc_id: DocumentId, selection: Selection| {
-        let doc = doc!(cx.editor, &doc_id);
-        let text = doc.text().slice(..);
-        let contents = selection
-            .fragments(text)
-            .map(Cow::into_owned)
-            .collect::<Vec<_>>()
-            .join(" ");
-        let line_start = selection.primary().cursor_line(text);
-
-        JumpMeta {
-            id: doc_id,
-            path: doc
-                .path()
-                .map(ToOwned::to_owned)
-                .map(vortex_stdx::path::get_relative_path),
-            selection,
-            line_start,
-            text: contents,
-            is_current: view.doc == doc_id,
-        }
-    };
-
-    let columns = [
-        ui::PickerColumn::new("id", |item: &JumpMeta, _| item.id.to_string().into()),
-        ui::PickerColumn::new("path", |item: &JumpMeta, config: &PathStyleConfig| {
-            config.stylize(item.path.as_deref(), Some(item.line_start))
-        }),
-        ui::PickerColumn::new("flags", |item: &JumpMeta, _| {
-            let mut flags = Vec::new();
-            if item.is_current {
-                flags.push("*");
-            }
-
-            if flags.is_empty() {
-                "".into()
-            } else {
-                format!(" ({})", flags.join("")).into()
-            }
-        }),
-        ui::PickerColumn::new("contents", |item: &JumpMeta, _| item.text.as_str().into()),
-    ];
-
-    let picker = Picker::new(
-        columns,
-        1, // path
-        cx.editor.tree.views().flat_map(|(view, _)| {
-            view.jumps
-                .iter()
-                .rev()
-                .map(|(doc_id, selection)| new_meta(view, *doc_id, selection.clone()))
-        }),
-        PathStyleConfig::new(&cx.editor.theme),
-        |cx, meta, action| {
-            cx.editor.switch(meta.id, action);
-            let config = cx.editor.config();
-            let (view, doc) = (view_mut!(cx.editor), doc_mut!(cx.editor, &meta.id));
-            doc.set_selection(view.id, meta.selection.clone());
-            if action.align_view(view, doc.id()) {
-                view.ensure_cursor_in_view_center(doc, config.scrolloff);
-            }
-        },
-    )
-    .with_preview(|editor, meta| {
-        let doc = &editor.documents.get(&meta.id)?;
-        let line = meta.selection.primary().cursor_line(doc.text().slice(..));
-        Some((meta.id.into(), Some((line, line))))
-    });
-    cx.push_layer(Box::new(overlaid(picker)));
-}
-
 pub(crate) struct FileChangeData {
     cwd: PathBuf,
     style_untracked: Style,
@@ -3745,7 +3668,9 @@ pub fn command_palette(cx: &mut Context) {
                         doc.append_changes_to_history(view);
                     }
                 }
-            });
+            })
+            // its commands record their own jumps (this fork: history)
+            .without_jumps();
             compositor.push(Box::new(overlaid(picker)));
         },
     ));
@@ -4072,11 +3997,14 @@ fn normal_mode(cx: &mut Context) {
     cx.editor.enter_normal_mode();
 }
 
-// Store a jump on the jumplist.
-fn push_jump(view: &mut View, doc: &mut Document) {
+/// The place a jump leaves, to record once it lands with [`Editor::record_jump`] (this fork:
+/// history). Commits the changes made so far, so that undo and the jump agree.
+pub(crate) fn jump_from(view: &mut View, doc: &mut Document) -> Place {
     doc.append_changes_to_history(view);
-    let jump = (doc.id(), doc.selection(view.id).clone());
-    view.push_jump(doc, jump);
+    Place::Text {
+        doc: doc.id(),
+        selection: doc.selection(view.id).clone(),
+    }
 }
 
 fn goto_line(cx: &mut Context) {
@@ -4086,9 +4014,10 @@ fn goto_line(cx: &mut Context) {
 fn goto_line_impl(cx: &mut Context, movement: Movement) {
     if cx.count.is_some() {
         let (view, doc) = current!(cx.editor);
-        push_jump(view, doc);
+        let from = jump_from(view, doc);
 
         goto_line_without_jumplist(cx.editor, cx.count, movement);
+        cx.editor.record_jump(Jump::FileEdge, from);
     }
 }
 
@@ -4140,8 +4069,9 @@ fn goto_last_line_impl(cx: &mut Context, movement: Movement) {
         .clone()
         .transform(|range| range.put_cursor(text, pos, movement == Movement::Extend));
 
-    push_jump(view, doc);
+    let from = jump_from(view, doc);
     doc.set_selection(view.id, selection);
+    cx.editor.record_jump(Jump::FileEdge, from);
 }
 
 fn goto_column(cx: &mut Context) {
@@ -4163,8 +4093,9 @@ fn goto_column_impl(cx: &mut Context, movement: Movement) {
         let pos = graphemes::nth_next_grapheme_boundary(text, line_start, count - 1).min(line_end);
         range.put_cursor(text, pos, movement == Movement::Extend)
     });
-    push_jump(view, doc);
+    let from = jump_from(view, doc);
     doc.set_selection(view.id, selection);
+    cx.editor.record_jump(Jump::Column, from);
 }
 
 fn goto_last_accessed_file(cx: &mut Context) {
@@ -4185,8 +4116,9 @@ fn goto_last_modification(cx: &mut Context) {
             .selection(view.id)
             .clone()
             .transform(|range| range.put_cursor(text, pos, cx.editor.mode == Mode::Select));
-        push_jump(view, doc);
+        let from = jump_from(view, doc);
         doc.set_selection(view.id, selection);
+        cx.editor.record_jump(Jump::Modification, from);
     }
 }
 
@@ -4245,10 +4177,11 @@ fn goto_first_diag(cx: &mut Context) {
         Some(diag) => Selection::single(diag.range.start, diag.range.end),
         None => return,
     };
-    push_jump(view, doc);
+    let from = jump_from(view, doc);
     doc.set_selection(view.id, selection);
     view.diagnostics_handler
         .immediately_show_diagnostic(doc, view.id);
+    cx.editor.record_jump(Jump::Diagnostic, from);
 }
 
 fn goto_last_diag(cx: &mut Context) {
@@ -4257,10 +4190,11 @@ fn goto_last_diag(cx: &mut Context) {
         Some(diag) => Selection::single(diag.range.start, diag.range.end),
         None => return,
     };
-    push_jump(view, doc);
+    let from = jump_from(view, doc);
     doc.set_selection(view.id, selection);
     view.diagnostics_handler
         .immediately_show_diagnostic(doc, view.id);
+    cx.editor.record_jump(Jump::Diagnostic, from);
 }
 
 fn goto_next_diag(cx: &mut Context) {
@@ -4281,10 +4215,11 @@ fn goto_next_diag(cx: &mut Context) {
             Some(diag) => Selection::single(diag.range.start, diag.range.end),
             None => return,
         };
-        push_jump(view, doc);
+        let from = jump_from(view, doc);
         doc.set_selection(view.id, selection);
         view.diagnostics_handler
             .immediately_show_diagnostic(doc, view.id);
+        editor.record_jump(Jump::Diagnostic, from);
     };
 
     cx.editor.apply_motion(motion);
@@ -4311,10 +4246,11 @@ fn goto_prev_diag(cx: &mut Context) {
             Some(diag) => Selection::single(diag.range.end, diag.range.start),
             None => return,
         };
-        push_jump(view, doc);
+        let from = jump_from(view, doc);
         doc.set_selection(view.id, selection);
         view.diagnostics_handler
             .immediately_show_diagnostic(doc, view.id);
+        editor.record_jump(Jump::Diagnostic, from);
     };
     cx.editor.apply_motion(motion)
 }
@@ -4342,8 +4278,9 @@ fn goto_first_change_impl(cx: &mut Context, reverse: bool) {
         };
         if hunk != Hunk::NONE {
             let range = hunk_range(hunk, doc.text().slice(..));
-            push_jump(view, doc);
+            let from = jump_from(view, doc);
             doc.set_selection(view.id, Selection::single(range.anchor, range.head));
+            editor.record_jump(Jump::Change, from);
         }
     }
 }
@@ -4398,8 +4335,9 @@ fn goto_next_change_impl(cx: &mut Context, direction: Direction) {
             }
         });
 
-        push_jump(view, doc);
-        doc.set_selection(view.id, selection)
+        let from = jump_from(view, doc);
+        doc.set_selection(view.id, selection);
+        editor.record_jump(Jump::Change, from);
     };
     cx.editor.apply_motion(motion);
 }
@@ -5524,6 +5462,7 @@ fn keep_or_remove_selections_impl(cx: &mut Context, remove: bool) {
         if remove { "remove:" } else { "keep:" }.into(),
         Some(reg),
         ui::completers::none,
+        None,
         move |cx, regex, event| {
             let (view, doc) = current!(cx.editor);
             if !matches!(event, PromptEvent::Update | PromptEvent::Validate) {
@@ -6011,18 +5950,32 @@ fn match_brackets(cx: &mut Context) {
 
 //
 
-fn jump_forward(cx: &mut Context) {
-    cx.editor.jump_forward(cx.editor.tree.focus, cx.count());
+fn history_toggle(cx: &mut Context) {
+    crate::history::toggle(cx);
 }
 
-fn jump_backward(cx: &mut Context) {
-    cx.editor.jump_backward(cx.editor.tree.focus, cx.count());
+fn history_back(cx: &mut Context) {
+    crate::history::back(cx);
 }
 
-fn save_selection(cx: &mut Context) {
-    let (view, doc) = current!(cx.editor);
-    push_jump(view, doc);
-    cx.editor.set_status("Selection saved to jumplist");
+fn history_forward(cx: &mut Context) {
+    crate::history::forward(cx);
+}
+
+fn toggle_bookmark(cx: &mut Context) {
+    crate::history::toggle_bookmark(cx);
+}
+
+fn next_bookmark(cx: &mut Context) {
+    crate::history::next_bookmark(cx);
+}
+
+fn prev_bookmark(cx: &mut Context) {
+    crate::history::prev_bookmark(cx);
+}
+
+fn bookmark_picker(cx: &mut Context) {
+    crate::history::bookmark_picker(cx);
 }
 
 fn rotate_view(cx: &mut Context) {
@@ -6286,8 +6239,9 @@ fn goto_ts_object_impl(cx: &mut Context, object: &'static str, direction: Direct
                 }
             });
 
-            push_jump(view, doc);
+            let from = jump_from(view, doc);
             doc.set_selection(view.id, selection);
+            editor.record_jump(Jump::Object, from);
         } else {
             editor.set_status("Syntax-tree is not available in current buffer");
         }
@@ -7210,8 +7164,9 @@ fn jump_to_label(cx: &mut Context, labels: Vec<Range>, behaviour: Movement) {
                 };
                 let doc = doc_mut!(cx.editor, &doc);
                 let view = view_mut!(cx.editor, view_id);
-                push_jump(view, doc);
+                let from = jump_from(view, doc);
                 doc.set_selection(view_id, range.into());
+                cx.editor.record_jump(Jump::Label, from);
             }
         });
     });

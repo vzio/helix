@@ -1707,7 +1707,7 @@ fn reload_all(cx: &mut compositor::Context, _args: Args, event: PromptEvent) -> 
                 // Reloading commits the diff against disk through the first view
                 // only (above). Any other view onto this document is left
                 // pointing at the pre-reload revision, so sync it now; otherwise
-                // its jumplist entries keep referencing the old (e.g. larger)
+                // its history places keep referencing the old (e.g. larger)
                 // text and a later commit panics when mapping them through a
                 // changeset whose pre-image no longer contains them.
                 view.sync_changes(doc);
@@ -2334,8 +2334,12 @@ pub(super) fn goto_line_number(
                 .take()
                 .expect("update_goto_line_number_preview should always set last_selection");
 
-            let (view, doc) = current!(cx.editor);
-            view.push_jump(doc, (doc.id(), last_selection));
+            let from = vortex_view::history::Place::Text {
+                doc: doc!(cx.editor).id(),
+                selection: last_selection,
+            };
+            cx.editor
+                .record_jump(vortex_view::history::Jump::Line, from);
         }
 
         // When a user hits backspace and there are no numbers left,
