@@ -347,6 +347,18 @@ pub struct Picker<T: 'static + Send + Sync, D: 'static> {
     /// `w`/`b` in normal mode move between the groups of dividers, see
     /// [`Picker::with_section_keys`].
     section_keys: bool,
+    /// The table has a header row with the names of the columns; the fork's lists don't, see
+    /// [`Picker::without_header`].
+    header: bool,
+    /// A short text on the prompt's row, before the count (this fork): the totals of a list, a
+    /// range, what is being loaded. Not the status line's.
+    info: Option<String>,
+    /// The title and the picker's own keys in the key help overlay, `?` in normal mode (this
+    /// fork, see [`Picker::with_help`]).
+    help: Option<(
+        String,
+        Vec<(&'static str, Vec<(&'static str, &'static str)>)>,
+    )>,
 }
 
 /// Items listed first for some queries (this fork): the commits whose hash starts with a
@@ -532,7 +544,68 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
             preferred: None,
             order: None,
             section_keys: false,
+            header: true,
+            info: None,
+            help: None,
         }
+    }
+
+    /// No header row with the names of the columns: the columns of the fork's lists are clear
+    /// from what they show.
+    pub fn without_header(mut self) -> Self {
+        self.header = false;
+        self
+    }
+
+    /// A short text on the prompt's row, before the count.
+    pub fn with_info(mut self, info: impl Into<String>) -> Self {
+        self.info = Some(info.into());
+        self
+    }
+
+    /// Changes the text on the prompt's row (`None` removes it).
+    pub fn set_info(&mut self, info: Option<String>) {
+        self.info = info;
+    }
+
+    /// The text on the prompt's row.
+    pub fn info(&self) -> Option<&str> {
+        self.info.as_deref()
+    }
+
+    /// The picker's own keys for the key help overlay (`?` in normal mode, see
+    /// [`Picker::with_modes`]), in groups, before the keys every list has.
+    pub fn with_help(
+        mut self,
+        title: impl Into<String>,
+        groups: Vec<(&'static str, Vec<(&'static str, &'static str)>)>,
+    ) -> Self {
+        self.help = Some((title.into(), groups));
+        self
+    }
+
+    /// The key help overlay of the picker: its own keys, then those of every list.
+    pub fn key_help(&self) -> crate::ui::keyhelp::KeyHelp {
+        let (title, mut groups) = self
+            .help
+            .clone()
+            .unwrap_or_else(|| ("Keys".to_string(), Vec::new()));
+        let mut list = vec![
+            ("j k, ↓ ↑", "move"),
+            ("C-d C-u", "half a page down, up"),
+            ("gg ge, G", "first, last"),
+        ];
+        if self.section_keys {
+            list.push(("w b", "next, previous group"));
+        }
+        list.extend([
+            ("s", "filter (Esc goes back)"),
+            ("Esc", "clear the filter, else close"),
+            ("q", "close"),
+            ("?", "these keys"),
+        ]);
+        groups.push(("list", list));
+        crate::ui::keyhelp::KeyHelp::new(title, &groups)
     }
 
     pub fn injector(&self) -> Injector<T, D> {
@@ -1085,7 +1158,7 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
     }
 
     fn header_height(&self) -> u16 {
-        if self.columns.len() > 1 {
+        if self.header && self.columns.len() > 1 {
             1
         } else {
             0
@@ -1306,7 +1379,15 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
         );
 
         let area = inner.clip_left(1).with_height(1);
-        let line_area = area.clip_right(count.len() as u16 + 1);
+        // the info (this fork) before the count, cut to leave the prompt half the row
+        let info = self.info.as_deref().map(|info| {
+            let room = (area.width / 2).saturating_sub(count.len() as u16 + 2);
+            crate::ui::modebar::cut(info, room)
+        });
+        let info_width = info.as_deref().map_or(0, |info| {
+            vortex_core::unicode::width::UnicodeWidthStr::width(info) as u16 + 2
+        });
+        let line_area = area.clip_right(count.len() as u16 + 1 + info_width);
 
         // render the prompt first since it will clear its background
         self.prompt.render(line_area, surface, cx);
@@ -1318,6 +1399,21 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
             (count.len()).min(area.width as usize),
             text_style,
         );
+        if let Some(info) = info.filter(|info| !info.is_empty()) {
+            let style = cx
+                .editor
+                .theme
+                .try_get("ui.picker.info")
+                .or_else(|| cx.editor.theme.try_get("ui.text.inactive"))
+                .unwrap_or(text_style);
+            surface.set_stringn(
+                (area.x + area.width).saturating_sub(count.len() as u16 + info_width),
+                area.y,
+                &info,
+                info_width as usize,
+                style,
+            );
+        }
 
         // -- Separator
         let sep_style = cx.editor.theme.get("ui.background.separator");
@@ -1438,7 +1534,7 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
             .widths(&self.widths);
 
         // -- Header
-        if self.columns.len() > 1 {
+        if self.header && self.columns.len() > 1 {
             let active_column = self.query.active_column(self.prompt.position());
             let header_style = cx.editor.theme.get("ui.picker.header");
             let header_column_style = cx.editor.theme.get("ui.picker.header.column");
@@ -1781,6 +1877,8 @@ impl<I: 'static + Send + Sync, D: 'static + Send + Sync> Component for Picker<I,
             key!('g') if normal => self.goto = true,
             key!('G') if normal => self.to_end(),
             key!('s') if normal => self.mode = Some(PickerMode::Filter),
+            // the key help overlay (this fork); in filter mode `?` is typed
+            key!('?') if normal => return EventResult::Consumed(Some(self.key_help().push())),
             key!('w') if normal && self.section_keys => self.move_to_section(Direction::Forward),
             key!('b') if normal && self.section_keys => self.move_to_section(Direction::Backward),
             key!(Esc) if normal && !self.prompt.line().is_empty() => {

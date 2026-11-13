@@ -6,6 +6,7 @@ pub mod explorer;
 pub mod glitch;
 pub mod hex_view;
 mod info;
+pub mod keyhelp;
 pub mod lsp;
 mod markdown;
 pub mod menu;

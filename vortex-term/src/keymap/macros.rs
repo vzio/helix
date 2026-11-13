@@ -89,6 +89,12 @@ macro_rules! keymap {
         keymap!({ $label $(sticky=$sticky)? $(mode=$mode)? $($($key)|+ => $value,)+ })
     };
 
+    (@trie
+        { $label:literal $(sticky=$sticky:literal)? $(mode=$mode:literal)? $([$group:literal] $($($key:literal)|+ => $value:tt,)+)+ }
+    ) => {
+        keymap!({ $label $(sticky=$sticky)? $(mode=$mode)? $([$group] $($($key)|+ => $value,)+)+ })
+    };
+
     (@trie [$($cmd:ident),* $(,)?]) => {
         $crate::keymap::KeyTrie::Sequence(vec![$($crate::commands::MappableCommand::$cmd),*])
     };
@@ -111,6 +117,36 @@ macro_rules! keymap {
                 )+
             )*
             let mut _node = $crate::keymap::KeyTrieNode::new($label, _map);
+            $( _node.is_sticky = $sticky; )?
+            $( _node.mode_label = Some($mode); )?
+            $crate::keymap::KeyTrie::Node(_node)
+        }
+    };
+
+    // a menu in groups (this fork): `["files"]` before the keys of a group labels them in the
+    // infobox
+    (
+        { $label:literal $(sticky=$sticky:literal)? $(mode=$mode:literal)? $([$group:literal] $($($key:literal)|+ => $value:tt,)+)+ }
+    ) => {
+        {
+            let mut _map = ::indexmap::IndexMap::new();
+            let mut _groups = ::indexmap::IndexMap::new();
+            $(
+                let _group: &'static str = $group;
+                $(
+                    $(
+                        let _key = $key.parse::<::vortex_view::input::KeyEvent>().unwrap();
+                        let _duplicate = _map.insert(
+                            _key,
+                            keymap!(@trie $value)
+                        );
+                        assert!(_duplicate.is_none(), "Duplicate key found: {:?}", _duplicate.unwrap());
+                        _groups.insert(_key, _group);
+                    )+
+                )+
+            )+
+            let mut _node = $crate::keymap::KeyTrieNode::new($label, _map);
+            _node.groups = _groups;
             $( _node.is_sticky = $sticky; )?
             $( _node.mode_label = Some($mode); )?
             $crate::keymap::KeyTrie::Node(_node)

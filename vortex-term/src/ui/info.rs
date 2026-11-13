@@ -37,5 +37,21 @@ impl Component for Info {
         Paragraph::new(&Text::from(self.text.as_str()))
             .style(text_style)
             .render(inner, surface);
+
+        // the separators of a menu in groups (this fork), dim
+        if !self.separators.is_empty() {
+            let dim = cx
+                .editor
+                .theme
+                .try_get("ui.infobox.separator")
+                .or_else(|| cx.editor.theme.try_get("ui.text.inactive"))
+                .unwrap_or(text_style);
+            let dim = popup_style.patch(dim);
+            for &line in &self.separators {
+                if line < inner.height {
+                    surface.set_style(Rect::new(inner.x, inner.y + line, inner.width, 1), dim);
+                }
+            }
+        }
     }
 }

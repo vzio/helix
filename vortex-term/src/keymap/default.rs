@@ -37,30 +37,35 @@ pub fn default() -> HashMap<Mode, KeyTrie> {
         "v" => select_mode,
         "G" => goto_line,
         "g" => { "Goto"
+            ["in the file"]
             "g" => goto_file_start,
-            "|" => goto_column,
             "e" => goto_last_line,
-            "f" => goto_file,
+            "|" => goto_column,
             "h" => goto_line_start,
             "l" => goto_line_end,
             "s" => goto_first_nonwhitespace,
+            "k" => move_line_up,
+            "j" => move_line_down,
+            "w" => goto_word,
+            ["on the screen"]
+            "t" => goto_window_top,
+            "c" => goto_window_center,
+            "b" => goto_window_bottom,
+            ["LSP"]
             "d" => goto_definition,
             "D" => goto_declaration,
             "y" => goto_type_definition,
             "r" => goto_reference,
             "i" => goto_implementation,
-            "t" => goto_window_top,
-            "c" => goto_window_center,
-            "b" => goto_window_bottom,
-            "a" => history_toggle,
-            "A" => history_back,
+            ["files"]
+            "f" => goto_file,
             "m" => goto_last_modified_file,
             "n" => goto_next_buffer,
             "p" => goto_previous_buffer,
-            "k" => move_line_up,
-            "j" => move_line_down,
+            ["history"]
+            "a" => history_toggle,
+            "A" => history_back,
             "." => goto_last_modification,
-            "w" => goto_word,
         },
         ":" => command_mode,
 
@@ -110,10 +115,12 @@ pub fn default() -> HashMap<Mode, KeyTrie> {
             "i" => select_textobject_inner,
         },
         "[" => { "Left bracket"
+            ["diagnostics and changes"]
             "d" => goto_prev_diag,
             "D" => goto_first_diag,
             "g" => goto_prev_change,
             "G" => goto_first_change,
+            ["syntax"]
             "f" => goto_prev_function,
             "t" => goto_prev_class,
             "a" => goto_prev_parameter,
@@ -122,13 +129,16 @@ pub fn default() -> HashMap<Mode, KeyTrie> {
             "T" => goto_prev_test,
             "p" => goto_prev_paragraph,
             "x" => goto_prev_xml_element,
+            ["lines"]
             "space" => add_newline_above,
         },
         "]" => { "Right bracket"
+            ["diagnostics and changes"]
             "d" => goto_next_diag,
             "D" => goto_last_diag,
             "g" => goto_next_change,
             "G" => goto_last_change,
+            ["syntax"]
             "f" => goto_next_function,
             "t" => goto_next_class,
             "a" => goto_next_parameter,
@@ -137,6 +147,7 @@ pub fn default() -> HashMap<Mode, KeyTrie> {
             "T" => goto_next_test,
             "p" => goto_next_paragraph,
             "x" => goto_next_xml_element,
+            ["lines"]
             "space" => add_newline_below,
         },
 
@@ -192,26 +203,29 @@ pub fn default() -> HashMap<Mode, KeyTrie> {
         "C-d" => page_cursor_half_down,
 
         "C-w" => { "Window"
-            "C-w" | "w" => rotate_view,
+            ["splits"]
             "C-s" | "s" => hsplit,
             "C-v" | "v" => vsplit,
-            "C-t" | "t" => transpose_view,
             "f" => goto_file_hsplit,
             "F" => goto_file_vsplit,
             "C-q" | "q" => wclose,
             "C-o" | "o" => wonly,
-            "C-h" | "h" | "left" => jump_view_left,
-            "C-j" | "j" | "down" => jump_view_down,
-            "C-k" | "k" | "up" => jump_view_up,
-            "C-l" | "l" | "right" => jump_view_right,
-            "L" => swap_view_right,
-            "K" => swap_view_up,
-            "H" => swap_view_left,
-            "J" => swap_view_down,
             "n" => { "New split scratch buffer"
                 "C-s" | "s" => hsplit_new,
                 "C-v" | "v" => vsplit_new,
             },
+            ["focus"]
+            "C-w" | "w" => rotate_view,
+            "C-h" | "h" | "left" => jump_view_left,
+            "C-j" | "j" | "down" => jump_view_down,
+            "C-k" | "k" | "up" => jump_view_up,
+            "C-l" | "l" | "right" => jump_view_right,
+            ["move"]
+            "C-t" | "t" => transpose_view,
+            "H" => swap_view_left,
+            "J" => swap_view_down,
+            "K" => swap_view_up,
+            "L" => swap_view_right,
         },
 
         // move under <space>c
@@ -225,6 +239,7 @@ pub fn default() -> HashMap<Mode, KeyTrie> {
         "C-s" => toggle_bookmark,
 
         "space" => { "Space"
+            ["files"]
             "f" => file_picker,
             "F" => file_picker_in_current_directory,
             "e" => toggle_explorer_root,
@@ -232,124 +247,144 @@ pub fn default() -> HashMap<Mode, KeyTrie> {
             "." => file_explorer_in_current_buffer_directory,
             "b" => buffer_picker,
             "j" => bookmark_picker,
+            "'" => last_picker,
+            ["search"]
+            "/" => global_search,
             "s" => lsp_or_syntax_symbol_picker,
             "S" => lsp_or_syntax_workspace_symbol_picker,
             "d" => diagnostics_picker,
             "D" => workspace_diagnostics_picker,
+            ["git"]
             "g" => changed_file_picker,
             "l" => commit_picker,
             "L" => line_history,
-            "a" => code_action,
             "=" => git_diff_view,
-            "'" => last_picker,
+            "B" => toggle_inline_blame,
+            ["LSP"]
+            "a" => code_action,
+            "k" => hover,
+            "r" => rename_symbol,
+            "h" => select_references_to_symbol_under_cursor,
+            "i" => yank_diagnostic,
+            ["clipboard"]
+            "y" => yank_to_clipboard,
+            "Y" => yank_main_selection_to_clipboard,
+            "p" => paste_clipboard_after,
+            "P" => paste_clipboard_before,
+            "R" => replace_selections_with_clipboard,
+            ["comments"]
+            "c" => toggle_comments,
+            "C" => toggle_block_comments,
+            "A-c" => toggle_line_comments,
+            ["windows and debug"]
+            "w" => { "Window"
+                ["splits"]
+                "C-s" | "s" => hsplit,
+                "C-v" | "v" => vsplit,
+                "f" => goto_file_hsplit,
+                "F" => goto_file_vsplit,
+                "C-q" | "q" => wclose,
+                "C-o" | "o" => wonly,
+                "n" => { "New split scratch buffer"
+                    "C-s" | "s" => hsplit_new,
+                    "C-v" | "v" => vsplit_new,
+                },
+                ["focus"]
+                "C-w" | "w" => rotate_view,
+                "C-h" | "h" | "left" => jump_view_left,
+                "C-j" | "j" | "down" => jump_view_down,
+                "C-k" | "k" | "up" => jump_view_up,
+                "C-l" | "l" | "right" => jump_view_right,
+                ["move"]
+                "C-t" | "t" => transpose_view,
+                "H" => swap_view_left,
+                "J" => swap_view_down,
+                "K" => swap_view_up,
+                "L" => swap_view_right,
+            },
             "G" => { "Debug (experimental)" sticky=true
+                ["session"]
                 "l" => dap_launch,
                 "r" => dap_restart,
+                "t" => dap_terminate,
+                "p" => debug_panel,
+                ["breakpoints"]
                 "b" => dap_toggle_breakpoint,
+                "C-c" => dap_edit_condition,
+                "C-l" => dap_edit_log,
+                "e" => dap_enable_exceptions,
+                "E" => dap_disable_exceptions,
+                ["stepping"]
                 "c" => dap_continue,
                 "h" => dap_pause,
                 "i" => dap_step_in,
                 "o" => dap_step_out,
                 "n" => dap_next,
+                ["inspect"]
                 "v" => dap_variables,
-                "t" => dap_terminate,
-                "C-c" => dap_edit_condition,
-                "C-l" => dap_edit_log,
+                "w" => dap_watch,
+                "x" => dap_evaluate,
+                "M" => dap_memory,
                 "s" => { "Switch"
                     "t" => dap_switch_thread,
                     "f" => dap_switch_stack_frame,
                     // sl, sb
                 },
-                "e" => dap_enable_exceptions,
-                "E" => dap_disable_exceptions,
-                "p" => debug_panel,
-                "w" => dap_watch,
-                "x" => dap_evaluate,
+                ["playback"]
                 "space" => dap_play,
                 "." => dap_play_step,
                 "+" => dap_faster,
                 "-" => dap_slower,
                 "f" => dap_fast_forward,
                 "g" => dap_run_to_cursor,
-                ">" => dap_next_thread,
-                "<" => dap_previous_thread,
                 "m" => dap_follow_mode,
-                "z" => dap_freeze_thread,
-                "a" => dap_solo_thread,
                 "[" => dap_rewind_back,
                 "]" => dap_rewind_forward,
                 "L" => dap_live,
                 "R" => dap_capture_settings,
                 "X" => dap_clear_time_labels,
-                "M" => dap_memory,
+                ["threads"]
+                ">" => dap_next_thread,
+                "<" => dap_previous_thread,
+                "z" => dap_freeze_thread,
+                "a" => dap_solo_thread,
             },
-            "w" => { "Window"
-                "C-w" | "w" => rotate_view,
-                "C-s" | "s" => hsplit,
-                "C-v" | "v" => vsplit,
-                "C-t" | "t" => transpose_view,
-                "f" => goto_file_hsplit,
-                "F" => goto_file_vsplit,
-                "C-q" | "q" => wclose,
-                "C-o" | "o" => wonly,
-                "C-h" | "h" | "left" => jump_view_left,
-                "C-j" | "j" | "down" => jump_view_down,
-                "C-k" | "k" | "up" => jump_view_up,
-                "C-l" | "l" | "right" => jump_view_right,
-                "H" => swap_view_left,
-                "J" => swap_view_down,
-                "K" => swap_view_up,
-                "L" => swap_view_right,
-                "n" => { "New split scratch buffer"
-                    "C-s" | "s" => hsplit_new,
-                    "C-v" | "v" => vsplit_new,
-                },
-            },
-            "y" => yank_to_clipboard,
-            "Y" => yank_main_selection_to_clipboard,
-            "i" => yank_diagnostic,
-            "p" => paste_clipboard_after,
-            "P" => paste_clipboard_before,
-            "R" => replace_selections_with_clipboard,
-            "/" => global_search,
-            "k" => hover,
-            "r" => rename_symbol,
-            "h" => select_references_to_symbol_under_cursor,
-            "c" => toggle_comments,
-            "C" => toggle_block_comments,
-            "A-c" => toggle_line_comments,
+            ["commands"]
             "?" => command_palette,
-            "B" => toggle_inline_blame,
         },
         "z" => { "View"
+            ["align"]
             "z" | "c" => align_view_center,
             "t" => align_view_top,
             "b" => align_view_bottom,
             "m" => align_view_middle,
+            ["scroll"]
             "k" | "up" => scroll_up,
             "j" | "down" => scroll_down,
             "C-b" | "pageup" => page_up,
             "C-f" | "pagedown" => page_down,
             "C-u" | "backspace" => page_cursor_half_up,
             "C-d" | "space" => page_cursor_half_down,
-
+            ["search"]
             "/" => search,
             "?" => rsearch,
             "n" => search_next,
             "N" => search_prev,
         },
         "Z" => { "View" sticky=true
+            ["align"]
             "z" | "c" => align_view_center,
             "t" => align_view_top,
             "b" => align_view_bottom,
             "m" => align_view_middle,
+            ["scroll"]
             "k" | "up" => scroll_up,
             "j" | "down" => scroll_down,
             "C-b" | "pageup" => page_up,
             "C-f" | "pagedown" => page_down,
             "C-u" | "backspace" => page_cursor_half_up,
             "C-d" | "space" => page_cursor_half_down,
-
+            ["search"]
             "/" => search,
             "?" => rsearch,
             "n" => search_next,
