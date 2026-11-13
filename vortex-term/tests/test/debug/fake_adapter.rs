@@ -121,6 +121,13 @@
 //!   `verified: false` without a line; after the launch response (and after every later
 //!   `setBreakpoints`) a `breakpoint` event (`reason: "changed"`, id, `verified`, the actual
 //!   `line`, `source.path`) per breakpoint says what it really is (moved lines as above).
+//! * `Script::hold_answers(k)`: the answers to `scopes` and `variables` are held until `k` of
+//!   them wait (or 250 ms passed since the last one came), then sent in reverse order of
+//!   arrival, so a client that sends its requests together gets its answers out of order.
+//!   `FakeAdapter::max_in_flight()` is the most `scopes`/`variables` requests that were
+//!   received and not yet answered at one moment (counted always, held or not).
+//! * `Script::slow_breakpoints(ms, fast)`: `setBreakpoints` of a path that contains none of the
+//!   `fast` strings is answered `ms` after the request (the breakpoints are set at once).
 //! * `child()` mode (like js-debug): connection 0 is the parent: it has no thread and no stops;
 //!   after the launch response it sends the reverse request `startDebugging` (launch, name
 //!   `child [1]`, `__pendingTargetId` `t1`). Every later connection is a child and the program:
@@ -366,6 +373,10 @@ pub struct Script {
     all_stop_continue: bool,
     /// js-debug style: `setBreakpoints` answers unverified, `breakpoint` events say the rest.
     pending_breakpoints: bool,
+    /// `scopes`/`variables` answers wait for this many requests, then go out reversed.
+    hold: usize,
+    /// `setBreakpoints` answers delayed by this many ms, except for the paths with these parts.
+    slow_breakpoints: Option<(u64, Vec<String>)>,
 }
 
 impl Script {
@@ -401,7 +412,19 @@ impl Script {
             lines: false,
             all_stop_continue: false,
             pending_breakpoints: false,
+            hold: 0,
+            slow_breakpoints: None,
         }
+    }
+    /// The answers to `scopes` and `variables` wait until `k` are held, then go out reversed.
+    pub fn hold_answers(mut self, k: usize) -> Script {
+        self.hold = k;
+        self
+    }
+    /// `setBreakpoints` of a path without any of the `fast` strings is answered `ms` late.
+    pub fn slow_breakpoints(mut self, ms: u64, fast: &[&str]) -> Script {
+        self.slow_breakpoints = Some((ms, fast.iter().map(|f| f.to_string()).collect()));
+        self
     }
     /// `supportsBreakpointLocationsRequest`: `breakpointLocations` of `file` answers `lines` (the
     /// ones within the range asked for). Once per file; a file without lines answers nothing.
@@ -677,6 +700,10 @@ struct Shared {
     sent: Mutex<Vec<(i64, u64, String)>>,
     /// The readable bytes of the simulated memory.
     memory: Mutex<BTreeMap<u64, u8>>,
+    /// Held `scopes`/`variables` answers: (connection, request, body).
+    held: Mutex<Vec<(Arc<Out>, Req, Value)>>,
+    in_flight: AtomicUsize,
+    max_in_flight: AtomicUsize,
 }
 
 pub struct FakeAdapter {
@@ -710,6 +737,9 @@ impl FakeAdapter {
             parent_out: Mutex::new(None),
             sent: Mutex::new(Vec::new()),
             memory: Mutex::new(memory),
+            held: Mutex::new(Vec::new()),
+            in_flight: AtomicUsize::new(0),
+            max_in_flight: AtomicUsize::new(0),
         });
         let sh = shared.clone();
         let task = tokio::spawn(async move {
@@ -807,6 +837,11 @@ impl FakeAdapter {
     /// How many stops of `thread` were reported so far (how far its queue advanced).
     pub fn advanced(&self, thread: i64) -> usize {
         self.stops_sent().iter().filter(|s| s.0 == thread).count()
+    }
+
+    /// The most `scopes`/`variables` requests waiting for their answer at one moment.
+    pub fn max_in_flight(&self) -> usize {
+        self.shared.max_in_flight.load(Ordering::SeqCst)
     }
 
     /// Number of connections accepted so far.
@@ -1329,6 +1364,7 @@ fn same_file(a: &str, b: &str) -> bool {
 // A session
 // ---------------------------------------------------------------------------------------------
 
+#[derive(Clone)]
 struct Req {
     seq: i64,
     command: String,
@@ -1358,6 +1394,26 @@ struct Session {
     loud: usize,
     /// The launch was answered.
     launched: bool,
+}
+
+fn send_response(out: &Out, req: &Req, body: Option<Value>) {
+    out.send(|seq| {
+        let mut m = json!({"seq": seq, "type": "response", "request_seq": req.seq,
+            "success": true, "command": req.command});
+        if let Some(b) = body {
+            m["body"] = b;
+        }
+        m
+    });
+}
+
+/// Sends the held answers, the last one that came first.
+fn flush_held(shared: &Shared) {
+    let held = std::mem::take(&mut *shared.held.lock().unwrap());
+    for (out, req, body) in held.into_iter().rev() {
+        shared.in_flight.fetch_sub(1, Ordering::SeqCst);
+        send_response(&out, &req, (!body.is_null()).then_some(body));
+    }
 }
 
 async fn serve(stream: TcpStream, shared: Arc<Shared>, index: usize) {
@@ -1415,17 +1471,38 @@ async fn serve(stream: TcpStream, shared: Arc<Shared>, index: usize) {
 
 impl Session {
     fn respond(&self, req: &Req, body: Option<Value>) {
-        self.out.send(|seq| {
-            let mut m = json!({"seq": seq, "type": "response", "request_seq": req.seq,
-                "success": true, "command": req.command});
-            if let Some(b) = body {
-                m["body"] = b;
+        let tracked = matches!(req.command.as_str(), "scopes" | "variables");
+        let hold = self.shared.script.hold;
+        if tracked && hold > 0 {
+            let mut held = self.shared.held.lock().unwrap();
+            held.push((self.out.clone(), req.clone(), body.unwrap_or(Value::Null)));
+            if held.len() >= hold {
+                drop(held);
+                flush_held(&self.shared);
+            } else {
+                let len = held.len();
+                drop(held);
+                let shared = self.shared.clone();
+                tokio::spawn(async move {
+                    tokio::time::sleep(Duration::from_millis(250)).await;
+                    // only when nothing came since
+                    if shared.held.lock().unwrap().len() == len {
+                        flush_held(&shared);
+                    }
+                });
             }
-            m
-        });
+            return;
+        }
+        if tracked {
+            self.shared.in_flight.fetch_sub(1, Ordering::SeqCst);
+        }
+        send_response(&self.out, req, body);
     }
 
     fn fail(&self, req: &Req, message: &str) {
+        if matches!(req.command.as_str(), "scopes" | "variables") {
+            self.shared.in_flight.fetch_sub(1, Ordering::SeqCst);
+        }
         self.out.send(|seq| {
             json!({"seq": seq, "type": "response", "request_seq": req.seq,
                 "success": false, "command": req.command, "message": message})
@@ -1457,6 +1534,10 @@ impl Session {
             command: req.command.clone(),
             arguments: req.args.clone(),
         });
+        if matches!(req.command.as_str(), "scopes" | "variables") {
+            let now = self.shared.in_flight.fetch_add(1, Ordering::SeqCst) + 1;
+            self.shared.max_in_flight.fetch_max(now, Ordering::SeqCst);
+        }
         let script = self.shared.script.clone();
         match req.command.as_str() {
             "initialize" => {
@@ -1716,7 +1797,21 @@ impl Session {
             });
         }
         self.prog.bps.insert(path.clone(), wanted);
-        self.respond(req, Some(json!({ "breakpoints": answer })));
+        let slow = script
+            .slow_breakpoints
+            .as_ref()
+            .filter(|(_, fast)| !fast.iter().any(|f| path.contains(f.as_str())))
+            .map(|(ms, _)| *ms);
+        match slow {
+            Some(ms) => {
+                let (out, req) = (self.out.clone(), req.clone());
+                tokio::spawn(async move {
+                    tokio::time::sleep(Duration::from_millis(ms)).await;
+                    send_response(&out, &req, Some(json!({ "breakpoints": answer })));
+                });
+            }
+            None => self.respond(req, Some(json!({ "breakpoints": answer }))),
+        }
         if script.pending_breakpoints && self.launched {
             self.breakpoint_events(&path);
         }

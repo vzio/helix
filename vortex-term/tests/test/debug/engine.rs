@@ -753,6 +753,72 @@ async fn a_frozen_thread_is_respected_continues_are_single_thread_and_it_never_a
     e.h.finish().await
 }
 
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_frozen_thread_stays_put_in_an_all_stop_session_while_another_threads_hits_continue(
+) -> anyhow::Result<()> {
+    let mut e = env(|p| {
+        single_thread_cap(
+            Script::new(p)
+                .lines()
+                .threads()
+                .all_stop_continue()
+                .thread_program(1, queue(&[2, 3, 4, 5]))
+                .thread_program(2, queue(&[10, 11, 12, 13]))
+                .thread_program(3, queue(&[20, 21, 22, 23, 24])),
+        )
+    })
+    .await?;
+    e.start().await?;
+    e.focus().await?;
+    assert_eq!(
+        spectator(&e.h.app).spectated.map(|k| k.thread.to_string()),
+        Some("1".into())
+    );
+    assert_eq!(e.fake.advanced(1), 1);
+
+    // freeze thread 2 (spectate it, z), and watch thread 1 again
+    e.h.keys("<gt>").await?;
+    assert_eq!(
+        spectator(&e.h.app).spectated.map(|k| k.thread.to_string()),
+        Some("2".into())
+    );
+    e.h.keys("z<lt>").await?;
+    assert_eq!(spectator(&e.h.app).frozen.len(), 1);
+    assert_eq!(
+        spectator(&e.h.app).spectated.map(|k| k.thread.to_string()),
+        Some("1".into())
+    );
+
+    // continue thread 3, stopped silently at its first line, while thread 1 stays spectated
+    let mut key = spectator(&e.h.app).spectated.unwrap();
+    key.thread = serde_json::from_value(json!(3))?;
+    debug::threads::continue_thread(&mut e.h.app.editor, key);
+    // (a plain continue of thread 3's hit would resume every thread: the frozen one moves, and
+    // thread 1 reports the next stop while thread 3 stays silent)
+    let fake = &e.fake;
+    e.h.until("thread 3 ran on, or the frozen thread moved", move |app| {
+        fake.advanced(2) > 1
+            || engine(app)
+                .record
+                .iter()
+                .any(|h| h.thread.thread.to_string() == "3" && h.line + 1 >= 22)
+    })
+    .await;
+    assert_eq!(e.fake.advanced(2), 1, "the frozen thread didn't move");
+    let motion = e.motion();
+    let of_three: Vec<_> = motion.iter().filter(|(_, t, _)| *t == 3).collect();
+    assert!(!of_three.is_empty(), "{motion:?}");
+    assert!(
+        of_three
+            .iter()
+            .all(|(c, _, single)| c == "continue" && *single),
+        "every continue of thread 3 is alone: {motion:?}"
+    );
+    assert_eq!(e.fake.advanced(2), 1, "the frozen thread didn't move");
+    assert_eq!(e.fake.advanced(1), 1, "thread 1 stayed where it was");
+    e.h.finish().await
+}
+
 // ---------------------------------------------------------------------------------------------
 // The record
 

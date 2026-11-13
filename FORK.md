@@ -1488,10 +1488,12 @@ which assumes capabilities over the adapter's `initialize` answer:
 capabilities = { supportsSingleThreadExecutionRequests = true }
 ```
 
-lldb-dap (18 and 20) doesn't advertise it: lldb-dap 18 ignores `singleThread`; lldb-dap 20
+lldb-dap (18, 20 and 21) doesn't advertise it: lldb-dap 18 ignores `singleThread`; lldb-dap 20
 honours it for `next` and `stepIn` but not for `stepOut`, which runs every thread (so with it,
 playback's step outs of library code let frozen threads run: force interleavings with
-`space G n`). An adapter that stops every thread may also report each of them in a `stopped` event
+`space G n`); lldb-dap 21 answers a `continue` with `singleThread` (`allThreadsContinued: false`)
+and then runs nothing at all, so with the capability forced on, playback on the engine (which
+continues) stands still while a thread is frozen. An adapter that stops every thread may also report each of them in a `stopped` event
 of its own (lldb-dap does, with the reason of their last stop); those marked `preserveFocusHint`
 only update their thread's state, so they don't move the camera or pause playback.
 
@@ -1659,9 +1661,9 @@ editor, which only records them. Then:
 - the spectated thread's hit is a stop, shown and recorded whole as rewind does; playing, it waits
   out the speed's interval and continues; paused, it stays;
 - another thread's hit is recorded and continued at once, unpaced. With an adapter that stops every
-  thread at a hit (lldb's all-stop) that continue runs them all; frozen threads (`z`) and `o` work as
-  before (the spectated thread continues alone, with `singleThread`, when one of its neighbours is
-  frozen);
+  thread at a hit (lldb's all-stop) that continue runs them all, so while a thread is frozen (`z`)
+  every continue goes alone, with `singleThread`, the other threads' hits too: the frozen thread
+  never moves, and in an all-stop session only the thread you continue runs (`o` as before);
 - a hit of one of your breakpoints goes through one decision (`breakpoint_pauses` in
   `vortex-view/src/debug/engine.rs`: the breakpoint, the thread, the main thread), which pauses for
   now; a stop at yours on another thread cuts the camera to it, as before. Exceptions, a pause and

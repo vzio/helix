@@ -51,6 +51,10 @@ use crate::job;
 /// How long `breakpointLocations` may take before a file falls back to verifying a breakpoint
 /// on every line (js-debug answers only once the script is loaded).
 const LOCATIONS_TIMEOUT: Duration = Duration::from_millis(1000);
+/// How long a file's `setBreakpoints` may take: lldb-dap takes over 20 seconds (the usual
+/// limit) for a big file of a big program once it runs, and a request that gives up still sets
+/// its breakpoints, under ids nobody knows (their hits would stop playback as strangers).
+const SEND_TIMEOUT: Duration = Duration::from_secs(300);
 /// How long `loadedSources` may take.
 const SOURCES_TIMEOUT: Duration = Duration::from_millis(2000);
 /// At most this many files get hidden breakpoints.
@@ -237,7 +241,7 @@ async fn send(
         .chain(hidden.iter().map(|line| hidden_breakpoint(*line)))
         .collect();
     requester
-        .set_breakpoints(path.to_owned(), breakpoints)
+        .set_breakpoints_within(path.to_owned(), breakpoints, SEND_TIMEOUT)
         .await
 }
 

@@ -3,4 +3,5 @@ pub mod fake_adapter;
 mod harness;
 mod memory;
 mod panel;
+mod recording;
 mod spectator;
