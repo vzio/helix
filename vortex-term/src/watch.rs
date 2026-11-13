@@ -877,8 +877,8 @@ pub fn open_changes(editor: &mut Editor, compositor: &mut Compositor) {
         return;
     }
     let rows = session_rows(editor, session);
+    // the totals on the picker's prompt row, not in the status line
     let totals = changes::Totals::of(&rows);
-    editor.set_status(format!("This session: {}", totals.describe()));
     let cwd = vortex_stdx::env::current_working_dir();
     let enter = |cx: &mut Context, row: &ChangeRow| {
         if !open_row(cx.editor, row, Action::Replace) {
@@ -894,7 +894,8 @@ pub fn open_changes(editor: &mut Editor, compositor: &mut Compositor) {
     let open = |cx: &mut Context, row: &ChangeRow, action: Action| {
         open_row(cx.editor, row, action);
     };
-    let picker = changes::picker(editor, cwd, rows, false, enter, open);
+    let picker = changes::picker(editor, cwd, rows, false, enter, open)
+        .with_info(format!("this session: {}", totals.describe()));
     compositor.push(Box::new(overlaid(picker)));
 }
 

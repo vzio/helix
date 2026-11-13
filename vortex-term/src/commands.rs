@@ -3627,6 +3627,14 @@ fn watch_leave(cx: &mut Context) {
     crate::watch::leave(cx.editor);
 }
 
+/// How the palette remembers a command it ran (this fork): `:name` for a typed command.
+pub(crate) fn palette_key(command: &MappableCommand) -> String {
+    match command {
+        MappableCommand::Typable { name, .. } => format!(":{name}"),
+        command => command.name().to_string(),
+    }
+}
+
 pub fn command_palette(cx: &mut Context) {
     let register = cx.register;
     let count = cx.count;
@@ -3646,6 +3654,22 @@ pub fn command_palette(cx: &mut Context) {
                         doc: cmd.doc.to_owned(),
                     }),
             );
+            // the commands run this session first, the most recent first (this fork); with a
+            // query, they win ties
+            let recent: HashMap<String, u32> = cx
+                .editor
+                .recent_commands
+                .iter()
+                .enumerate()
+                .map(|(rank, name)| (name.clone(), rank as u32))
+                .collect();
+            let mut commands: Vec<MappableCommand> = commands.collect();
+            commands.sort_by_key(|command| {
+                recent
+                    .get(&palette_key(command))
+                    .copied()
+                    .unwrap_or(u32::MAX)
+            });
 
             let columns = [
                 ui::PickerColumn::new("name", |item, _| match item {
@@ -3689,6 +3713,7 @@ pub fn command_palette(cx: &mut Context) {
                 };
                 let focus = view!(ctx.editor).id;
 
+                ctx.editor.remember_command(&palette_key(command));
                 command.execute(&mut ctx);
 
                 if ctx.editor.tree.contains(focus) {
@@ -3705,7 +3730,13 @@ pub fn command_palette(cx: &mut Context) {
                 }
             })
             // its commands record their own jumps (this fork: history)
-            .without_jumps();
+            .without_jumps()
+            .with_tie_rank(move |command| {
+                recent
+                    .get(&palette_key(command))
+                    .copied()
+                    .unwrap_or(u32::MAX)
+            });
             compositor.push(Box::new(overlaid(picker)));
         },
     ));

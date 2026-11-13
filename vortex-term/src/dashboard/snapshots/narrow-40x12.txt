@@ -1,12 +1,12 @@
 
+
+
               v o r t e x
   fork of helix-editor/helix, by vzio
 
+     i  type    f  files    e  tree
+    l  history    w  watch    q  quit
 
-      i    Start typing
-      f    Find a file     space f
-      e    File tree       space e
-      l    Git history     space l
-      q    Quit                 :q
+
 
 

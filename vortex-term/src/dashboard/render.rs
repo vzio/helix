@@ -61,6 +61,8 @@ pub struct Hints {
     pub history: Option<String>,
     /// `:worktrees`, which has no key by default (`:wt`).
     pub worktrees: Option<String>,
+    /// `:watch`, which has no key by default.
+    pub watch: Option<String>,
     pub quit: Option<String>,
 }
 
@@ -588,6 +590,12 @@ fn actions(model: &Model) -> Vec<Action> {
             label: "Git history",
             hint: model.hints.history.clone(),
         });
+        actions.push(Action {
+            key: "w",
+            short: "watch",
+            label: "Watch mode",
+            hint: model.hints.watch.clone(),
+        });
     }
     if model.stats.shows_worktrees() {
         actions.push(Action {
@@ -715,7 +723,11 @@ pub fn render(model: &Model, theme: &Theme, area: Rect, surface: &mut Surface, n
     let languages_height = |layout: &Layout| 2 + legend_rows(panel, layout.legend);
 
     let height = |layout: &Layout| -> u16 {
-        let menu = if layout.menu { actions.len() as u16 } else { 1 };
+        let menu = if layout.menu {
+            actions.len() as u16
+        } else {
+            row_lines(&actions, area.width).len() as u16
+        };
         let mut total = head(layout) + menu;
         if git && layout.stats {
             let rows = project_rows(model.stats, s, layout.worktrees);
@@ -731,11 +743,12 @@ pub fn render(model: &Model, theme: &Theme, area: Rect, surface: &mut Surface, n
         total
     };
     let layouts = Layout::all(title::large(effects.dashboard_logo));
-    let row_width = actions_row_width(&actions);
+    // the actions on one row, or two when one is too narrow for them
+    let row_fits = row_lines(&actions, area.width).len() <= 2;
     let fits = |layout: &&Layout| {
         height(layout) <= area.height
             && title_width(layout) <= area.width
-            && (layout.menu || row_width <= area.width)
+            && (layout.menu || row_fits)
     };
     let layout = layouts
         .iter()
@@ -1134,14 +1147,42 @@ fn menu_width(actions: &[Action]) -> (u16, u16) {
     (3 + 3 + LABEL + hint_width, LABEL)
 }
 
+/// The actions on rows of at most `width` columns, as ranges of them: as many on each row as
+/// fit, the same number on each when they take two (the last row may have one less).
+fn row_lines(actions: &[Action], width: u16) -> Vec<std::ops::Range<usize>> {
+    if actions_row_width(actions) <= width || actions.is_empty() {
+        return vec![0..actions.len()];
+    }
+    for rows in 2..=actions.len() {
+        let per_row = actions.len().div_ceil(rows);
+        let lines: Vec<_> = (0..actions.len())
+            .step_by(per_row)
+            .map(|start| start..(start + per_row).min(actions.len()))
+            .collect();
+        if lines
+            .iter()
+            .all(|line| actions_row_width(&actions[line.clone()]) <= width)
+        {
+            return lines;
+        }
+    }
+    (0..actions.len()).map(|i| i..i + 1).collect()
+}
+
 /// Where the actions go, from row `y`.
 fn actions_rect(area: Rect, actions: &[Action], y: u16, menu: bool) -> Rect {
     if menu {
         let (width, _) = menu_width(actions);
         Rect::new(center(area, width), y, width, actions.len() as u16)
     } else {
-        let width = actions_row_width(actions).min(area.width);
-        Rect::new(center(area, width), y, width, 1)
+        let lines = row_lines(actions, area.width);
+        let width = lines
+            .iter()
+            .map(|line| actions_row_width(&actions[line.clone()]))
+            .max()
+            .unwrap_or(0)
+            .min(area.width);
+        Rect::new(center(area, width), y, width, lines.len() as u16)
     }
 }
 
@@ -1161,16 +1202,24 @@ fn draw_actions(canvas: &mut Canvas, actions: &[Action], part: Rect, menu: bool,
             }
         }
     } else {
-        // one row: the keys and the actions
-        let mut spans: Vec<Span> = Vec::new();
-        for (i, action) in actions.iter().enumerate() {
-            if i > 0 {
-                spans.push(("   ".into(), s.action));
+        // a row (or two): the keys and the actions, each row centered
+        for (row, line) in row_lines(actions, canvas.area.width)
+            .into_iter()
+            .enumerate()
+        {
+            let line = &actions[line];
+            let mut spans: Vec<Span> = Vec::new();
+            for (i, action) in line.iter().enumerate() {
+                if i > 0 {
+                    spans.push(("   ".into(), s.action));
+                }
+                spans.push((badge(action.key), s.key));
+                spans.push((format!(" {}", action.short), s.action));
             }
-            spans.push((badge(action.key), s.key));
-            spans.push((format!(" {}", action.short), s.action));
+            let width = actions_row_width(line).min(part.width);
+            let line_x = x + (part.width - width) / 2;
+            canvas.spans(line_x, y + row as u16, &spans, width);
         }
-        canvas.spans(x, y, &spans, part.width);
     }
 }
 
@@ -1206,6 +1255,7 @@ pub(crate) mod tests {
             tree: Some("space e".into()),
             history: Some("space l".into()),
             worktrees: Some(":wt".into()),
+            watch: Some(":watch".into()),
             quit: Some(":q".into()),
         }
     }

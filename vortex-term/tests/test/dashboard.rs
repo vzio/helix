@@ -37,7 +37,7 @@ const HISTORY: &str = "Git history";
 
 fn config(dashboard: bool) -> Config {
     let mut config = test_config();
-    config.editor.dashboard = dashboard;
+    config.editor.dashboard = dashboard.into();
     config
 }
 

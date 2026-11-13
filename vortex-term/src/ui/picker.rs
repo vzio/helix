@@ -359,6 +359,9 @@ pub struct Picker<T: 'static + Send + Sync, D: 'static> {
         String,
         Vec<(&'static str, Vec<(&'static str, &'static str)>)>,
     )>,
+    /// Breaks ties between matches of the same score: the lower rank first (this fork: recent
+    /// commands in the palette), see [`Picker::with_tie_rank`].
+    tie_rank: Option<Box<dyn Fn(&T) -> u32>>,
 }
 
 /// Items listed first for some queries (this fork): the commits whose hash starts with a
@@ -547,7 +550,16 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
             header: true,
             info: None,
             help: None,
+            tie_rank: None,
         }
+    }
+
+    /// With a query, matches of the same score are listed by `rank`, the lowest first, before
+    /// the matcher's own order (shorter first, then the order they were added). Items without a
+    /// rank return `u32::MAX`.
+    pub fn with_tie_rank(mut self, rank: impl Fn(&T) -> u32 + 'static) -> Self {
+        self.tie_rank = Some(Box::new(rank));
+        self
     }
 
     /// No header row with the names of the columns: the columns of the fork's lists are clear
@@ -702,6 +714,9 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
         if self.order.is_none() {
             self.update_groups();
         }
+        if self.order.is_none() {
+            self.update_ties();
+        }
         if self.order.is_some() {
             self.cursor = self.cursor.min(self.rows().count().saturating_sub(1));
         }
@@ -742,6 +757,45 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
                 .map(|(position, _)| ListedRow::Matched(position as u32)),
         );
         self.order = Some(order);
+    }
+
+    /// With a query and a tie rank, lists the matches of the same score by rank.
+    fn update_ties(&mut self) {
+        let Some(rank) = &self.tie_rank else {
+            return;
+        };
+        let snapshot = self.matcher.snapshot();
+        if snapshot.pattern().is_empty() {
+            return;
+        }
+        // the matcher keeps its scores to itself: the matches are scored again, only when some
+        // have a rank
+        let ranks: Vec<u32> = snapshot
+            .matched_items(..)
+            .map(|item| rank(item.data))
+            .collect();
+        if ranks.iter().all(|&rank| rank == u32::MAX) {
+            return;
+        }
+        let mut matcher = nucleo::Matcher::new(nucleo::Config::DEFAULT);
+        let pattern = snapshot.pattern();
+        let scores: Vec<u32> = snapshot
+            .matched_items(..)
+            .map(|item| {
+                pattern
+                    .score(item.matcher_columns, &mut matcher)
+                    .unwrap_or(0)
+            })
+            .collect();
+        let mut positions: Vec<usize> = (0..ranks.len()).collect();
+        // stable: the matcher's order stays within the same score and rank
+        positions.sort_by_key(|&position| (std::cmp::Reverse(scores[position]), ranks[position]));
+        self.order = Some(
+            positions
+                .into_iter()
+                .map(|position| ListedRow::Matched(position as u32))
+                .collect(),
+        );
     }
 
     /// With a query, lists the rows of a picker with groups in the order they were added, each

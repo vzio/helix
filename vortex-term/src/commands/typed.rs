@@ -4628,6 +4628,8 @@ pub(super) fn execute_command(
 
     if event == PromptEvent::Validate {
         crate::watch::before_typed(cx.editor, cmd.name);
+        // the palette lists the commands run this session first (this fork)
+        cx.editor.remember_command(&format!(":{}", cmd.name));
     }
     (cmd.fun)(cx, args, event).map_err(|err| anyhow!("'{}': {err}", cmd.name))
 }

@@ -64,6 +64,8 @@ FLAGS:
     --vsplit                       Split all given files vertically into different windows
     --hsplit                       Split all given files horizontally into different windows
     -w, --working-dir <path>       Specify an initial working directory
+    -p, --plain                    Start without the dashboard, whatever the config says
+    --watch [folder]               Start in watch mode, in the folder if one is given
     +[N]                           Open the first given file at line number N, or the last line, if
                                    N is not specified.
 ",
