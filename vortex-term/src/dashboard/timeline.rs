@@ -423,4 +423,153 @@ mod tests {
             );
         }
     }
+
+    /// The instants from `from` to `to`, every `step`.
+    fn instants(from: Instant, to: Instant, step: Duration) -> Vec<Instant> {
+        let mut out = Vec::new();
+        let mut t = from;
+        while t <= to {
+            out.push(t);
+            t += step;
+        }
+        out
+    }
+
+    #[test]
+    fn drain_starts_full_empties_monotonically_and_settles_when_empty() {
+        let born = Instant::now();
+        let stats = Stats::default();
+        let timeline = Timeline::new(born, DashboardBackground::Drain);
+        let start = timeline.motion_start(&stats);
+        let end = start + REACH;
+        // full at born and until the motion starts
+        for t in instants(born, start, ms(50)) {
+            assert!(timeline.reach(&stats, t) >= 1.0 + EDGE, "{:?}", t - born);
+        }
+        // falls to 0
+        let mut previous = f64::MAX;
+        for t in instants(start, end, ms(16)) {
+            let reach = timeline.reach(&stats, t);
+            assert!(reach <= previous, "{reach} > {previous}");
+            previous = reach;
+        }
+        assert_eq!(timeline.reach(&stats, end), 0.0);
+        assert_eq!(timeline.reach(&stats, end + ms(3_600_000)), 0.0);
+        // settled only once empty (and the title open)
+        for t in instants(born, end - ms(1), ms(50)) {
+            assert!(!timeline.settled(&stats, t), "{:?}", t - born);
+        }
+        assert!(timeline.settled(&stats, end));
+        assert!(timeline.title(&stats, end) == 1.0);
+        assert!(timeline.settled(&stats, end + ms(3_600_000)));
+    }
+
+    #[test]
+    fn grow_is_empty_until_the_motion_starts_then_fills_and_stops_spinning() {
+        let born = Instant::now();
+        let stats = Stats::default();
+        let timeline = Timeline::new(born, DashboardBackground::Grow);
+        let start = timeline.motion_start(&stats);
+        let end = start + REACH;
+        for t in instants(born, start, ms(50)) {
+            assert_eq!(timeline.reach(&stats, t), 0.0, "{:?}", t - born);
+        }
+        let mut previous = 0.0;
+        for t in instants(start, end, ms(16)) {
+            let reach = timeline.reach(&stats, t);
+            assert!(reach >= previous, "{reach} < {previous}");
+            previous = reach;
+        }
+        assert!(timeline.reach(&stats, end) >= 1.0 + EDGE);
+        assert!(timeline.reach(&stats, end + ms(3_600_000)) >= 1.0 + EDGE);
+        // the spin slows down to a stop at the end
+        assert_eq!(
+            timeline.spin(&stats, end),
+            timeline.spin(&stats, end + Duration::from_secs(3600))
+        );
+        assert_ne!(
+            timeline.spin(&stats, start + REACH / 2),
+            timeline.spin(&stats, end)
+        );
+        assert!(!timeline.settled(&stats, end - ms(1)));
+        assert!(timeline.settled(&stats, end));
+    }
+
+    #[test]
+    fn grow_on_grows_like_grow_spins_like_on_and_never_settles() {
+        let born = Instant::now();
+        let stats = Stats::default();
+        let grow = Timeline::new(born, DashboardBackground::Grow);
+        let grow_on = Timeline::new(born, DashboardBackground::GrowOn);
+        let on = Timeline::new(born, DashboardBackground::On);
+        let hour = born + Duration::from_secs(3600);
+        for t in instants(born, born + ms(5000), ms(37))
+            .into_iter()
+            .chain([hour])
+        {
+            assert_eq!(grow.reach(&stats, t), grow_on.reach(&stats, t));
+            assert_eq!(grow_on.spin(&stats, t), on.spin(&stats, t));
+            assert!(!grow_on.settled(&stats, t));
+        }
+    }
+
+    #[test]
+    fn growing_and_draining_start_at_the_delay_whatever_the_stats() {
+        let born = Instant::now();
+        let at = born + MOTION_DELAY;
+        for background in [DashboardBackground::Grow, DashboardBackground::Drain] {
+            let timeline = Timeline::new(born, background);
+            // fast stats: the same instant as ready
+            let fast = stats_in_git(born + ms(10), 6, born + ms(10), &[]);
+            assert_eq!(timeline.motion_start(&fast), at);
+            assert_eq!(timeline.ready(&fast), Some(at));
+            // one stat missing: growing doesn't wait for it
+            let missing = stats_in_git(born + ms(10), 0, born + ms(10), &[3]);
+            assert_eq!(timeline.ready(&missing), None);
+            assert_eq!(timeline.motion_start(&missing), at);
+            // the last stat at 3 s
+            let late = stats_in_git(born + ms(10), 6, born + Duration::from_secs(3), &[]);
+            assert_eq!(timeline.motion_start(&late), at);
+        }
+        let grow = Timeline::new(born, DashboardBackground::Grow);
+        let missing = stats_in_git(born + ms(10), 0, born + ms(10), &[3]);
+        assert!(grow.reach(&missing, at + REACH / 2) > 0.0);
+        assert_eq!(grow.reach(&missing, at), 0.0);
+    }
+
+    #[test]
+    fn the_other_modes_have_an_infinite_reach() {
+        let born = Instant::now();
+        let stats = Stats::default();
+        for background in [
+            DashboardBackground::On,
+            DashboardBackground::Settle,
+            DashboardBackground::Static,
+            DashboardBackground::Off,
+        ] {
+            let timeline = Timeline::new(born, background);
+            for t in [0, 500, 1500, 3000, 3_600_000] {
+                assert_eq!(timeline.reach(&stats, born + ms(t)), f64::INFINITY);
+            }
+        }
+    }
+
+    #[test]
+    fn the_background_modes_parse_and_load_is_settle() {
+        #[derive(serde::Deserialize)]
+        struct W {
+            b: DashboardBackground,
+        }
+        let parse = |name: &str| toml::from_str::<W>(&format!("b = \"{name}\"")).unwrap().b;
+        assert_eq!(parse("load"), DashboardBackground::Settle);
+        assert_eq!(parse("settle"), DashboardBackground::Settle);
+        assert_eq!(parse("drain"), DashboardBackground::Drain);
+        assert_eq!(parse("grow"), DashboardBackground::Grow);
+        assert_eq!(parse("grow-on"), DashboardBackground::GrowOn);
+        assert_eq!(parse("on"), DashboardBackground::On);
+        assert_eq!(parse("static"), DashboardBackground::Static);
+        assert_eq!(parse("off"), DashboardBackground::Off);
+        assert!(toml::from_str::<W>("b = \"spin\"").is_err());
+        assert_eq!(DashboardBackground::default(), DashboardBackground::GrowOn);
+    }
 }

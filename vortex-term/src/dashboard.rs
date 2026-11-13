@@ -263,3 +263,62 @@ pub fn hints(keymaps: &Keymaps) -> Hints {
         quit: Some(":q".to_string()),
     }
 }
+
+#[cfg(test)]
+mod cost {
+    use std::path::Path;
+    use std::time::{Duration, Instant};
+
+    use tui::buffer::Buffer as Surface;
+    use vortex_view::editor::DashboardBackground;
+    use vortex_view::graphics::Rect;
+
+    use super::render::{self, tests as render_tests, Model};
+    use super::Timeline;
+
+    /// The time the first frame of each background mode takes, printed: each in a new thread,
+    /// so it also computes the vortex's geometry, as the first frame of a dashboard does. Run it
+    /// optimized: `cargo test -p vortex-term --lib --profile integration first_frame_cost --
+    /// --ignored --nocapture`.
+    #[test]
+    #[ignore]
+    fn first_frame_cost() {
+        let runs = 40;
+        for mode in [
+            DashboardBackground::On,
+            DashboardBackground::Settle,
+            DashboardBackground::Drain,
+            DashboardBackground::Grow,
+            DashboardBackground::GrowOn,
+            DashboardBackground::Static,
+            DashboardBackground::Off,
+        ] {
+            let mut total = Duration::ZERO;
+            for _ in 0..runs {
+                total += std::thread::spawn(move || {
+                    let theme = vortex_view::theme::Loader::new(&[]).default();
+                    let area = Rect::new(0, 0, 160, 50);
+                    let mut surface = Surface::empty(area);
+                    let born = Instant::now();
+                    let stats = render_tests::loaded(born);
+                    let hints = render_tests::hints();
+                    let model = Model {
+                        stats: &stats,
+                        timeline: Timeline::new(born, mode),
+                        dir: Path::new("/src/vortex"),
+                        hints: &hints,
+                        title: true,
+                        vortex_only: false,
+                        glitches: None,
+                    };
+                    let start = Instant::now();
+                    render::render(&model, &theme, area, &mut surface, born);
+                    start.elapsed()
+                })
+                .join()
+                .unwrap();
+            }
+            println!("{mode:?}: first frame {:?} at 160x50", total / runs);
+        }
+    }
+}

@@ -128,7 +128,7 @@ Each feature lives in its own modules, to keep rebasing on upstream cheap:
 | History and bookmarks | `vortex-view/src/history.rs` (what records a jump, `Editor::record_jump`, the places of a view, walking), `vortex-view/src/bookmarks.rs` (the bookmarks of a buffer, mapped through its changes; the closed files' bookmarks; the ring), `vortex-term/src/history.rs` (`ga`, `gA` and its sticky state, showing a screen again, the bookmark commands and picker), the `bookmarks` gutter in `vortex-view/src/gutter.rs`, `vortex-term/tests/test/history.rs` |
 | The vortex theme | `theme.toml` (the theme), `helix_theme.toml` (upstream's default theme), the built-in themes in `vortex-view/src/theme.rs` |
 | Theme effects | `vortex-view/src/effects.rs` (the `[effects]` table: parsing, validation, inheritance), `vortex-term/src/ui/glitch.rs` (the glitch and its wake-ups), `vortex-term/src/dashboard/charset.rs` (blocks or the measured ASCII ramp), `vortex-term/src/terminal/phosphor.rs` (the phosphor filter), the glitch over error diagnostics in `vortex-term/src/ui/text_decorations/diagnostics.rs` (where the ghost text of errors is) and `glitch_diagnostics` in `vortex-term/src/ui/editor.rs` |
-| The Matrix theme | `matrix_theme.toml` (the theme and its effects), built in by `vortex-view/src/theme.rs`, CONTRAST_TEST_FILE (the contrast test) |
+| The Matrix theme | `matrix_theme.toml` (the theme and its effects), built in by `vortex-view/src/theme.rs`, `vortex-view/src/contrast_tests.rs` (the contrast test) |
 | Practice | `vortex-term/src/practice.rs`, `vortex-term/src/practice/`, `runtime/practice/`, `vortex-term/tests/test/practice.rs` |
 
 Hooks into core files: commands and keys in `vortex-term/src/commands.rs`,
@@ -1377,7 +1377,11 @@ the vortex and error diagnostics use it now, each with its own rate and duration
   a glitch starting or one ending, and nothing else: it schedules a single wake-up, kept until a
   sooner one is needed. Only cells drawn in the frame count, so a vortex or a diagnostic that is
   off screen (or under a panel) asks for nothing, and with no glitch to come the editor stays
-  idle. IDLE_NUMBERS
+  idle. Measured in a pseudo-terminal (release build), over a
+  minute at rest with an error diagnostic on screen, its message 44 characters long: with
+  `glitch-diagnostics = 0.01`, 0.7 frames a second (one to start each glitch and one to end it),
+  50 bytes a second written to the terminal, 0.08% of a CPU; the same file in a theme without
+  effects, 0 frames and 0%. MATRIX_DASHBOARD
 - **Error diagnostics.** Only the ghost text Vortex draws for diagnostics of severity error, at
   the end of the line and inline under it, over its characters (not the spaces between words);
   never warnings, info or hints, never their `┘├─` connectors, never the buffer's own text.
@@ -1442,10 +1446,13 @@ theme = "matrix"
   don't mix), a fast glitch on the logo (0.6), a slow one on the vortex (0.004), 0.01 on error
   diagnostics, and the terminal panel through a phosphor filter of its text green.
 
-Its contrast is tested (WCAG ratios, CONTRAST_TEST_FILE): text on the background at least 7:1,
+Its contrast is tested (WCAG ratios, `vortex-view/src/contrast_tests.rs`): text on the background at least 7:1,
 comments and inactive text at least 4.5:1, text on the tinted backgrounds (the current line, the
 selections, strings) at least 4.5:1, the selection and the cursor distinguishable from the text
-and the background. CONTRAST_NUMBERS
+and the background. Measured: text 11.7:1 on the background, comments and
+inactive text 6.8:1, text on the primary selection 5.1:1 (its lowest pair), errors 5.9:1, the
+selection 1.7:1 against the background and the cursor 16.7:1. The same rows run on the vortex
+theme too, printed only (`cargo test -p vortex-view contrast -- --nocapture`).
 
 ## Practice
 
@@ -2361,8 +2368,9 @@ The title, the stats and the actions each sit on a panel of the theme's backgrou
 never drawn in a panel. The panel of the title widens as it opens. A window smaller than 48 × 16
 gets no vortex.
 
-A frame is a function of the time: the same time draws the same frame, which the tests use. What
-it costs, measured on an optimized build (the `integration` profile) in this repository:
+A frame is a function of the time (glitches aside): the same time draws the same frame, which the
+tests use. What it costs, measured on an optimized build (the `integration` profile) in this
+repository:
 
 | | 200 × 60 | 160 × 50 | 100 × 44 |
 | --- | --- | --- | --- |
@@ -2371,14 +2379,28 @@ it costs, measured on an optimized build (the `integration` profile) in this rep
 
 The geometry of each cell (its angle on the arms and the ripples, its distance to the eye) is
 kept in memory for the window's size, so a frame needs no trigonometry per cell: the arms are
-`cos(a − t)` expanded with the cell's `cos a` and `sin a`. With `vx` running in a pseudo-terminal
-at 160 × 50, the `on` mode at rest draws about 20 frames a second, writes about 35 KiB to the
-terminal a frame (some 0.7 MB/s, mostly colors: the shades of the gradient are few so that
-neighbor cells share them), and takes about 9% of a CPU, the whole editor included. The editor
-draws a frame at most 33 ms after asking for one, which keeps it under 30.
+`cos(a − t)` expanded with the cell's `cos a` and `sin a`. The editor draws a frame at most 33 ms
+after asking for one, which keeps it under 30 a second.
 
-The `load` mode (once stopped), `static` and `off` ask for no frames at rest: 0 bytes and 0
-frames over 10 seconds.
+The first frame, and the cost at rest, of each mode, with `vx` on the dashboard of this repository
+in a pseudo-terminal at 160 × 50 (release build; at rest is from 8 to 18 seconds after it opened;
+the CPU is the whole editor's):
+
+| `dashboard-background` | First frame | At rest: frames a second | Written to the terminal | CPU |
+| --- | --- | --- | --- | --- |
+| `grow-on` | 0.37 ms (empty) | 20 | 590 KiB/s | 4.3% |
+| `grow` | 0.37 ms (empty) | 0 | 0 | 0% |
+| `drain` | 2.4 ms | 0 (empty) | 0 | 0% |
+| `settle` | 2.2 ms | 0 | 0 | 0% |
+| `on` | 2.1 ms | 20 | 600 KiB/s | 4.9% |
+| `static` | 2.1 ms | 0 | 0 | 0% |
+| `off` | 0.27 ms | 0 | 0 | 0% |
+
+The first frame of a full vortex also computes its geometry for the window (the rest of the 2 ms
+over a frame's 1.3); starting empty skips both, and the vortex costs only what it reaches while it
+grows. A spinning vortex writes about 30 KiB a frame, mostly colors (the shades of the gradient are
+few so that neighbor cells share them). The modes that stop write nothing and draw no frames once
+they have.
 
 ### What it shows
 

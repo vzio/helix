@@ -208,6 +208,32 @@ pub fn light(width: u16, height: u16, spin: f64) -> Vec<f32> {
 /// farther out are dark, and the last [`EDGE`] fades out. Cells and points of trails out of
 /// reach aren't computed.
 pub fn light_within(width: u16, height: u16, spin: f64, reach: f64) -> Vec<f32> {
+    // a still vortex (`static`, a stopped one) is the same frame after frame: frames asked for
+    // something else, a glitch, reuse its light
+    let key = (width, height, spin.to_bits(), reach.to_bits());
+    if let Some(cells) = LIGHT.with(|last| {
+        let last = last.borrow();
+        last.as_ref()
+            .filter(|(last_key, _)| *last_key == key)
+            .map(|(_, cells)| cells.clone())
+    }) {
+        return cells;
+    }
+    let cells = compute_light(width, height, spin, reach);
+    LIGHT.with(|last| *last.borrow_mut() = Some((key, cells.clone())));
+    cells
+}
+
+/// The key of a frame's light: the size, and the bits of the phase and the reach.
+type LightKey = (u16, u16, u64, u64);
+
+thread_local! {
+    /// The light of the last frame computed.
+    static LIGHT: std::cell::RefCell<Option<(LightKey, Vec<f32>)>> =
+        const { std::cell::RefCell::new(None) };
+}
+
+fn compute_light(width: u16, height: u16, spin: f64, reach: f64) -> Vec<f32> {
     let (cols, rows) = (width as usize, height as usize);
     let mut cells = vec![0f32; cols * rows];
     // in units of a cell's width: cells are about twice as tall as wide
@@ -433,6 +459,157 @@ mod tests {
         assert_eq!(named.at(0.1, 1.0), Some(Color::Red));
         assert_eq!(named.at(0.5, 0.0), Some(Color::Blue));
         assert_eq!(named.at(1.0, 1.0), Some(Color::Green));
+    }
+
+    /// The distance of a cell to the eye as `geometry` computes it: the column's centre and the
+    /// row's centre (rows count twice), 1 at the corners.
+    fn distance(width: u16, height: u16, col: u16, row: u16) -> f64 {
+        let (w, h) = (width as f64, height as f64 * 2.0);
+        let dx = col as f64 + 0.5 - w / 2.0;
+        let dy = (row as f64 + 0.5) * 2.0 - h / 2.0;
+        (dx * dx + dy * dy).sqrt() / ((w / 2.0).powi(2) + (h / 2.0).powi(2)).sqrt()
+    }
+
+    #[test]
+    fn nothing_is_lit_at_reach_zero() {
+        assert!(light_within(120, 40, 5.0, 0.0).iter().all(|&l| l == 0.0));
+    }
+
+    #[test]
+    fn only_cells_within_the_reach_are_lit() {
+        let (w, h) = (120u16, 40u16);
+        let cells = light_within(w, h, 5.0, 0.5);
+        let mut near_lit = 0;
+        let mut near_total = 0;
+        for row in 0..h {
+            for col in 0..w {
+                let d = distance(w, h, col, row);
+                let lit = cells[row as usize * w as usize + col as usize] > 0.0;
+                if d > 0.5 {
+                    assert!(!lit, "lit beyond the reach at {col},{row}: {d}");
+                } else if (0.1..0.4).contains(&d) {
+                    near_total += 1;
+                    near_lit += usize::from(lit);
+                }
+            }
+        }
+        assert!(near_total > 100);
+        assert_eq!(near_lit, near_total, "cells near the centre are lit");
+        // the eye is dark
+        assert_eq!(cells[20 * 120 + 60], 0.0);
+    }
+
+    #[test]
+    fn an_infinite_reach_is_the_whole_vortex() {
+        for spin in [0.0, 3.7, 41.7] {
+            assert_eq!(
+                light_within(100, 44, spin, f64::INFINITY),
+                light(100, 44, spin)
+            );
+        }
+    }
+
+    fn test_colors() -> Colors {
+        Colors {
+            gradient: vec![Color::Rgb(137, 180, 250), Color::Rgb(250, 179, 135)],
+            background: Some(Color::Rgb(30, 30, 46)),
+        }
+    }
+
+    fn drawn_surface(
+        area: Rect,
+        spin: f64,
+        look: &Look,
+        drawn: Option<&mut Vec<(u16, u16)>>,
+    ) -> Surface {
+        let mut surface = Surface::empty(Rect::new(0, 0, area.right() + 3, area.bottom() + 2));
+        draw(&mut surface, area, spin, &[], look, drawn);
+        surface
+    }
+
+    fn lit_cells(surface: &Surface) -> Vec<(u16, u16)> {
+        let area = surface.area;
+        let mut cells = Vec::new();
+        for y in area.top()..area.bottom() {
+            for x in area.left()..area.right() {
+                if surface[(x, y)].symbol.as_str() != " " {
+                    cells.push((x, y));
+                }
+            }
+        }
+        cells
+    }
+
+    #[test]
+    fn drawing_an_empty_vortex_leaves_the_surface_alone() {
+        let colors = test_colors();
+        let look = Look {
+            reach: 0.0,
+            ..Look::full(&colors)
+        };
+        let mut drawn = Vec::new();
+        let surface = drawn_surface(Rect::new(2, 1, 100, 30), 4.0, &look, Some(&mut drawn));
+        assert!(drawn.is_empty());
+        assert_eq!(surface, Surface::empty(surface.area));
+    }
+
+    #[test]
+    fn the_drawn_list_holds_exactly_the_cells_that_changed() {
+        let colors = test_colors();
+        let area = Rect::new(2, 1, 100, 30);
+        for look in [
+            Look::full(&colors),
+            Look {
+                reach: 0.6,
+                ..Look::full(&colors)
+            },
+            Look {
+                charset: DashboardCharset::Ascii,
+                ..Look::full(&colors)
+            },
+        ] {
+            let mut drawn = Vec::new();
+            let surface = drawn_surface(area, 6.5, &look, Some(&mut drawn));
+            let mut changed = lit_cells(&surface);
+            assert!(changed.len() > 500);
+            drawn.sort();
+            let before = drawn.len();
+            drawn.dedup();
+            assert_eq!(before, drawn.len(), "a cell listed twice");
+            changed.sort();
+            assert_eq!(drawn, changed);
+            assert!(drawn.iter().all(|&(x, y)| {
+                x >= area.left() && x < area.right() && y >= area.top() && y < area.bottom()
+            }));
+        }
+    }
+
+    #[test]
+    fn the_ascii_charset_lights_the_same_cells_with_its_own_characters() {
+        let colors = test_colors();
+        let area = Rect::new(0, 0, 120, 40);
+        for spin in [0.0, 2.5, 41.7] {
+            let blocks = drawn_surface(area, spin, &Look::full(&colors), None);
+            let ascii = drawn_surface(
+                area,
+                spin,
+                &Look {
+                    charset: DashboardCharset::Ascii,
+                    ..Look::full(&colors)
+                },
+                None,
+            );
+            assert_eq!(lit_cells(&blocks), lit_cells(&ascii), "spin {spin}");
+            for (x, y) in lit_cells(&ascii) {
+                let symbol = &ascii[(x, y)].symbol;
+                let mut chars = symbol.chars();
+                let c = chars.next().unwrap();
+                assert!(chars.next().is_none());
+                assert!(charset::ASCII.contains(&c), "{c:?} at {x},{y}");
+                let b = blocks[(x, y)].symbol.chars().next().unwrap();
+                assert!(charset::BLOCKS.contains(&b));
+            }
+        }
     }
 
     /// The time a frame takes, printed: the vortex alone and the whole dashboard. Run it

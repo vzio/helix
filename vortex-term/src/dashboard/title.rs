@@ -368,4 +368,49 @@ mod tests {
             }
         }
     }
+
+    #[test]
+    fn the_runes_title_draws_its_wordmark() {
+        assert_eq!(
+            text(&RUNES, 1.0),
+            [
+                "▀█      █▀     ▄██▄     ██▀▀▄▄       ▄██▄     ██▀▀▀▀▀▀  ▀█▄    ▄█▀",
+                " ▀█    █▀    ▄█▀  ▀█▄   ██   ▄█▀   ▄█▀██▀█▄    ▀█▄        ▀█▄▄█▀",
+                "  ██  ██    ██      ██  ██▄█▀▀    ▀▀  ██  ▀▀     ██         ██",
+                "   █▄▄█      ▀█▄  ▄█▀   ██  ▀█▄       ██       ▄█▀        ▄█▀▀█▄",
+                "    ██         ▀██▀     ██    ▀█      ██      ██▄▄▄▄▄▄  ▄█▀    ▀█▄",
+            ]
+        );
+        assert_eq!(
+            text(&LARGE, 1.0)[0],
+            "██╗   ██╗ ██████╗ ██████╗ ████████╗███████╗██╗  ██╗"
+        );
+        assert_eq!(large(DashboardLogo::Runes), RUNES);
+        assert_eq!(large(DashboardLogo::Classic), LARGE);
+    }
+
+    #[test]
+    fn the_ascii_charset_opens_the_title_through_ascii_shades_only() {
+        let ascii = charset::shades(DashboardCharset::Ascii);
+        for title in ALL {
+            let mut shaded = 0;
+            for step in 1..20 {
+                let p = step as f64 / 20.0;
+                for cell in title.cells_in(p, DashboardCharset::Ascii) {
+                    if ascii.contains(&cell.c) {
+                        shaded += 1;
+                    }
+                    assert!(!"░▒▓".contains(cell.c), "{:?} at {p}: {:?}", title, cell.c);
+                }
+            }
+            // the shades are used, in the sizes that have inner letters
+            assert!(shaded > 0 || title == SMALL || title == MEDIUM, "{title:?}");
+        }
+        // blocks still use the blocks
+        let blocks = RUNES
+            .cells_in(0.4, DashboardCharset::Blocks)
+            .iter()
+            .any(|cell| "░▒▓".contains(cell.c));
+        assert!(blocks);
+    }
 }
