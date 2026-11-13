@@ -5,6 +5,7 @@
 
 pub mod input;
 mod panel;
+pub mod phosphor;
 mod render;
 pub mod shim;
 

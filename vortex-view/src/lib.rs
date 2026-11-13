@@ -9,6 +9,7 @@ pub mod clipboard;
 pub mod debug;
 pub mod document;
 pub mod editor;
+pub mod effects;
 pub mod events;
 pub mod expansion;
 pub mod graphics;

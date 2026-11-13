@@ -1,7 +1,10 @@
 //! Draws the panel: the screen of the shell cell by cell, right below the statusline of the
-//! splits above, in the colors the programs set (indexed colors stay indexed, so the outer terminal's palette applies).
+//! splits above, in the colors the programs set (indexed colors stay indexed, so the outer terminal's palette applies),
+//! or through the theme's phosphor filter ([`phosphor`](super::phosphor)) when it sets one.
 
 use tui::buffer::Buffer as Surface;
+
+use super::phosphor::Phosphor;
 use vortex_view::{
     graphics::{Color, CursorKind, Modifier, Rect, Style, UnderlineStyle},
     terminal::{self, CursorShape},
@@ -14,6 +17,15 @@ pub fn render(editor: &mut Editor, area: Rect, surface: &mut Surface) {
     let base = theme
         .try_get_exact("ui.terminal")
         .unwrap_or_else(|| theme.get("ui.background"));
+    // the phosphor filter (this fork), only when the theme sets one
+    let phosphor = theme
+        .effects()
+        .terminal_phosphor
+        .and_then(|color| Phosphor::new(color, base));
+    let base = match &phosphor {
+        Some(phosphor) => phosphor.style(base),
+        None => base,
+    };
     surface.set_style(area, base);
 
     editor.terminal.area = area;
@@ -31,7 +43,10 @@ pub fn render(editor: &mut Editor, area: Rect, surface: &mut Surface) {
             return;
         }
         let (x, y) = (area.x + col, area.y + row);
-        let style = base.patch(cell_style(cell));
+        let style = match &phosphor {
+            Some(phosphor) => phosphor.style(base.patch(cell_style(cell))),
+            None => base.patch(cell_style(cell)),
+        };
         if cell.text == " " {
             surface[(x, y)].set_symbol(" ").set_style(style);
         } else {

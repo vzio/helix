@@ -8,10 +8,15 @@
 //!   they do.
 //! - **Ready**, once every stat is in and [`MIN_LOADING`] has passed: the title opens from `VX`
 //!   to `VORTEX` over [`TITLE`].
-//! - **The vortex** behind it spins by [`DashboardBackground`]: always (`on`), at the same
-//!   speed while loading and then slowing down to a stop over [`SPIN_DOWN`] (`load`), or never
-//!   (`static`).
-//!   Its phase is the integral of its speed, so slowing down never jumps.
+//! - **The vortex** behind it moves by [`DashboardBackground`]: it spins always (`on`), at the
+//!   same speed while loading and then slowing down to a stop over [`SPIN_DOWN`] (`settle`), or
+//!   never (`static`). Its phase is the integral of its speed, so slowing down never jumps.
+//! - **Its reach**: `grow` and `grow-on` start with no vortex and grow it from the eye to the
+//!   corners over [`REACH`]; `drain` starts full and empties from the corners into the eye. The
+//!   reach is a radius ([`Timeline::reach`]) beyond which the vortex isn't drawn: a limit over
+//!   the same flow, not another one. The motion starts at [`Timeline::motion_start`], when the
+//!   title starts to open or after [`MOTION_DELAY`], whichever is first, so slow stats don't
+//!   hold it back.
 
 use std::time::{Duration, Instant};
 
@@ -28,15 +33,28 @@ pub const TYPE: Duration = Duration::from_millis(260);
 /// How long the title takes to open from `VX` to `VORTEX`.
 pub const TITLE: Duration = Duration::from_millis(720);
 
-/// How long the vortex takes to stop in the `load` mode, once the title is open.
+/// How long the vortex takes to stop in the `settle` mode, once the title is open.
 pub const SPIN_DOWN: Duration = Duration::from_millis(3200);
+
+/// How long the vortex takes to grow from its eye to the corners (`grow`, `grow-on`), or to drain
+/// from the corners into its eye (`drain`): the one constant for the speed of both, the same
+/// time in any window.
+pub const REACH: Duration = Duration::from_millis(1600);
+
+/// The latest the growing or draining starts after the dashboard opened, however slow the
+/// stats are.
+pub const MOTION_DELAY: Duration = Duration::from_millis(1000);
+
+/// The width of the soft edge of a growing or draining vortex, as a share of the distance from
+/// the eye to the corners.
+pub const EDGE: f64 = 0.08;
 
 /// The time between two requests for a frame while something moves. The editor draws a frame
 /// 33 ms after the first request that finds none pending, so asking twice as often keeps one
 /// pending most of the time: about 20 frames a second.
 pub const FRAME: Duration = Duration::from_millis(16);
 
-/// The speed of the vortex in the `on` mode, and while loading in the `load` mode: seconds of
+/// The speed of the vortex in the `on` mode, and while loading in the `settle` mode: seconds of
 /// spin per second. Slower than the time, so the flow is calm to look at.
 const CRUISE: f64 = 2.0 / 3.0;
 
@@ -102,34 +120,71 @@ impl Timeline {
         }
     }
 
+    /// When the vortex starts to grow or drain: when the title starts to open, or
+    /// [`MOTION_DELAY`] after the dashboard opened, whichever is first. (The title never opens
+    /// sooner than [`MIN_LOADING`], so with fast stats both are the same instant.)
+    pub fn motion_start(&self, stats: &Stats) -> Instant {
+        let latest = self.born + MOTION_DELAY;
+        match self.ready(stats) {
+            Some(ready) => ready.min(latest),
+            None => latest,
+        }
+    }
+
+    /// How far the vortex reaches at `now`, as a share of the distance from its eye to the
+    /// corners: cells farther out aren't drawn (and the last [`EDGE`] of it fades). Infinite
+    /// in the modes that don't grow or drain; 0 for an empty vortex.
+    pub fn reach(&self, stats: &Stats, now: Instant) -> f64 {
+        let full = 1.0 + EDGE;
+        let x = || progress(self.motion_start(stats), REACH, now);
+        match self.background {
+            // out from the eye, fast first and gently arriving at the corners
+            DashboardBackground::Grow | DashboardBackground::GrowOn => {
+                full * (1.0 - (1.0 - x()).powi(2))
+            }
+            // the rim empties first and the edge falls in faster and faster, like the flow
+            DashboardBackground::Drain => full * (1.0 - x() * x()),
+            _ => f64::INFINITY,
+        }
+    }
+
     /// The phase of the vortex at `now`, in seconds of spin at cruise speed; `None` without
     /// a vortex.
     pub fn spin(&self, stats: &Stats, now: Instant) -> Option<f64> {
+        let cruise = CRUISE * seconds(self.born, now);
         match self.background {
             DashboardBackground::Off => None,
             DashboardBackground::Static => Some(STILL),
-            DashboardBackground::On => Some(CRUISE * seconds(self.born, now)),
-            DashboardBackground::Load => {
-                // at cruise speed until the title is open, then the speed falls as (1 - x)², x going
-                // from 0 to 1 over SPIN_DOWN: its integral is (1 - (1 - x)³) / 3
-                let open = self.ready(stats).map(|ready| ready + TITLE);
-                match open {
-                    Some(open) if now > open => {
-                        let length = SPIN_DOWN.as_secs_f64();
-                        let x = progress(open, SPIN_DOWN, now);
-                        Some(
-                            CRUISE * seconds(self.born, open)
-                                + CRUISE * length * (1.0 - (1.0 - x).powi(3)) / 3.0,
-                        )
-                    }
-                    _ => Some(CRUISE * seconds(self.born, now)),
-                }
+            DashboardBackground::On | DashboardBackground::GrowOn | DashboardBackground::Drain => {
+                Some(cruise)
+            }
+            DashboardBackground::Settle => {
+                Some(self.spin_down(self.ready(stats).map(|ready| ready + TITLE), SPIN_DOWN, now))
+            }
+            // slows down as it grows, still once it reaches the corners
+            DashboardBackground::Grow => {
+                Some(self.spin_down(Some(self.motion_start(stats)), REACH, now))
             }
         }
     }
 
+    /// The phase of a vortex at cruise speed until `from`, then slowing down to a stop over
+    /// `length`: the speed falls as (1 - x)², x going from 0 to 1, whose integral is
+    /// (1 - (1 - x)³) / 3.
+    fn spin_down(&self, from: Option<Instant>, length: Duration, now: Instant) -> f64 {
+        match from {
+            Some(from) if now > from => {
+                let x = progress(from, length, now);
+                CRUISE * seconds(self.born, from)
+                    + CRUISE * length.as_secs_f64() * (1.0 - (1.0 - x).powi(3)) / 3.0
+            }
+            _ => CRUISE * seconds(self.born, now),
+        }
+    }
+
     /// Whether nothing moves anymore at `now`, so no more frames are needed: everything in and
-    /// typed, the title open, and the vortex still. In the `on` mode the vortex never stops.
+    /// typed, the title open, and the vortex still (or empty, or full and still). In the `on`
+    /// and `grow-on` modes the vortex never stops.
     pub fn settled(&self, stats: &Stats, now: Instant) -> bool {
         let Some(ready) = self.ready(stats) else {
             return false;
@@ -137,8 +192,11 @@ impl Timeline {
         // every value is typed in by ready + TYPE, and TYPE is shorter than TITLE
         let open = ready + TITLE;
         match self.background {
-            DashboardBackground::On => false,
-            DashboardBackground::Load => now >= open + SPIN_DOWN,
+            DashboardBackground::On | DashboardBackground::GrowOn => false,
+            DashboardBackground::Settle => now >= open + SPIN_DOWN,
+            DashboardBackground::Grow | DashboardBackground::Drain => {
+                now >= open.max(self.motion_start(stats) + REACH)
+            }
             DashboardBackground::Static | DashboardBackground::Off => now >= open,
         }
     }
@@ -163,9 +221,9 @@ mod tests {
     }
 
     #[test]
-    fn the_load_mode_slows_down_without_jumping() {
+    fn the_settle_mode_slows_down_without_jumping() {
         let born = Instant::now();
-        let timeline = Timeline::new(born, DashboardBackground::Load);
+        let timeline = Timeline::new(born, DashboardBackground::Settle);
         let stats = Stats::default(); // outside git: ready at MIN_LOADING
         let open = born + MIN_LOADING + TITLE;
         let mut previous = 0.0;
@@ -261,7 +319,7 @@ mod tests {
             let stats = stats_in_git(born + ms(10), 0, born + ms(10), &[missing]);
             for background in [
                 DashboardBackground::On,
-                DashboardBackground::Load,
+                DashboardBackground::Settle,
                 DashboardBackground::Static,
                 DashboardBackground::Off,
             ] {
@@ -296,7 +354,7 @@ mod tests {
         assert!(!on.settled(&stats, open + SPIN_DOWN));
         assert!(!on.settled(&stats, hour));
 
-        let load = at(DashboardBackground::Load);
+        let load = at(DashboardBackground::Settle);
         assert!(!load.settled(&stats, born));
         assert!(!load.settled(&stats, open));
         assert!(!load.settled(&stats, open + SPIN_DOWN - ms(1)));
@@ -349,20 +407,169 @@ mod tests {
         assert!(spin(DashboardBackground::On, far).unwrap() > previous);
 
         let open = born + MIN_LOADING + TITLE;
-        assert!(spin(DashboardBackground::Load, born + ms(500)).unwrap() > 0.0);
+        assert!(spin(DashboardBackground::Settle, born + ms(500)).unwrap() > 0.0);
         // while loading, `load` spins exactly like `on`
         for &t in times.iter().filter(|&&t| t <= open) {
             assert_eq!(
-                spin(DashboardBackground::Load, t),
+                spin(DashboardBackground::Settle, t),
                 spin(DashboardBackground::On, t)
             );
         }
-        let stopped = spin(DashboardBackground::Load, open + SPIN_DOWN).unwrap();
+        let stopped = spin(DashboardBackground::Settle, open + SPIN_DOWN).unwrap();
         for extra in [1, 1000, 3_600_000] {
             assert_eq!(
-                spin(DashboardBackground::Load, open + SPIN_DOWN + ms(extra)),
+                spin(DashboardBackground::Settle, open + SPIN_DOWN + ms(extra)),
                 Some(stopped)
             );
         }
+    }
+
+    /// The instants from `from` to `to`, every `step`.
+    fn instants(from: Instant, to: Instant, step: Duration) -> Vec<Instant> {
+        let mut out = Vec::new();
+        let mut t = from;
+        while t <= to {
+            out.push(t);
+            t += step;
+        }
+        out
+    }
+
+    #[test]
+    fn drain_starts_full_empties_monotonically_and_settles_when_empty() {
+        let born = Instant::now();
+        let stats = Stats::default();
+        let timeline = Timeline::new(born, DashboardBackground::Drain);
+        let start = timeline.motion_start(&stats);
+        let end = start + REACH;
+        // full at born and until the motion starts
+        for t in instants(born, start, ms(50)) {
+            assert!(timeline.reach(&stats, t) >= 1.0 + EDGE, "{:?}", t - born);
+        }
+        // falls to 0
+        let mut previous = f64::MAX;
+        for t in instants(start, end, ms(16)) {
+            let reach = timeline.reach(&stats, t);
+            assert!(reach <= previous, "{reach} > {previous}");
+            previous = reach;
+        }
+        assert_eq!(timeline.reach(&stats, end), 0.0);
+        assert_eq!(timeline.reach(&stats, end + ms(3_600_000)), 0.0);
+        // settled only once empty (and the title open)
+        for t in instants(born, end - ms(1), ms(50)) {
+            assert!(!timeline.settled(&stats, t), "{:?}", t - born);
+        }
+        assert!(timeline.settled(&stats, end));
+        assert!(timeline.title(&stats, end) == 1.0);
+        assert!(timeline.settled(&stats, end + ms(3_600_000)));
+    }
+
+    #[test]
+    fn grow_is_empty_until_the_motion_starts_then_fills_and_stops_spinning() {
+        let born = Instant::now();
+        let stats = Stats::default();
+        let timeline = Timeline::new(born, DashboardBackground::Grow);
+        let start = timeline.motion_start(&stats);
+        let end = start + REACH;
+        for t in instants(born, start, ms(50)) {
+            assert_eq!(timeline.reach(&stats, t), 0.0, "{:?}", t - born);
+        }
+        let mut previous = 0.0;
+        for t in instants(start, end, ms(16)) {
+            let reach = timeline.reach(&stats, t);
+            assert!(reach >= previous, "{reach} < {previous}");
+            previous = reach;
+        }
+        assert!(timeline.reach(&stats, end) >= 1.0 + EDGE);
+        assert!(timeline.reach(&stats, end + ms(3_600_000)) >= 1.0 + EDGE);
+        // the spin slows down to a stop at the end
+        assert_eq!(
+            timeline.spin(&stats, end),
+            timeline.spin(&stats, end + Duration::from_secs(3600))
+        );
+        assert_ne!(
+            timeline.spin(&stats, start + REACH / 2),
+            timeline.spin(&stats, end)
+        );
+        assert!(!timeline.settled(&stats, end - ms(1)));
+        assert!(timeline.settled(&stats, end));
+    }
+
+    #[test]
+    fn grow_on_grows_like_grow_spins_like_on_and_never_settles() {
+        let born = Instant::now();
+        let stats = Stats::default();
+        let grow = Timeline::new(born, DashboardBackground::Grow);
+        let grow_on = Timeline::new(born, DashboardBackground::GrowOn);
+        let on = Timeline::new(born, DashboardBackground::On);
+        let hour = born + Duration::from_secs(3600);
+        for t in instants(born, born + ms(5000), ms(37))
+            .into_iter()
+            .chain([hour])
+        {
+            assert_eq!(grow.reach(&stats, t), grow_on.reach(&stats, t));
+            assert_eq!(grow_on.spin(&stats, t), on.spin(&stats, t));
+            assert!(!grow_on.settled(&stats, t));
+        }
+    }
+
+    #[test]
+    fn growing_and_draining_start_at_the_delay_whatever_the_stats() {
+        let born = Instant::now();
+        let at = born + MOTION_DELAY;
+        for background in [DashboardBackground::Grow, DashboardBackground::Drain] {
+            let timeline = Timeline::new(born, background);
+            // fast stats: the same instant as ready
+            let fast = stats_in_git(born + ms(10), 6, born + ms(10), &[]);
+            assert_eq!(timeline.motion_start(&fast), at);
+            assert_eq!(timeline.ready(&fast), Some(at));
+            // one stat missing: growing doesn't wait for it
+            let missing = stats_in_git(born + ms(10), 0, born + ms(10), &[3]);
+            assert_eq!(timeline.ready(&missing), None);
+            assert_eq!(timeline.motion_start(&missing), at);
+            // the last stat at 3 s
+            let late = stats_in_git(born + ms(10), 6, born + Duration::from_secs(3), &[]);
+            assert_eq!(timeline.motion_start(&late), at);
+        }
+        let grow = Timeline::new(born, DashboardBackground::Grow);
+        let missing = stats_in_git(born + ms(10), 0, born + ms(10), &[3]);
+        assert!(grow.reach(&missing, at + REACH / 2) > 0.0);
+        assert_eq!(grow.reach(&missing, at), 0.0);
+    }
+
+    #[test]
+    fn the_other_modes_have_an_infinite_reach() {
+        let born = Instant::now();
+        let stats = Stats::default();
+        for background in [
+            DashboardBackground::On,
+            DashboardBackground::Settle,
+            DashboardBackground::Static,
+            DashboardBackground::Off,
+        ] {
+            let timeline = Timeline::new(born, background);
+            for t in [0, 500, 1500, 3000, 3_600_000] {
+                assert_eq!(timeline.reach(&stats, born + ms(t)), f64::INFINITY);
+            }
+        }
+    }
+
+    #[test]
+    fn the_background_modes_parse_and_load_is_settle() {
+        #[derive(serde::Deserialize)]
+        struct W {
+            b: DashboardBackground,
+        }
+        let parse = |name: &str| toml::from_str::<W>(&format!("b = \"{name}\"")).unwrap().b;
+        assert_eq!(parse("load"), DashboardBackground::Settle);
+        assert_eq!(parse("settle"), DashboardBackground::Settle);
+        assert_eq!(parse("drain"), DashboardBackground::Drain);
+        assert_eq!(parse("grow"), DashboardBackground::Grow);
+        assert_eq!(parse("grow-on"), DashboardBackground::GrowOn);
+        assert_eq!(parse("on"), DashboardBackground::On);
+        assert_eq!(parse("static"), DashboardBackground::Static);
+        assert_eq!(parse("off"), DashboardBackground::Off);
+        assert!(toml::from_str::<W>("b = \"spin\"").is_err());
+        assert_eq!(DashboardBackground::default(), DashboardBackground::GrowOn);
     }
 }

@@ -9,6 +9,7 @@
 //! smaller title, fewer worktrees, the actions on one row, the smallest title, and at last the
 //! stats.
 
+use std::cell::RefCell;
 use std::path::Path;
 use std::time::Instant;
 
@@ -26,6 +27,7 @@ use super::timeline::Timeline;
 use super::title::{self, Title};
 use super::vortex;
 use super::wrap::{self, Breaks, Span};
+use crate::ui::glitch;
 
 /// What the dashboard draws, apart from the time.
 pub struct Model<'a> {
@@ -37,8 +39,18 @@ pub struct Model<'a> {
     pub hints: &'a Hints,
     /// Whether the title and its credit line are shown (`dashboard-title`).
     pub title: bool,
-    /// Only the vortex, none of the blocks (`:vortex`).
+    /// Only the vortex and the logo, none of the other blocks (`:vortex`).
     pub vortex_only: bool,
+    /// The glitches of the title and of the background, kept from frame to frame; `None`
+    /// draws none, whatever the theme says (the tests' frames are functions of the time).
+    pub glitches: Option<&'a RefCell<Glitches>>,
+}
+
+/// The glitches of the dashboard, at the rates of the theme's `[effects]`.
+#[derive(Debug, Default)]
+pub struct Glitches {
+    pub logo: glitch::Slot,
+    pub background: glitch::Slot,
 }
 
 /// The keys of the keymap that do what the actions do, so the dashboard teaches them.
@@ -485,9 +497,10 @@ struct Layout {
 }
 
 impl Layout {
-    fn all() -> Vec<Layout> {
+    /// The layouts from the roomiest, whose title is `large`.
+    fn all(large: Title) -> Vec<Layout> {
         let roomy = Layout {
-            title: title::LARGE,
+            title: large,
             gap: 2,
             wrap: true,
             legend: 3,
@@ -601,10 +614,83 @@ const MARGIN_Y: u16 = 1;
 pub fn render(model: &Model, theme: &Theme, area: Rect, surface: &mut Surface, now: Instant) {
     let styles = Styles::new(theme);
     let s = &styles;
+    let effects = theme.effects();
     surface.clear_with(area, theme.get("ui.background"));
+    let look = vortex::Look {
+        colors: &s.vortex,
+        charset: effects.dashboard_charset,
+        reach: model.timeline.reach(model.stats, now),
+    };
+    let mut glitches = model.glitches.map(|glitches| glitches.borrow_mut());
+    let mut background_glitch = glitches
+        .as_mut()
+        .and_then(|glitches| glitches.background.at(effects.glitch_background));
+    // the places of the vortex's cells, only for a glitch over them
+    let mut drawn = background_glitch.as_ref().map(|_| Vec::new());
     if model.vortex_only {
-        if let Some(spin) = model.timeline.spin(model.stats, now) {
-            vortex::draw(surface, area, spin, &[], &s.vortex);
+        // the vortex and the logo (unless `dashboard-title = false`) on its panel, centered: the
+        // largest title that fits with its margin, no credit line, no stats, no actions
+        let logo = model
+            .title
+            .then(|| {
+                [
+                    title::large(effects.dashboard_logo),
+                    title::MEDIUM,
+                    title::SMALL,
+                ]
+                .into_iter()
+                .find(|logo| {
+                    logo.width() + MARGIN_X * 2 <= area.width
+                        && logo.height() + MARGIN_Y * 2 <= area.height
+                })
+            })
+            .flatten();
+        let cells = logo
+            .map(|logo| {
+                logo.cells_in(
+                    model.timeline.title(model.stats, now),
+                    effects.dashboard_charset,
+                )
+            })
+            .unwrap_or_default();
+        let (title_x, title_y) = logo
+            .map(|logo| {
+                let y = area.y + area.height.saturating_sub(logo.height()) / 2;
+                (center(area, logo.width()), y)
+            })
+            .unwrap_or_default();
+        // the panel follows the title as it opens, like the dashboard's
+        let panel = logo.map(|logo| {
+            let left = cells.iter().map(|cell| cell.x).min().unwrap_or(0);
+            let right = cells.iter().map(|cell| cell.x + 1).max().unwrap_or(0);
+            let part = Rect::new(
+                title_x + left,
+                title_y,
+                right.saturating_sub(left),
+                logo.height(),
+            );
+            margin(part, area)
+        });
+        let spin = model.timeline.spin(model.stats, now);
+        if let Some(spin) = spin {
+            let holes: Vec<Rect> = panel.into_iter().collect();
+            vortex::draw(surface, area, spin, &holes, &look, drawn.as_mut());
+            if let Some(panel) = panel.filter(|_| vortex::fits(area)) {
+                surface.clear_with(panel, s.panel);
+            }
+        }
+        if let Some(glitch) = background_glitch {
+            glitch.draw(now, surface, drawn.as_deref().unwrap_or(&[]));
+        }
+        if !cells.is_empty() {
+            let mut canvas = Canvas { area, surface };
+            draw_title(&mut canvas, &cells, title_x, title_y, s);
+            let logo_glitch = glitches
+                .as_mut()
+                .and_then(|glitches| glitches.logo.at(effects.glitch_logo));
+            if let Some(glitch) = logo_glitch {
+                glitch_title(canvas.surface, glitch, &cells, title_x, title_y, area, now);
+            }
         }
         return;
     }
@@ -644,7 +730,7 @@ pub fn render(model: &Model, theme: &Theme, area: Rect, surface: &mut Surface, n
         }
         total
     };
-    let layouts = Layout::all();
+    let layouts = Layout::all(title::large(effects.dashboard_logo));
     let row_width = actions_row_width(&actions);
     let fits = |layout: &&Layout| {
         height(layout) <= area.height
@@ -687,7 +773,7 @@ pub fn render(model: &Model, theme: &Theme, area: Rect, surface: &mut Surface, n
     // the title as it is now: its cells, and how wide they spread
     let opened = model.timeline.title(model.stats, now);
     let cells = if model.title {
-        layout.title.cells(opened)
+        layout.title.cells_in(opened, effects.dashboard_charset)
     } else {
         Vec::new()
     };
@@ -715,15 +801,28 @@ pub fn render(model: &Model, theme: &Theme, area: Rect, surface: &mut Surface, n
             .flatten()
             .map(|part| margin(part, area))
             .collect();
-        vortex::draw(surface, area, spin, &panels, &s.vortex);
+        vortex::draw(surface, area, spin, &panels, &look, drawn.as_mut());
+        if let (Some(glitch), Some(drawn)) = (background_glitch.take(), &drawn) {
+            glitch.draw(now, surface, drawn);
+        }
         for &panel in &panels {
             surface.clear_with(panel, s.panel);
         }
+    }
+    // with no vortex drawn (a small window, `off`), no glitch over it either
+    if let Some(glitch) = background_glitch {
+        glitch.draw(now, surface, &[]);
     }
 
     let mut canvas = Canvas { area, surface };
     if model.title {
         draw_title(&mut canvas, &cells, title_x, title_y, s);
+        let logo_glitch = glitches
+            .as_mut()
+            .and_then(|glitches| glitches.logo.at(effects.glitch_logo));
+        if let Some(glitch) = logo_glitch {
+            glitch_title(canvas.surface, glitch, &cells, title_x, title_y, area, now);
+        }
         canvas.text(
             center(area, credit_width),
             credit_y,
@@ -790,6 +889,25 @@ fn draw_title(canvas: &mut Canvas, cells: &[title::Cell], x: u16, y: u16, s: &St
             1,
         );
     }
+}
+
+/// The glitch of the title, over its letters (not their shadow) that are on screen.
+fn glitch_title(
+    surface: &mut Surface,
+    glitch: &mut glitch::Glitch,
+    cells: &[title::Cell],
+    x: u16,
+    y: u16,
+    area: Rect,
+    now: Instant,
+) {
+    let places: Vec<(u16, u16)> = cells
+        .iter()
+        .filter(|cell| cell.letter)
+        .map(|cell| (x + cell.x, y + cell.y))
+        .filter(|&(x, y)| x < area.right() && y < area.bottom())
+        .collect();
+    glitch.draw(now, surface, &places);
 }
 
 /// A heading: a word, and details after it (dimmed) or a spinner while its section loads.
@@ -1220,6 +1338,7 @@ pub(crate) mod tests {
             hints: &hints,
             title,
             vortex_only: false,
+            glitches: None,
         };
         render(&model, &theme, area, &mut buffer, now);
         buffer
@@ -1261,7 +1380,7 @@ pub(crate) mod tests {
     const SIZES: [(u16, u16); 4] = [(160, 50), (100, 44), (60, 24), (120, 40)];
     const MODES: [DashboardBackground; 3] = [
         DashboardBackground::On,
-        DashboardBackground::Load,
+        DashboardBackground::Settle,
         DashboardBackground::Static,
     ];
 
@@ -1281,6 +1400,228 @@ pub(crate) mod tests {
             }
         }
         cells
+    }
+
+    /// [`surface_titled`] with a theme, and the glitches of a run when given.
+    fn surface_themed(
+        theme: &Theme,
+        stats: &Stats,
+        (width, height): (u16, u16),
+        timeline: Timeline,
+        now: Instant,
+        glitches: Option<&RefCell<Glitches>>,
+    ) -> Surface {
+        let area = Rect::new(0, 0, width, height);
+        let mut buffer = Surface::empty(area);
+        let hints = hints();
+        let model = Model {
+            stats,
+            timeline,
+            dir: Path::new("/src/vortex"),
+            hints: &hints,
+            title: true,
+            vortex_only: false,
+            glitches,
+        };
+        render(&model, theme, area, &mut buffer, now);
+        buffer
+    }
+
+    fn matrix() -> Theme {
+        vortex_view::theme::Loader::new(&[]).load("matrix").unwrap()
+    }
+
+    /// A theme inheriting the default one with the given `[effects]` lines, in a temp dir.
+    fn themed(effects: &str) -> Theme {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(dir.path().join("themes")).unwrap();
+        std::fs::write(
+            dir.path().join("themes/glitchy.toml"),
+            format!("inherits = \"vortex\"\n[effects]\n{effects}\n"),
+        )
+        .unwrap();
+        vortex_view::theme::Loader::new(&[dir.path().to_path_buf()])
+            .load("glitchy")
+            .unwrap()
+    }
+
+    #[test]
+    fn the_runes_logo_settled() {
+        let born = Instant::now();
+        let stats = loaded(born);
+        let drawn = draw(&stats, 160, 50, born, settled(born));
+        assert!(drawn.contains("▀█      █▀     ▄██▄"), "{drawn}");
+        snapshot("runes-160", &drawn);
+    }
+
+    #[test]
+    fn the_matrix_theme_draws_the_classic_logo_and_an_ascii_vortex() {
+        let born = Instant::now();
+        let stats = loaded(born);
+        let theme = matrix();
+        let effects = theme.effects();
+        assert_eq!(
+            effects.dashboard_logo,
+            vortex_view::theme::DashboardLogo::Classic
+        );
+        assert_eq!(
+            effects.dashboard_charset,
+            vortex_view::theme::DashboardCharset::Ascii
+        );
+        let now = settled(born);
+        let off = surface_themed(
+            &theme,
+            &stats,
+            (160, 50),
+            timeline(born, DashboardBackground::Off),
+            now,
+            None,
+        );
+        let off_text = text(&off);
+        assert!(off_text.contains("██╗   ██╗ ██████╗ ██████╗ ████████╗███████╗██╗  ██╗"));
+        snapshot("classic-160", &off_text);
+
+        let still = surface_themed(
+            &theme,
+            &stats,
+            (160, 50),
+            timeline(born, DashboardBackground::Static),
+            now,
+            None,
+        );
+        let still_text = text(&still);
+        snapshot("ascii-static-160", &still_text);
+        assert!(
+            !still_text.chars().any(|c| "░▒▓".contains(c)),
+            "{still_text}"
+        );
+        // `·` is also the panels' separator (`2 staged · 5 unstaged`): as many as without a vortex
+        let dots = |text: &str| text.chars().filter(|&c| c == '·').count();
+        assert_eq!(dots(&still_text), dots(&off_text));
+        // the same blocks as without the vortex, in the same places: the title's
+        let blocks = |surface: &Surface| -> Vec<(u16, u16)> {
+            vortex_cells(surface, &Surface::empty(surface.area))
+                .into_iter()
+                .filter(|&(x, y)| surface[(x, y)].symbol.as_str() == "█")
+                .collect()
+        };
+        assert!(!blocks(&off).is_empty());
+        assert_eq!(blocks(&still), blocks(&off));
+        // everything the vortex drew is in the ascii ramp
+        let changed = vortex_cells(&still, &off);
+        assert!(changed.len() > 500);
+        for (x, y) in changed {
+            let c = still[(x, y)].symbol.chars().next().unwrap();
+            assert!(
+                super::super::charset::ASCII.contains(&c),
+                "{c:?} at {x},{y}"
+            );
+        }
+    }
+
+    #[test]
+    fn the_logo_glitches_only_over_the_title() {
+        let born = Instant::now();
+        let stats = loaded(born);
+        let theme = themed("glitch-logo = 10.0");
+        assert_eq!(theme.effects().glitch_logo, 10.0);
+        let still = timeline(born, DashboardBackground::Static);
+        let glitches = RefCell::new(Glitches::default());
+        let mut differing: Vec<(u16, u16)> = Vec::new();
+        for k in 0..40 {
+            let now = settled(born) + Duration::from_millis(k * 50);
+            let plain = surface_themed(&theme, &stats, (160, 50), still, now, None);
+            let glitched = surface_themed(&theme, &stats, (160, 50), still, now, Some(&glitches));
+            for (x, y) in vortex_cells(&glitched, &plain) {
+                let was = plain[(x, y)].symbol.chars().next().unwrap();
+                let now = glitched[(x, y)].symbol.chars().next().unwrap();
+                assert!("▀▄█".contains(was), "{was:?} at {x},{y} was not a letter");
+                assert!(glitch::CHARS.contains(&(now as u8)), "{now:?}");
+                differing.push((x, y));
+            }
+        }
+        assert!(differing.len() > 20, "{}", differing.len());
+        // all within the rows of the title
+        let top = differing.iter().map(|&(_, y)| y).min().unwrap();
+        let bottom = differing.iter().map(|&(_, y)| y).max().unwrap();
+        assert!(bottom - top < title::RUNES.height(), "{top}..{bottom}");
+        assert!(glitches.borrow().logo.get().is_some());
+        assert!(glitches.borrow().background.get().is_none());
+    }
+
+    #[test]
+    fn a_theme_without_effects_draws_no_glitch() {
+        let born = Instant::now();
+        let stats = loaded(born);
+        let theme = vortex_view::theme::Loader::new(&[]).default();
+        let glitches = RefCell::new(Glitches::default());
+        for mode in [DashboardBackground::Static, DashboardBackground::Off] {
+            for k in 0..10 {
+                let now = settled(born) + Duration::from_millis(k * 70);
+                let plain =
+                    surface_themed(&theme, &stats, (160, 50), timeline(born, mode), now, None);
+                let with = surface_themed(
+                    &theme,
+                    &stats,
+                    (160, 50),
+                    timeline(born, mode),
+                    now,
+                    Some(&glitches),
+                );
+                assert_eq!(with, plain, "{mode:?} frame {k}");
+            }
+        }
+        assert!(glitches.borrow().logo.get().is_none());
+        assert!(glitches.borrow().background.get().is_none());
+    }
+
+    #[test]
+    fn the_background_glitches_over_the_vortex_and_never_the_panels() {
+        let born = Instant::now();
+        let stats = loaded(born);
+        let theme = themed("glitch-background = 10.0");
+        let still = timeline(born, DashboardBackground::Static);
+        let off = surface_themed(
+            &theme,
+            &stats,
+            (160, 50),
+            timeline(born, DashboardBackground::Off),
+            settled(born),
+            None,
+        );
+        let glitches = RefCell::new(Glitches::default());
+        let mut changes = 0;
+        let mut seen = std::collections::HashSet::<char>::new();
+        for k in 0..30 {
+            let now = settled(born) + Duration::from_millis(k * 50);
+            let plain = surface_themed(&theme, &stats, (160, 50), still, now, None);
+            let glitched = surface_themed(&theme, &stats, (160, 50), still, now, Some(&glitches));
+            let vortex: std::collections::HashSet<_> =
+                vortex_cells(&plain, &off).into_iter().collect();
+            assert!(vortex.len() > 500);
+            for (x, y) in vortex_cells(&glitched, &plain) {
+                assert!(
+                    vortex.contains(&(x, y)),
+                    "glitch outside the vortex at {x},{y}"
+                );
+                let c = glitched[(x, y)].symbol.chars().next().unwrap();
+                assert!(glitch::CHARS.contains(&(c as u8)), "{c:?}");
+                changes += 1;
+                seen.insert(c);
+            }
+            // the panels and the title are as without the glitch
+            for y in 0..50 {
+                for x in 0..160 {
+                    if !vortex.contains(&(x, y)) {
+                        assert_eq!(glitched[(x, y)].symbol, plain[(x, y)].symbol, "{x},{y}");
+                    }
+                }
+            }
+        }
+        assert!(changes > 100, "{changes}");
+        assert!(seen.len() > 5);
+        assert!(glitches.borrow().background.get().is_some());
+        assert!(glitches.borrow().logo.get().is_none());
     }
 
     #[test]
@@ -1405,9 +1746,9 @@ pub(crate) mod tests {
         };
         let titled = draw(100, 44, true);
         let untitled = draw(100, 44, false);
-        assert!(titled.contains("██╗") && titled.contains(title::CREDIT));
+        assert!(titled.contains("██▀▀▄▄") && titled.contains(title::CREDIT));
         assert!(
-            !untitled.contains('█') && !untitled.contains('╗'),
+            !untitled.contains('█') && !untitled.contains('▀'),
             "{untitled}"
         );
         assert!(!untitled.contains(title::CREDIT), "{untitled}");
@@ -1435,6 +1776,53 @@ pub(crate) mod tests {
         );
     }
 
+    /// `:vortex`: the vortex and the logo on its panel, nothing else.
+    fn vortex_only(title: bool, width: u16, height: u16) -> String {
+        let born = Instant::now();
+        let stats = loaded(born + Duration::from_millis(300));
+        let theme = vortex_view::theme::Loader::new(&[]).default();
+        let area = Rect::new(0, 0, width, height);
+        let mut buffer = Surface::empty(area);
+        let hints = hints();
+        let model = Model {
+            stats: &stats,
+            timeline: timeline(born, DashboardBackground::Static),
+            dir: Path::new("/src/vortex"),
+            hints: &hints,
+            title,
+            vortex_only: true,
+            glitches: None,
+        };
+        render(&model, &theme, area, &mut buffer, settled(born));
+        text(&buffer)
+    }
+
+    #[test]
+    fn the_vortex_alone_keeps_the_logo_unless_the_title_is_off() {
+        let titled = vortex_only(true, 160, 50);
+        assert!(titled.contains("██▀▀▄▄"), "{titled}");
+        // the logo on its panel, centered, with no credit line, stats or actions
+        let row = titled
+            .lines()
+            .position(|line| line.contains("██▀▀▄▄"))
+            .unwrap();
+        assert!((20..=25).contains(&row), "row {row}");
+        let line = titled.lines().nth(row).unwrap();
+        let left = line.find("▀█      █▀").unwrap();
+        assert!(line[..left].ends_with("  "), "no panel margin: {line}");
+        for gone in [title::CREDIT, "PROJECT", "Start typing"] {
+            assert!(!titled.contains(gone), "{gone}");
+        }
+        let untitled = vortex_only(false, 160, 50);
+        assert!(!untitled.contains('▀'), "{untitled}");
+        // a narrow window takes a smaller title
+        let narrow = vortex_only(true, 60, 20);
+        assert!(
+            !narrow.contains("██▀▀▄▄") && narrow.contains("┏━┓"),
+            "{narrow}"
+        );
+    }
+
     #[test]
     fn the_first_frame_has_the_title_as_vx() {
         let born = Instant::now();
@@ -1446,18 +1834,18 @@ pub(crate) mod tests {
             timeline(born, DashboardBackground::Off),
             born,
         );
-        let cells = title::LARGE.cells(0.0);
-        let open = title::LARGE.cells(1.0);
+        let cells = title::RUNES.cells(0.0);
+        let open = title::RUNES.cells(1.0);
         assert!(!cells.is_empty() && cells.len() < open.len());
-        let left = (160 - title::LARGE.width()) / 2;
-        let rows = title::LARGE.height();
+        let left = (160 - title::RUNES.width()) / 2;
+        let rows = title::RUNES.height();
         // some row puts the title there, and nothing else is in its box
         let found = (0..50 - rows).any(|top| {
             let drawn_cells = cells.iter().all(|cell| {
                 drawn[(left + cell.x, top + cell.y)].symbol.as_str() == cell.c.to_string()
             });
             let used = (top..top + rows)
-                .flat_map(|y| (left..left + title::LARGE.width()).map(move |x| (x, y)))
+                .flat_map(|y| (left..left + title::RUNES.width()).map(move |x| (x, y)))
                 .filter(|&(x, y)| !is_blank(&drawn, x, y))
                 .count();
             drawn_cells && used == cells.len()
@@ -1681,7 +2069,10 @@ pub(crate) mod tests {
             })
             .unwrap_or((160, 50));
         let mode = match std::env::var("PREVIEW_MODE").as_deref() {
-            Ok("load") => DashboardBackground::Load,
+            Ok("settle" | "load") => DashboardBackground::Settle,
+            Ok("drain") => DashboardBackground::Drain,
+            Ok("grow") => DashboardBackground::Grow,
+            Ok("grow-on") => DashboardBackground::GrowOn,
             Ok("static") => DashboardBackground::Static,
             Ok("off") => DashboardBackground::Off,
             _ => DashboardBackground::On,
@@ -1704,6 +2095,7 @@ pub(crate) mod tests {
                 hints: &hints,
                 title: true,
                 vortex_only: false,
+                glitches: None,
             };
             render(
                 &model,

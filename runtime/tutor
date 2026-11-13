@@ -57,9 +57,12 @@
   t              the worktrees, when the repository has others
 
  Try it: :dashboard, then Esc. To start without it, set
- dashboard = false under [editor] in your config; to calm the
- vortex behind it, dashboard-background = "load" (it stops once
- loaded), "static" (still) or "off"; to leave out its title
+ dashboard = false under [editor] in your config. The vortex
+ behind it grows from the center and keeps spinning; set
+ dashboard-background to change that: "grow" (grows, then
+ stops), "drain" (starts full, then flows away), "settle"
+ (spins, then slows to a stop), "on" (full and spinning from
+ the start), "static" (still) or "off". To leave out its title
  and credit line, dashboard-title = false.
 
 
@@ -395,6 +398,8 @@
                        e.g. :set soft-wrap.enable true
   :toggle OPTION       switch an option on or off
   :theme NAME          try a theme (Tab lists them)
+  :theme matrix        phosphor green on black, with effects:
+                       try :dashboard and :sh after it
   :config-open         open your config.toml
   :config-reload       apply it without restarting
   :set-language LANG   highlight as another language

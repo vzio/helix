@@ -49,6 +49,10 @@ pub struct EditorView {
     hex_keys: commands::hex::HexKeys,
     /// The dashboard, drawn over an empty scratch buffer while it is up (this fork).
     pub dashboard: Option<crate::dashboard::Dashboard>,
+    /// The glitch over the ghost text of error diagnostics (this fork, `glitch-diagnostics` in
+    /// the theme's `[effects]`), and the cells of that ghost text in the frame being drawn.
+    diagnostic_glitch: crate::ui::glitch::Slot,
+    diagnostic_cells: std::cell::RefCell<Vec<(u16, u16)>>,
 }
 
 #[derive(Debug, Clone)]
@@ -80,7 +84,27 @@ impl EditorView {
             terminal_focused: true,
             hex_keys: Default::default(),
             dashboard: None,
+            diagnostic_glitch: Default::default(),
+            diagnostic_cells: Default::default(),
         }
+    }
+
+    /// The glitch over the ghost text of error diagnostics just drawn (this fork): over the
+    /// characters only, not the spaces between words, and only when the theme sets a rate.
+    fn glitch_diagnostics(&mut self, editor: &Editor, surface: &mut Surface) {
+        let rate = editor.theme.effects().glitch_diagnostics;
+        let Some(glitch) = self.diagnostic_glitch.at(rate) else {
+            return;
+        };
+        use vortex_core::unicode::width::UnicodeWidthStr;
+        // one-column characters only: a glitch is one ASCII column
+        let cells = self.diagnostic_cells.get_mut();
+        cells.retain(|&(x, y)| {
+            surface
+                .get(x, y)
+                .is_some_and(|cell| !cell.symbol.trim().is_empty() && cell.symbol.width() == 1)
+        });
+        glitch.draw(std::time::Instant::now(), surface, cells);
     }
 
     /// Opens the dashboard over the focused view (this fork, `:dashboard` and startup).
@@ -275,12 +299,16 @@ impl EditorView {
             .diagnostics_handler
             .show_cursorline_diagnostics(doc, view.id);
         let inline_diagnostic_config = config.inline_diagnostics.prepare(width, enable_cursor_line);
+        // the cells of the ghost text of errors are kept only for a glitch over them
+        let glitch_cells =
+            (theme.effects().glitch_diagnostics > 0.0).then_some(&self.diagnostic_cells);
         decorations.add_decoration(InlineDiagnostics::new(
             doc,
             theme,
             primary_cursor,
             inline_diagnostic_config,
             config.end_of_line_diagnostics,
+            glitch_cells,
         ));
         // the debugger's time per line, before the blame
         if let Some(times) = text_decorations::StepTimes::new(editor, doc, theme) {
@@ -1881,6 +1909,7 @@ impl Component for EditorView {
 
         // with the panel focused, no split is
         let panel_focused = cx.editor.terminal.is_focused() || cx.editor.debug.is_focused();
+        self.diagnostic_cells.get_mut().clear();
         for (view, is_focused) in cx.editor.tree.views() {
             let doc = cx.editor.document(view.doc).unwrap();
             self.render_view(
@@ -1892,6 +1921,7 @@ impl Component for EditorView {
                 is_focused && !panel_focused,
             );
         }
+        self.glitch_diagnostics(cx.editor, surface);
 
         if let Some(panel_area) = panel_area {
             crate::terminal::render(cx.editor, panel_area, surface);
@@ -2033,5 +2063,167 @@ pub(crate) fn canonicalize_key(key: &mut KeyEvent) {
     } = key
     {
         key.modifiers.remove(KeyModifiers::SHIFT)
+    }
+}
+
+#[cfg(test)]
+mod glitch_tests {
+    use super::*;
+    use crate::{compositor::Component, job::Jobs};
+    use arc_swap::{access::Map, ArcSwap};
+    use std::sync::Arc;
+    use vortex_core::{
+        diagnostic::{Diagnostic, DiagnosticProvider, LanguageServerId, Range, Severity},
+        Transaction,
+    };
+    use vortex_view::{
+        annotations::diagnostics::DiagnosticFilter,
+        editor::{Action, Config as EditorConfig},
+    };
+
+    fn theme(effects: &str) -> vortex_view::Theme {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(dir.path().join("themes")).unwrap();
+        std::fs::write(
+            dir.path().join("themes/glitchy.toml"),
+            format!("inherits = \"vortex\"\n[effects]\n{effects}\n"),
+        )
+        .unwrap();
+        vortex_view::theme::Loader::new(&[dir.path().to_path_buf()])
+            .load("glitchy")
+            .unwrap()
+    }
+
+    fn row(surface: &Surface, y: u16) -> String {
+        (0..surface.area.width)
+            .map(|x| surface[(x, y)].symbol.as_str())
+            .collect()
+    }
+
+    fn diagnostic(line: usize, range: Range, severity: Severity, message: &str) -> Diagnostic {
+        Diagnostic {
+            range,
+            ends_at_word: true,
+            starts_at_word: true,
+            zero_width: false,
+            line,
+            message: message.to_string(),
+            severity: Some(severity),
+            code: None,
+            provider: DiagnosticProvider::Lsp {
+                server_id: LanguageServerId::default(),
+                identifier: None,
+            },
+            tags: Vec::new(),
+            source: None,
+            data: None,
+        }
+    }
+
+    /// Only the ghost text of the error is recorded for the glitch, never the warning's nor
+    /// the text of the buffer; and nothing without `glitch-diagnostics` in the theme.
+    #[tokio::test]
+    async fn only_the_error_ghost_text_is_kept_for_the_glitch() {
+        let area = Rect::new(0, 0, 80, 12);
+        let mut config = crate::config::Config::default();
+        config.editor = EditorConfig {
+            end_of_line_diagnostics: DiagnosticFilter::Enable(Severity::Hint),
+            ..config.editor
+        };
+        let config = Arc::new(ArcSwap::from_pointee(config));
+        let handlers = crate::handlers::setup(config.clone());
+        let mut editor = Editor::new(
+            area,
+            Arc::new(vortex_view::theme::Loader::new(&[])),
+            Arc::new(ArcSwap::from_pointee(
+                vortex_core::config::default_lang_loader(),
+            )),
+            Arc::new(Map::new(
+                Arc::clone(&config),
+                |config: &crate::config::Config| &config.editor,
+            )),
+            handlers,
+            vortex_loader::workspace_trust::WorkspaceTrust::fully_trusted(),
+        );
+        editor.new_file(Action::VerticalSplit);
+        {
+            let (view, doc) = vortex_view::current!(editor);
+            let text = "let first = 1;\nlet second = 2;\nlet third = 3;\n";
+            let sel = doc.selection(view.id).clone();
+            let transaction = Transaction::change_by_selection(doc.text(), &sel, |_| {
+                (0, doc.text().len_chars(), Some(text.into()))
+            });
+            doc.apply(&transaction, view.id);
+            // "first" on line 0 is an error, "third" on line 2 a warning
+            doc.replace_diagnostics(
+                [
+                    diagnostic(
+                        0,
+                        Range { start: 4, end: 9 },
+                        Severity::Error,
+                        "ERRMSG here",
+                    ),
+                    diagnostic(
+                        2,
+                        Range { start: 35, end: 40 },
+                        Severity::Warning,
+                        "WARNMSG here",
+                    ),
+                ],
+                &[],
+                None,
+            );
+            assert_eq!(doc.diagnostics().len(), 2);
+        }
+        let mut jobs = Jobs::new();
+        let mut view = EditorView::new(crate::keymap::Keymaps::default());
+
+        let mut render = |editor: &mut Editor, view: &mut EditorView| {
+            let mut surface = Surface::empty(area);
+            let mut cx = crate::compositor::Context {
+                editor,
+                scroll: None,
+                jobs: &mut jobs,
+            };
+            view.render(area, &mut surface, &mut cx);
+            surface
+        };
+
+        // no `glitch-diagnostics`: both messages show, nothing is recorded
+        let surface = render(&mut editor, &mut view);
+        let rows: Vec<String> = (0..area.height).map(|y| row(&surface, y)).collect();
+        assert!(rows.iter().any(|r| r.contains("ERRMSG here")), "{rows:#?}");
+        assert!(rows.iter().any(|r| r.contains("WARNMSG here")), "{rows:#?}");
+        assert!(view.diagnostic_cells.borrow().is_empty());
+        assert!(view.diagnostic_glitch.get().is_none());
+
+        // with it: the cells of the error's message, and only those
+        editor.set_theme(theme("glitch-diagnostics = 1.0")).unwrap();
+        let surface = render(&mut editor, &mut view);
+        let rows: Vec<String> = (0..area.height).map(|y| row(&surface, y)).collect();
+        let error_row = rows.iter().position(|r| r.contains("ERRMSG here")).unwrap();
+        let warning_row = rows
+            .iter()
+            .position(|r| r.contains("WARNMSG here"))
+            .unwrap();
+        assert!(view.diagnostic_glitch.get().is_some());
+        let mut cells = view.diagnostic_cells.borrow().clone();
+        assert!(!cells.is_empty());
+        cells.sort_by_key(|&(x, y)| (y, x));
+        assert!(
+            cells.iter().all(|&(_, y)| y as usize == error_row),
+            "{cells:?} error on row {error_row}, warning on {warning_row}"
+        );
+        // they spell the message: the characters, not the space between the words
+        let spelled: String = cells
+            .iter()
+            .map(|&(x, y)| surface[(x, y)].symbol.as_str())
+            .collect();
+        assert_eq!(spelled, "ERRMSGhere");
+        // and sit after the buffer's text of the line
+        let text_end = rows[error_row].find("let first = 1;").unwrap() + "let first = 1;".len();
+        assert!(cells.iter().all(|&(x, _)| x as usize >= text_end));
+        // the warning stays as it is
+        assert!(rows[warning_row].contains("WARNMSG here"));
     }
 }

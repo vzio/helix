@@ -1,3 +1,4 @@
+use std::cell::RefCell;
 use std::cmp::Ordering;
 
 use vortex_core::diagnostic::Severity;
@@ -50,6 +51,8 @@ pub struct InlineDiagnostics<'a> {
     state: InlineDiagnosticAccumulator<'a>,
     eol_diagnostics: DiagnosticFilter,
     styles: Styles,
+    /// Where the ghost text of errors is drawn, kept for a glitch over it (this fork).
+    glitch_cells: Option<&'a RefCell<Vec<(u16, u16)>>>,
 }
 
 impl<'a> InlineDiagnostics<'a> {
@@ -59,11 +62,13 @@ impl<'a> InlineDiagnostics<'a> {
         cursor: usize,
         config: InlineDiagnosticsConfig,
         eol_diagnostics: DiagnosticFilter,
+        glitch_cells: Option<&'a RefCell<Vec<(u16, u16)>>>,
     ) -> Self {
         InlineDiagnostics {
             state: InlineDiagnosticAccumulator::new(cursor, doc, config),
             styles: Styles::new(theme),
             eol_diagnostics,
+            glitch_cells,
         }
     }
 }
@@ -82,9 +87,26 @@ struct Renderer<'a, 'b> {
     row: u16,
     config: &'a InlineDiagnosticsConfig,
     styles: &'a Styles,
+    glitch_cells: Option<&'a RefCell<Vec<(u16, u16)>>>,
 }
 
 impl Renderer<'_, '_> {
+    /// Keeps the cell at `row` and `col` of the view (as the decorations count them) for the
+    /// glitch, when it is the ghost text of an error.
+    fn glitch_cell(&self, severity: Severity, row: u16, col: u16) {
+        let Some(cells) = self.glitch_cells.filter(|_| severity == Severity::Error) else {
+            return;
+        };
+        let renderer = &self.renderer;
+        let Some(row) = (row as usize).checked_sub(renderer.offset.row) else {
+            return;
+        };
+        if row < renderer.viewport.height as usize && col < renderer.viewport.width {
+            let (x, y) = (renderer.viewport.x + col, renderer.viewport.y + row as u16);
+            cells.borrow_mut().push((x, y));
+        }
+    }
+
     fn draw_decoration(&mut self, g: &'static str, severity: Severity, col: u16) {
         self.draw_decoration_at(g, severity, col, self.row)
     }
@@ -119,6 +141,12 @@ impl Renderer<'_, '_> {
                 true,
                 false,
             );
+            if self.glitch_cells.is_some() {
+                let viewport_x = self.renderer.viewport.x;
+                for col in draw_col..end_col.saturating_sub(viewport_x) {
+                    self.glitch_cell(diag.severity(), row, col);
+                }
+            }
 
             draw_col = end_col - self.renderer.viewport.x + 2; // double space between lines
         }
@@ -151,12 +179,19 @@ impl Renderer<'_, '_> {
         let style = self.styles.severity_style(severity);
         for grapheme in formatter {
             last_row = grapheme.visual_pos.row;
-            self.renderer.draw_decoration_grapheme(
-                grapheme.raw,
-                style,
+            let (row, col) = (
                 self.row + grapheme.visual_pos.row as u16,
                 text_col + grapheme.visual_pos.col as u16,
             );
+            let width = grapheme.width() as u16;
+            if self
+                .renderer
+                .draw_decoration_grapheme(grapheme.raw, style, row, col)
+            {
+                for col in col..col + width {
+                    self.glitch_cell(severity, row, col);
+                }
+            }
         }
         self.row += 1;
         // height is last_row + 1 and extra_rows is height - 1
@@ -280,6 +315,7 @@ impl Decoration for InlineDiagnostics<'_> {
                 row: pos.visual_line,
                 config: &self.state.config,
                 styles: &self.styles,
+                glitch_cells: self.glitch_cells,
             };
             col_off = renderer.draw_eol_diagnostic(eol_diagnostic, pos.visual_line, virt_off.col);
         }
@@ -291,6 +327,7 @@ impl Decoration for InlineDiagnostics<'_> {
             row: pos.visual_line + virt_off.row as u16,
             config: &self.state.config,
             styles: &self.styles,
+            glitch_cells: self.glitch_cells,
         };
         renderer.draw_multi_diagnostics(&mut self.state.stack);
         renderer.draw_diagnostics(&mut self.state.stack);
