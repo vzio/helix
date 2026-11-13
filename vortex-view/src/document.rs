@@ -279,6 +279,9 @@ pub struct Document {
     pub(crate) language_servers: HashMap<LanguageServerName, Arc<Client>>,
 
     diff_handle: Option<DiffHandle>,
+    /// The diff against the baseline of the watch session, for its gutter markers (fork
+    /// feature, see `crate::watch`).
+    watch_diff: Option<DiffHandle>,
     version_control_head: Option<Arc<ArcSwap<Box<str>>>>,
     /// State of inline git blame (fork feature).
     pub blame: crate::blame::DocumentBlame,
@@ -842,6 +845,7 @@ impl Document {
             modified_since_accessed: false,
             language_servers: HashMap::new(),
             diff_handle: None,
+            watch_diff: None,
             config,
             version_control_head: None,
             blame: Default::default(),
@@ -1819,6 +1823,9 @@ impl Document {
         if let Some(diff_handle) = &self.diff_handle {
             diff_handle.update_document(self.text.clone(), false);
         }
+        if let Some(watch_diff) = &self.watch_diff {
+            watch_diff.update_document(self.text.clone(), false);
+        }
 
         // map diagnostics over changes too
         changes.update_positions(self.diagnostics.iter_mut().map(|diagnostic| {
@@ -2294,6 +2301,35 @@ impl Document {
         } else {
             self.diff_handle = None;
         }
+    }
+
+    /// The diff against the baseline of the watch session: its hunks are the changes of the
+    /// session.
+    pub fn watch_diff(&self) -> Option<&DiffHandle> {
+        self.watch_diff.as_ref()
+    }
+
+    /// Diffs the document against `baseline`, the content of its file when the watch session
+    /// started (`None`: it didn't exist, so all of it is new). Kept while the document is edited,
+    /// until [`Self::clear_watch_base`].
+    pub fn set_watch_base(&mut self, baseline: Option<&[u8]>) {
+        let base = match baseline {
+            Some(mut bytes) => match from_reader(&mut bytes, Some(self.encoding)) {
+                Ok((rope, ..)) => rope,
+                Err(_) => return self.watch_diff = None,
+            },
+            None => Rope::new(),
+        };
+        match &self.watch_diff {
+            Some(differ) => {
+                differ.update_diff_base(base);
+            }
+            None => self.watch_diff = Some(DiffHandle::new(base, self.text.clone())),
+        }
+    }
+
+    pub fn clear_watch_base(&mut self) {
+        self.watch_diff = None;
     }
 
     pub fn version_control_head(&self) -> Option<Arc<Box<str>>> {

@@ -1,6 +1,7 @@
 use std::fmt::Write;
 
 use vortex_core::syntax::config::LanguageServerFeature;
+use vortex_vcs::{Diff, Hunk};
 
 use crate::{
     editor::GutterType,
@@ -98,6 +99,33 @@ pub fn diagnostic<'doc>(
     )
 }
 
+/// A walk through the hunks of a diff, line by line, top to bottom.
+struct HunkWalk<'a> {
+    hunks: Diff<'a>,
+    i: u32,
+    hunk: Hunk,
+}
+
+impl<'a> HunkWalk<'a> {
+    fn new(hunks: Diff<'a>) -> Self {
+        let hunk = hunks.nth_hunk(0);
+        Self { hunks, i: 0, hunk }
+    }
+
+    /// The hunk at `line`, if any. Lines must come in order.
+    fn at(&mut self, line: u32) -> Option<&Hunk> {
+        // removals have no lines (`after.start == after.end`), but still show: don't skip to the
+        // next hunk before their line
+        while self.hunk.after.end < line
+            || !self.hunk.is_pure_removal() && line == self.hunk.after.end
+        {
+            self.i += 1;
+            self.hunk = self.hunks.nth_hunk(self.i);
+        }
+        (self.hunk.after.start <= line).then_some(&self.hunk)
+    }
+}
+
 pub fn diff<'doc>(
     _editor: &'doc Editor,
     doc: &'doc Document,
@@ -108,46 +136,45 @@ pub fn diff<'doc>(
     let added = theme.get("diff.plus.gutter");
     let deleted = theme.get("diff.minus.gutter");
     let modified = theme.get("diff.delta.gutter");
-    if let Some(diff_handle) = doc.diff_handle() {
-        let hunks = diff_handle.load();
-        let mut hunk_i = 0;
-        let mut hunk = hunks.nth_hunk(hunk_i);
-        Box::new(
-            move |line: usize, _selected: bool, first_visual_line: bool, out: &mut String| {
-                // truncating the line is fine here because we don't compute diffs
-                // for files with more lines than i32::MAX anyways
-                // we need to special case removals here
-                // these technically do not have a range of lines to highlight (`hunk.after.start == hunk.after.end`).
-                // However we still want to display these hunks correctly we must not yet skip to the next hunk here
-                while hunk.after.end < line as u32
-                    || !hunk.is_pure_removal() && line as u32 == hunk.after.end
-                {
-                    hunk_i += 1;
-                    hunk = hunks.nth_hunk(hunk_i);
-                }
-
-                if hunk.after.start > line as u32 {
+    // the changes of the watch session (fork feature): their own marker, over git's
+    let session = (
+        theme.get_or("diff.watch.plus", "diff.plus.gutter"),
+        theme.get_or("diff.watch.minus", "diff.minus.gutter"),
+        theme.get_or("diff.watch.delta", "diff.delta.gutter"),
+    );
+    let mut git = doc.diff_handle().map(|handle| HunkWalk::new(handle.load()));
+    let mut watch = doc.watch_diff().map(|handle| HunkWalk::new(handle.load()));
+    if git.is_none() && watch.is_none() {
+        return Box::new(move |_, _, _, _| None);
+    }
+    Box::new(
+        move |line: usize, _selected: bool, first_visual_line: bool, out: &mut String| {
+            // truncating the line is fine here because we don't compute diffs
+            // for files with more lines than i32::MAX anyways
+            let line = line as u32;
+            let (hunk, (plus, minus, delta), bar) =
+                match watch.as_mut().and_then(|walk| walk.at(line)) {
+                    Some(hunk) => (hunk.clone(), session, "┃"),
+                    None => match git.as_mut().and_then(|walk| walk.at(line)) {
+                        Some(hunk) => (hunk.clone(), (added, deleted, modified), "▍"),
+                        None => return None,
+                    },
+                };
+            let (icon, style) = if hunk.is_pure_insertion() {
+                (bar, plus)
+            } else if hunk.is_pure_removal() {
+                if !first_visual_line {
                     return None;
                 }
+                ("▔", minus)
+            } else {
+                (bar, delta)
+            };
 
-                let (icon, style) = if hunk.is_pure_insertion() {
-                    ("▍", added)
-                } else if hunk.is_pure_removal() {
-                    if !first_visual_line {
-                        return None;
-                    }
-                    ("▔", deleted)
-                } else {
-                    ("▍", modified)
-                };
-
-                write!(out, "{}", icon).unwrap();
-                Some(style)
-            },
-        )
-    } else {
-        Box::new(move |_, _, _, _| None)
-    }
+            write!(out, "{}", icon).unwrap();
+            Some(style)
+        },
+    )
 }
 
 pub fn line_numbers<'doc>(

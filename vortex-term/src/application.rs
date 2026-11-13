@@ -239,6 +239,13 @@ impl Application {
         // statusline before any file is opened
         crate::handlers::conflicts::refresh(&mut editor);
 
+        // `vx --watch` (this fork)
+        if args.watch {
+            if let Err(err) = crate::watch::start(&mut editor) {
+                editor.set_error(err.to_string());
+            }
+        }
+
         let signals = Signals::new([
             signal::SIGTSTP,
             signal::SIGCONT,

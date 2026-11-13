@@ -300,6 +300,13 @@
                  the current one first, then the most recently
                  changed, each with its uncommitted changes and
                  unpushed commits; Enter goes to one, like :cd
+  :watch         follow an agent at work (fork, vx --watch):
+                 each change it makes is opened, jumped to and
+                 flashed, and marked ┃ in the gutter. Moving
+                 pauses it (WATCH 3 new), n N go through the
+                 changes in the order they happened, n to the
+                 newest follows again; editing ends it.
+                 :watch-changes lists them
   space i        yank the diagnostic under the cursor; with
                  none, and blame on, the line's commit hash
 

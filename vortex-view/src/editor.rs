@@ -821,6 +821,7 @@ impl Default for StatusLineConfig {
         Self {
             left: vec![
                 E::Mode,
+                E::Watch,
                 E::Spinner,
                 E::FileName,
                 E::ReadOnlyIndicator,
@@ -867,6 +868,9 @@ impl Default for ModeConfig {
 pub enum StatusLineElement {
     /// The editor mode (Normal, Insert, Visual/Selection)
     Mode,
+
+    /// Watch mode (fork feature): `WATCH following`, `WATCH 3 new`, `WATCH paused`
+    Watch,
 
     /// The LSP activity spinner
     Spinner,
@@ -1471,6 +1475,8 @@ pub struct Editor {
     pub diagnostics: Diagnostics,
     /// Git merge conflicts (this fork).
     pub conflicts: Conflicts,
+    /// Watch mode and the changes of its session (this fork).
+    pub watch: crate::watch::WatchState,
     pub diff_providers: DiffProviderRegistry,
 
     pub debug_adapters: dap::registry::Registry,
@@ -1625,6 +1631,7 @@ impl Editor {
             language_servers,
             diagnostics: Diagnostics::new(),
             conflicts: Conflicts::default(),
+            watch: Default::default(),
             diff_providers: DiffProviderRegistry::default(),
             debug_adapters: dap::registry::Registry::new(),
             breakpoints: HashMap::new(),

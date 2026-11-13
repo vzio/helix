@@ -72,6 +72,7 @@ pub fn setup(config: Arc<ArcSwap<Config>>) -> Handlers {
     blame::register_hooks(&handlers);
     disk::register_hooks(&handlers);
     conflicts::register_hooks(&handlers);
+    crate::watch::register_hooks();
     prompt::register_hooks(&handlers);
     workspace_trust::register_hooks(&handlers);
     handlers

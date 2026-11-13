@@ -154,6 +154,7 @@ where
         vortex_view::editor::StatusLineElement::Selections => render_selections,
         vortex_view::editor::StatusLineElement::Shell => render_shell,
         vortex_view::editor::StatusLineElement::Debug => render_debug,
+        vortex_view::editor::StatusLineElement::Watch => render_watch,
         vortex_view::editor::StatusLineElement::PrimarySelectionLength => {
             render_primary_selection_length
         }
@@ -416,6 +417,16 @@ where
 
 /// The debug session: `DBG running`, `DBG stopped: breakpoint`, `DBG exited 3` (kept after the
 /// session ended, until the next one starts).
+/// Watch mode (fork feature): `WATCH following`, `WATCH 3 new`, `WATCH paused`.
+fn render_watch<'a, F>(context: &mut RenderContext<'a>, write: F)
+where
+    F: Fn(&mut RenderContext<'a>, Span<'a>) + Copy,
+{
+    if let Some(span) = crate::watch::statusline(context.editor) {
+        write(context, span);
+    }
+}
+
 fn render_debug<'a, F>(context: &mut RenderContext<'a>, write: F)
 where
     F: Fn(&mut RenderContext<'a>, Span<'a>) + Copy,

@@ -92,6 +92,7 @@ git blame FILE
 - [Hex view](#hex-view)
 - [Dashboard](#dashboard)
 - [Worktrees](#worktrees)
+- [Watch mode](#watch-mode)
 - [The vortex theme](#the-vortex-theme)
 - [Practice](#practice)
 - [Tutor](#tutor)
@@ -118,6 +119,7 @@ Each feature lives in its own modules, to keep rebasing on upstream cheap:
 | Hex view | `vortex-view/src/hex/mod.rs` (the bytes: windowed reads, the overwritten bytes, undo, cursors, search, the row layout), `vortex-view/src/hex/memory.rs` (a debugged program's memory as the bytes: the page cache, what each byte is as drawn), `vortex-term/src/ui/hex_view.rs` (drawing, the statusline texts), `vortex-term/src/commands/hex.rs` (keys, mouse, prompts, `:hex`), `vortex-term/tests/test/hex_view.rs` |
 | Dashboard | `vortex-term/src/dashboard.rs` (when it is up, its keys), `vortex-term/src/dashboard/` (`stats.rs` the background reading, `languages.rs` the line counts, `render.rs` the layout and the panels, `timeline.rs` when things move, `title.rs` the title, `vortex.rs` the vortex, `wrap.rs` long values on two rows, `snapshots/` the drawings the tests compare with), `vortex-vcs/src/git/summary.rs` (the git summary), `vortex-term/tests/test/dashboard.rs` |
 | Worktrees | `vortex-term/src/commands/worktrees.rs` (the `:worktrees` picker: its rows, columns, background jobs and `Enter`), `vortex-vcs/src/git/summary.rs` (the worktrees, missing ones flagged; `Repo::status`, the last modified time; `Repo::dated_worktrees`; `Worktree::details`), `vortex-stdx/src/time.rs` (`format_ago`), the dashboard's worktree rows and `t` in `vortex-term/src/dashboard/`, `vortex-term/tests/test/worktrees.rs` |
+| Watch mode | `vortex-view/src/watch.rs` (the session: the baseline, the files and hunks numbered in the order they changed, following, `n`/`N`, the new count), `vortex-term/src/watch.rs` (`:watch` and the other commands, reading the changed files on the watcher's thread, following, the flash, which commands pause or end it, the statusline element, the `:watch-changes` picker), `RepoWatch::start_tapped` in `vortex-term/src/live.rs`, the session's gutter markers in `vortex-view/src/gutter.rs`, `vortex-term/tests/test/watch.rs` |
 | The vortex theme | `theme.toml` (the theme), `helix_theme.toml` (upstream's default theme), the built-in themes in `vortex-view/src/theme.rs` |
 | Practice | `vortex-term/src/practice.rs`, `vortex-term/src/practice/`, `runtime/practice/`, `vortex-term/tests/test/practice.rs` |
 
@@ -213,6 +215,17 @@ Worktrees change core files: `:worktrees` (`:wt`) in `typed.rs`, where `apply_di
 (what `:cd` does) is now `pub(crate)` for the picker's `Enter`; `EditorView::live_dashboard` in
 `ui/editor.rs` calls `Dashboard::follow_cwd`, so the dashboard reloads when the working directory
 changes.
+
+Watch mode changes core files: the `watch` field of `Editor` and the `watch` statusline element
+(in the default `left` list, after `mode`) in `vortex-view/src/editor.rs`; the session's diff of
+`Document` (`watch_diff`, `set_watch_base`, kept up to date on every edit like git's) in
+`vortex-view/src/document.rs`; the `diff` gutter in `vortex-view/src/gutter.rs`, which draws the
+session's hunks over git's; `MappableCommand::execute` in `commands.rs` and `execute_command` in
+`typed.rs`, which tell watch mode which command runs; `search_next_or_prev_impl` in `commands.rs`
+(`n`/`N`); the mouse (pauses following) and the flash in `ui/editor.rs`; `RepoWatch` in `live.rs`
+(a tap that sees each batch of paths on the watcher's thread); `--watch` in `args.rs` and
+`Application::new`; `Diff` exported by `vortex-vcs`; `blend` of `ui/diff_view.rs`, now
+`pub(crate)`.
 
 The vortex theme changes `vortex-view/src/theme.rs` (the built-in themes and their names, the
 `default` alias), the `:theme` completion in `vortex-term/src/ui/mod.rs` and the theme check in
@@ -2024,6 +2037,147 @@ or that git lost track of (its `gitdir` file is gone, shown by its directory in 
   picker.
 - The current worktree is the one the working directory is in: picking it from a subfolder of
   it doesn't go to its root.
+
+## Watch mode
+
+Watch mode follows the changes made to the working tree as they happen, by an agent at work, a
+formatter, a script or another editor: each change is opened, jumped to and flashed, its lines are
+marked in the gutter, and `n`/`N` go through all of them in the order they happened.
+
+```text
+   28  line 28 of main
+   29  line 29 of main
+   30 ┃line 30 CHANGED by the agent        <- jumped to, centered, flashed
+   31  line 31 of main
+ NOR  WATCH following   src/main.rs                                  1 sel  30:1
+```
+
+### Usage
+
+| Key or command | What it does |
+| --- | --- |
+| `:watch`, `vx --watch [folder]` | Start watch mode in the repository of the working directory (with a folder, in it). `:watch` again ends it. `:watch` is in the command palette (`space ?`) |
+| `:watch-stop` | End watch mode. The session's changes stay: their markers, `n`/`N`, `:watch-changes` |
+| `:watch-clear` | Forget the session: the markers go, `n`/`N` search again |
+| `:watch-changes` | The picker of the session's changes (below) |
+| any movement | Keeps watch mode but pauses following: new changes are only counted, `WATCH 3 new` |
+| `n`, `N` | The next, previous change of the session, across files, in the order they happened (newest last), around at the ends. Reaching the newest follows again; going to an older one pauses |
+| anything else | Ends watch mode, keeping its changes (see below) |
+
+**Following.** When a file changes on disk (changes are merged until 200ms pass without one, at
+most a second, like the [live views](#uncommitted-changes-live)), its buffer is opened, or shown:
+in the split that already shows it, else in the current one. The cursor goes to the first new
+hunk of the file, which is centered and flashed (`ui.highlight.watch`, fading out over about a
+second). When a batch touches several files, the most recently modified is followed; the others
+are only marked.
+
+**Moving pauses following**: any movement or selection (`hjkl`, words, `gg`, `C-d`, `]d`, text
+objects, `v`...), a search (`/`, `?`, `*`), scrolling, the mouse wheel or a click, copying (`y`).
+The view never jumps while you're reading: new changes are counted in the statusline. `n` until
+the newest change follows again, and the statusline says `WATCH following`.
+
+**Anything else ends watch mode**: an edit, insert mode, opening a file yourself (`:open`, `gf`,
+`ga`, `gd`, a buffer switch), a picker, a split, a command other than `:goto` and the watch
+commands. The session's markers, `n`/`N` and `:watch-changes` stay until the next `:watch` or
+`:watch-clear`; the working tree is no longer watched, so they show the changes up to then. `Esc`,
+the command line (`:`) and the palette themselves, and the [terminal panel](#terminal-panel)
+(`C-t`), change nothing: an agent can run in the panel while its changes are followed above it.
+
+### The statusline
+
+The `watch` element is in the default statusline, after the mode, and is empty outside watch mode:
+
+| Text | Theme scope | When |
+| --- | --- | --- |
+| `WATCH following` | `ui.statusline.watch.following` | changes are followed |
+| `WATCH 3 new` | `ui.statusline.watch.paused` | following is paused, and 3 hunks came since the newest one you saw |
+| `WATCH paused` | `ui.statusline.watch.paused` | following is paused, nothing new |
+
+Both fall back to `ui.statusline.watch`, then to bold black on green and on yellow. A config with
+its own statusline adds `"watch"` to a list:
+
+```toml
+[editor.statusline]
+left = ["mode", "watch", "spinner", "file-name"]
+```
+
+### What changed this session
+
+A change of the session is a difference between a file now and its **baseline**, its content when
+the watch started:
+
+- a file clean in git: its committed version (the commit HEAD was then), read the first time the
+  file changes, so starting costs nothing for clean files;
+- a file already dirty (staged, unstaged or untracked, as `git status` lists them): its content at
+  the start, read then; only those files are read. So uncommitted work from before never shows as
+  a change of the session, and neither does a commit made during it;
+- a file created during the session: all of it is a change (`++`). A deleted file is listed as
+  deleted, and not followed.
+
+Files git ignores are not watched. Lockfiles (`[editor.changes] lockfiles`) are listed, collapsed
+to their line counts, but not followed nor counted nor gone through with `n`/`N`; binary files are
+listed but not followed into. Everything is kept in memory, nothing is written: quitting drops the
+session.
+
+**Hunks are numbered as they appear.** A hunk that is still there with the same lines keeps its
+place in the order when its file changes elsewhere; a new hunk, or one that grew, comes last. `n`
+goes on from the hunk under the cursor, or else from the one followed or gone to last; with neither,
+`n` goes to the oldest and `N` to the newest.
+
+### Markers
+
+The session's hunks have their own marker in the `diff` gutter, over git's: `┃` where lines were
+added or changed, `▔` where they were removed (git's are `▍` and `▔`). Their colors are
+`diff.watch.plus`, `diff.watch.delta` and `diff.watch.minus`, which fall back to `diff.watch`, then
+to git's gutter colors. A buffer's markers follow its edits, also after watch mode ended, as git's
+do. Lines changed before the watch keep git's marker.
+
+### The picker
+
+`:watch-changes` lists the session's changes in the shape of the [lists of
+changes](#lists-of-changes): one row per hunk under a divider per file, with the `+`/`-` marks, the
+most recently changed file first and, in a file, its newest hunk first. Lockfiles are a divider
+alone, deleted files are `(deleted)`, created ones `(new)`. The status line has the totals: `This
+session: 6 changes in 4 files, +7 -4`.
+
+```text
+   edit change
+── src/main.rs  3 hunks  +3 -3 ─────────────────────
+ > -+   src/main.rs:12
+   -+   src/main.rs:5
+   -+   src/main.rs:30
+── src/new.rs (new)  1 hunk  +2 ────────────────────
+   ++   src/new.rs:1-2
+── src/lib.rs  1 hunk  +1 -1 ───────────────────────
+   -+   src/lib.rs:20
+── Cargo.lock  +1 ──────────────────────────────────
+```
+
+Its keys are those of the lists of changes (`j`/`k`, `w`/`b` between files, `s` filters); `Enter`
+goes to the change (`n` goes on from there) and closes the picker, `C-s`/`C-v` open it in a split.
+Opening the picker pauses following but doesn't end watch mode.
+
+### Unsaved buffers
+
+A buffer with unsaved edits of your own is never overwritten: the rule of [files changed on
+disk](#files-changed-on-disk) applies (a warning, `:reload` or `:write!`), and following skips
+that file; the others are still followed. Its markers compare the buffer with the baseline.
+
+### Limitations
+
+- `n`/`N` mean the session's changes in watch mode, and after it until a search: once watch mode
+  ended, a search (`/`, `?`, `*`) gives them back to the search, and `:watch-clear` too. While
+  watch mode is on, a search moves to the first match, but `n` goes to changes.
+- The hunks `n`/`N` and the picker go to are those of the files on disk at their last change: in a
+  buffer edited since (after watch mode ended), the line may have moved. The markers follow the
+  edits.
+- A change made in the instant between the start of the watch and the snapshot of a dirty file is
+  part of the baseline.
+- A rename is a deleted file and a created one.
+- Watch mode and the commit log's live views each have a watcher on the working tree when both are
+  on.
+- Following shows changes one batch at a time: in a burst over several files, only the newest is
+  jumped to (the others are marked, and `n`/`N` reach them).
 
 ## The vortex theme
 

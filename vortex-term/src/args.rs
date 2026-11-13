@@ -20,6 +20,8 @@ pub struct Args {
     pub config_file: Option<PathBuf>,
     pub files: IndexMap<PathBuf, Vec<Position>>,
     pub working_directory: Option<PathBuf>,
+    /// `--watch [folder]`: start in watch mode (fork feature).
+    pub watch: bool,
 }
 
 impl Args {
@@ -34,10 +36,15 @@ impl Args {
         })
     }
 
-    #[allow(clippy::too_many_lines)]
     pub fn parse_args() -> Result<Args> {
+        Self::parse_from(std::env::args())
+    }
+
+    /// [`Self::parse_args`] of the command line `argv`, program name first.
+    #[allow(clippy::too_many_lines)]
+    pub fn parse_from(argv: impl IntoIterator<Item = String>) -> Result<Args> {
         let mut args = Args::default();
-        let mut argv = std::env::args().peekable();
+        let mut argv = argv.into_iter().peekable();
         let mut line_number = 0;
 
         let mut insert_file_with_position = |file_with_position: &str| {
@@ -105,6 +112,15 @@ impl Args {
                 // The terminal panel's `$EDITOR` is `vx --wait`, which waits there until the
                 // buffer is closed; outside the panel an editor always waits for itself.
                 "--wait" => {}
+                // `--watch [folder]`: watch mode, in the folder when one follows
+                "--watch" => {
+                    args.watch = true;
+                    if let Some(folder) =
+                        argv.next_if(|arg| !arg.starts_with('-') && Path::new(arg).is_dir())
+                    {
+                        args.working_directory = Some(vortex_stdx::path::canonicalize(folder));
+                    }
+                }
                 arg if arg.starts_with("--") => {
                     anyhow::bail!("unexpected double dash argument: {}", arg)
                 }
@@ -228,5 +244,59 @@ mod tests {
         let flag = tempfile::tempdir().unwrap();
         let args = args(&[folder.path()], Some(flag.path()));
         assert_eq!(args.initial_working_dir(), Some(flag.path()));
+    }
+
+    fn parse(argv: &[&str]) -> Args {
+        let argv = std::iter::once("vx".to_string()).chain(argv.iter().map(|arg| arg.to_string()));
+        Args::parse_from(argv).unwrap()
+    }
+
+    #[test]
+    fn watch_alone_just_sets_the_flag() {
+        let args = parse(&["--watch"]);
+        assert!(args.watch);
+        assert_eq!(args.working_directory, None);
+        assert!(args.files.is_empty());
+        assert!(!parse(&[]).watch);
+    }
+
+    #[test]
+    fn watch_takes_a_folder_as_the_working_directory() {
+        let dir = tempfile::tempdir().unwrap();
+        let folder = dir.path().to_str().unwrap();
+        let args = parse(&["--watch", folder]);
+        assert!(args.watch);
+        assert_eq!(
+            args.working_directory,
+            Some(vortex_stdx::path::canonicalize(dir.path()))
+        );
+        // it is not opened as a file too
+        assert!(args.files.is_empty());
+    }
+
+    #[test]
+    fn watch_ignores_a_following_file_and_a_missing_path() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("a.txt");
+        std::fs::write(&file, "x").unwrap();
+        let args = parse(&["--watch", file.to_str().unwrap()]);
+        assert!(args.watch);
+        assert_eq!(args.working_directory, None);
+        // the file is still opened
+        assert_eq!(args.files.len(), 1);
+
+        let missing = dir.path().join("nope");
+        let args = parse(&["--watch", missing.to_str().unwrap()]);
+        assert_eq!(args.working_directory, None);
+        assert_eq!(args.files.len(), 1);
+    }
+
+    #[test]
+    fn watch_leaves_the_flags_after_it_alone() {
+        let dir = tempfile::tempdir().unwrap();
+        let args = parse(&["--watch", "--vsplit", dir.path().to_str().unwrap()]);
+        assert!(args.watch);
+        assert_eq!(args.working_directory, None);
+        assert!(args.split.is_some());
     }
 }
