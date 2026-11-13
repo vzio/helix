@@ -2324,3 +2324,48 @@ mod glitch_tests {
         assert!(rows[warning_row].contains("WARNMSG here"));
     }
 }
+
+#[cfg(test)]
+mod modebar_tests {
+    use super::*;
+    use crate::{compositor::Component, job::Jobs};
+    use arc_swap::{access::Map, ArcSwap};
+    use std::sync::Arc;
+
+    /// Without a mode that uses it, the mode bar takes no row and nothing of it is laid out: the
+    /// splits reach the message line, as before.
+    #[tokio::test]
+    async fn no_mode_no_bar() {
+        let area = Rect::new(0, 0, 80, 20);
+        let config = Arc::new(ArcSwap::from_pointee(crate::config::Config::default()));
+        let handlers = crate::handlers::setup(config.clone());
+        let mut editor = Editor::new(
+            area,
+            Arc::new(vortex_view::theme::Loader::new(&[])),
+            Arc::new(ArcSwap::from_pointee(
+                vortex_core::config::default_lang_loader(),
+            )),
+            Arc::new(Map::new(
+                Arc::clone(&config),
+                |config: &crate::config::Config| &config.editor,
+            )),
+            handlers,
+            vortex_loader::workspace_trust::WorkspaceTrust::fully_trusted(),
+        );
+        editor.new_file(vortex_view::editor::Action::VerticalSplit);
+        let mut jobs = Jobs::new();
+        let mut view = EditorView::new(crate::keymap::Keymaps::default());
+        assert_eq!(crate::ui::modebar::height(&editor), 0);
+        assert!(crate::ui::modebar::current(&editor, &view.keymaps).is_none());
+        let mut surface = Surface::empty(area);
+        let mut cx = crate::compositor::Context {
+            editor: &mut editor,
+            scroll: None,
+            jobs: &mut jobs,
+        };
+        view.render(area, &mut surface, &mut cx);
+        assert!(view.modebar.is_none());
+        // all the rows but the message line are the splits'
+        assert_eq!(editor.tree.area().height, area.height - 1);
+    }
+}
