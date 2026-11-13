@@ -1698,26 +1698,30 @@ and everything is recorded against it:
 
 #### Measured
 
-Measured in a slow shared container (numbers are lower bounds), with lldb-dap 21 on a small Rust
-program and js-debug on a small TypeScript one, in `own`:
+Measured in a slow shared container (numbers are lower bounds), in a release build (a debug build
+spends about 0.7 s drawing each stop, which hides everything else), with lldb-dap 21 on a small
+Rust program and js-debug on a small TypeScript one, in `own`, rewind recording on. *Before* fetches
+every frame at every stop; *after* carries the frames that can't have changed (see rewind in
+[Spectator mode](#spectator-mode)). Requests and time are per stop, medians, from the `stopped` event to the last
+answer:
 
-| | Engine | Stepping |
-| --- | --- | --- |
-| Playback asked 2 / 8 / 25 lines/s, rewind recording on (Rust) | 0.8 / 0.7 / 0.8 | 0.7 / 0.6 / 0.7 |
-| Same, `history = 0` (Rust) | 2.0 / 7.9 / 21 | 2.0 / 7.6 / 12.6 |
-| Cost of a line, other threads' hits (lldb-dap) | 15-17 ms; ~460 hits/s, one thread or several | ~25 ms a step |
-| Playback asked 25 lines/s, recording on / `history = 0` (TypeScript) | 0.5 / 5.6 | 0.5 / 5.6 |
-| Cost of a line (js-debug) | 55-100 ms; ~22 hits/s | about the same |
+| | Engine, before | Engine, after | Stepping, before | Stepping, after |
+| --- | --- | --- | --- | --- |
+| Rust, asked 2 / 8 / 25 lines/s | 1.9 / 1.9 / 1.9 | 2.0 / 7.6 / 12.8 | 1.8 / 2.1 / 2.2 | 2.0 / 7.8 / 11.1 |
+| Rust, a stop | 74 requests, 460-560 ms | 14-16 requests, 72-81 ms | 67-71 requests, 360-380 ms | 14-16 requests, 71-75 ms |
+| TypeScript, asked 2 / 8 / 25 lines/s | 0.53 / 0.53 / 0.53 | 0.66 / 0.66 / 0.66 | 0.53 / 0.53 / 0.53 | 0.73 / 0.66 / 0.66 |
+| TypeScript, a stop | 184 requests, 1.7 s | 119 requests, 1.35-1.45 s | 183 requests, 1.4-1.5 s | 116 requests, 1.3-1.4 s |
 
-- **Recording each stop whole sets the top speed**, not how playback advances: on that program a
-  stop's capture takes about 1.3 s (67 requests with lldb-dap, most of them rustc's formatters;
-  about 1 s and 174 requests with js-debug). With recording off, the engine keeps up to about
-  21 lines/s with lldb-dap where stepping tops out near 13; with js-debug both stop near 6, the
-  time it takes to show a stop at all.
+- **Recording each stop sets the top speed.** lldb-dap answers one request at a time (about 6 ms
+  each, however many are in flight), so what counts is how many a stop sends: carrying the
+  unchanged frames takes a Rust stop from 74 to 14, and playback from under 2 lines/s to about 13
+  (the engine) or 11 (stepping). With js-debug most of a stop is the top frame itself: its scopes
+  (Local, the module, Global) and the objects in them, about 95 `variables` requests, which nothing
+  can carry since that frame is the one that moved.
+- **A line of another thread** (lldb-dap): 15-17 ms, about 460 hits/s, one thread or several,
+  against about 25 ms a step for stepping; js-debug: 55-100 ms, about 22 hits/s.
 - **Installing**: 41 hidden breakpoints in one Rust file in 44 ms; 32 in one TypeScript file (in
-  both js-debug sessions). Debugging Vortex itself (486 files, about 180,000 lines) took about
-  13 minutes for 42,290 breakpoints, and lldb-dap grew to 2 GB: on a program that big, set
-  `own-paths` to the part you care about.
+  both js-debug sessions). Debugging Vortex itself: see below.
 - **Memory**: 8 bytes a hit, 800 KB per 100,000 hits.
 
 ### Memory
@@ -1898,9 +1902,10 @@ DEBUGGER" section.
   (see [Measured](#measured)). A line with one of your breakpoints that doesn't stop (a condition
   that is false, a log message) isn't counted on the lineline. With an adapter that stops every
   thread at a hit, the spectated thread waits for every other thread's hit (each a round trip), and
-  while it is paused at a line every thread is. `lib` and `std` are a work in progress. Every
-  covered file is installed upfront, which takes minutes and gigabytes of the adapter's memory on a
-  very big program (see [Measured](#measured)). Hidden breakpoints don't follow edits made while
+  while it is paused at a line every thread is. `lib` and `std` are a work in progress. On a big
+  program the files that aren't first in line take minutes to get their hidden breakpoints, and
+  their lines aren't counted until then (they run at full speed, the lineline doesn't see them);
+  the adapter grows by gigabytes (see [Measured](#measured)). Hidden breakpoints don't follow edits made while
   debugging. js-debug gets the hidden breakpoints in its
   parent session too (it can't be told upfront which session will run the program).
 

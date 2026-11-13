@@ -661,6 +661,7 @@ fn finish(editor: &mut Editor, session: DebugAdapterId, token: u64, kind: TaskKi
     let off = state.state == SessionState::Off;
     sync_ids(editor, session);
     sync_watch(editor);
+    log::info!("hidden breakpoints: {count} in {files} files, {kind:?} done after {elapsed:?}");
     let time = elapsed.map(vortex_view::debug::timing::format_duration);
     match kind {
         TaskKind::Install | TaskKind::Reinstall if off => {
@@ -759,6 +760,12 @@ fn go(editor: &mut Editor, session: DebugAdapterId, token: u64, rest: bool) {
     state.partial = rest;
     if let Some(task) = editor.debug.engine.task_mut(token) {
         task.running = rest;
+        log::info!(
+            "hidden breakpoints: {}/{} files in after {:?}, the program goes on",
+            task.files_done,
+            task.files_total,
+            task.started.elapsed()
+        );
         if rest {
             let text = format!(
                 "{}/{} files have their hidden breakpoints: the program goes on, and lines in \
