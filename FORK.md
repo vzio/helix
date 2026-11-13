@@ -696,10 +696,24 @@ is on screen follows it:
   [files changed on disk](#files-changed-on-disk).
 
 The watch covers what git doesn't ignore (`.gitignore` files at any depth, `.git/info/exclude`, the
-global excludes file), with one watch per directory, so `target/` or `node_modules/` cost nothing,
-plus `HEAD`, the index and `logs/HEAD` in the git dir. Changes are applied 200ms after the last one
-(at most a second after the first, when they never stop). The watch stops when the last of these
-views closes.
+global excludes file), plus `HEAD`, the index and `logs/HEAD` in the git dir. A nested repository
+(a directory holding a `.git` file or directory: a submodule, a repository cloned inside this one)
+is left out, as git leaves its files out of this repository's status: it isn't walked, and changes
+inside it are dropped; its own entry (created, removed, renamed) still counts. How the tree is
+watched depends on what the platform's file watching can do:
+
+- **One watch per directory** (inotify on Linux, and every backend but FSEvents), so `target/` or
+  `node_modules/` cost nothing. The walk that places them runs in the background, on the
+  watcher's thread: opening the log never waits for it (about 0.2 s for 1,000 directories, a
+  few seconds for tens of thousands). A file changed in a directory the walk hasn't reached yet
+  isn't missed: the walk reports what was modified since the watch started, and the views
+  refresh once with it.
+- **One recursive watch on the root** (FSEvents on macOS), which watches a whole tree for the cost
+  of one watch, so there is no walk at all; events from ignored directories are dropped by the
+  same rules. A watch per directory would restart FSEvents' stream for every directory watched.
+
+Changes are applied 200ms after the last one (at most a second after the first, when they never
+stop). The watch stops when the last of these views closes.
 
 ### Lockfiles
 
@@ -740,8 +754,14 @@ A binary lockfile (`bun.lockb`) shows `(binary)` instead of counts.
   isn't.
 - Only the commit log's views update live. The changed files picker (`space g`) and `space =` don't,
   and the changes of a commit don't need to.
-- A directory that a `.gitignore` edit stops ignoring isn't watched until it is created again.
+- A directory that a `.gitignore` edit stops ignoring isn't watched until it is created again
+  (with a watch per directory).
 - Symlinked directories are not followed.
+- A change inside a submodule or another nested repository isn't seen live. Its files aren't part
+  of this repository's status either, but a submodule as a whole is (new commits, a dirty
+  checkout): that shows at the next refresh another change brings, or when the log opens again.
+  With a watch per directory, a directory whose `.git` is removed is watched again only when the
+  watch restarts.
 
 ## Stage, unstage and revert hunks
 

@@ -23,8 +23,13 @@ const DEBOUNCE: Duration = Duration::from_millis(200);
 /// thread, see [`RepoWatch::start_tapped`].
 pub type Tap = Box<dyn Fn(&[PathBuf]) -> Box<dyn FnOnce(&mut Editor) + Send> + Send>;
 
-/// A watch on the working tree of a repository (what git doesn't ignore), on its `HEAD` and on
-/// its index. Shared with [`Arc`]: it stops when the last view holding it is dropped.
+/// A watch on the working tree of a repository (what git doesn't ignore, nested repositories left
+/// out), on its `HEAD` and on its index. Shared with [`Arc`]: it stops when the last view holding
+/// it is dropped.
+///
+/// Starting it never walks the tree on the caller's thread (see [`Watcher::spawn`]): a change
+/// made before the whole tree is watched comes in the first batch, so the views don't wait for
+/// the watch to be ready.
 pub struct RepoWatch {
     /// Counts the batches of changes. Bumped on the main thread, after the open buffers of the
     /// changed files were checked, so a view that refreshes sees reloaded buffers.
