@@ -276,34 +276,36 @@ async fn test_multi_selection_shell_commands() -> anyhow::Result<()> {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn test_undo_redo() -> anyhow::Result<()> {
-    // A jumplist selection is created at a point which is undone.
+    // A history place is created at a point which is undone.
     //
-    // * 2[<space>   Add two newlines at line start. We're now on line 3.
-    // * <C-s>       Save the selection on line 3 in the jumplist.
-    // * u           Undo the two newlines. We're now on line 1.
-    // * <C-o><C-i>  Jump forward an back again in the jumplist. This would panic
-    //               if the jumplist were not being updated correctly.
+    // * 2[<space>   Add two newlines at line start. We're now on "one", line 3.
+    // * ge          Go to the last line. The place on line 3 is recorded in the history.
+    // * u           Undo the two newlines. The recorded place is now on line 1.
+    // * 3G          Go to "three", away from the place.
+    // * gAa         Step back in the history and forward again. This would panic if the
+    //               history places were not being updated correctly.
     test((
-        "#[|]#",
-        "2[<space><C-s>u<C-o><C-i>",
-        "#[|]#",
+        "#[o|]#ne\ntwo\nthree\n",
+        "2[<space>geu3GgAa",
+        "one\ntwo\n#[t|]#hree\n",
         LineFeedHandling::AsIs,
     ))
     .await?;
 
-    // A jumplist selection is passed through an edit and then an undo and then a redo.
+    // A history place is passed through an edit and then an undo and then a redo.
     //
-    // * [<space>    Add a newline at line start. We're now on line 2.
-    // * <C-s>       Save the selection on line 2 in the jumplist.
-    // * kd          Delete line 1. The jumplist selection should be adjusted to the new line 1.
-    // * uU          Undo and redo the `kd` edit.
-    // * <C-o>       Jump back in the jumplist. This would panic if the jumplist were not being
-    //               updated correctly.
-    // * <C-i>       Jump forward to line 1.
+    // * [<space>    Add a newline at line start. We're now on "one", line 2.
+    // * ge          Go to the last line. The place on line 2 is recorded in the history.
+    // * gg          Go to the first line, the blank one. The place on the last line is recorded.
+    // * d           Delete the newline of line 1. The recorded places should be adjusted.
+    // * uU          Undo and redo the `d` edit.
+    // * gAA         Step back in the history, twice. This would panic if the history places
+    //               were not being updated correctly.
+    // * <esc>ga     Close the state; `ga` goes where the walk started.
     test((
-        "#[|]#",
-        "[<space><C-s>kduU<C-o><C-i>",
-        "#[|]#",
+        "#[o|]#ne\ntwo\nthree\n",
+        "[<space>geggduUgAA<esc>ga",
+        "#[o|]#ne\ntwo\nthree\n",
         LineFeedHandling::AsIs,
     ))
     .await?;

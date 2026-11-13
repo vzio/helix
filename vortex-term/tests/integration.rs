@@ -26,6 +26,7 @@ mod test {
     mod explorer;
     mod git_log;
     mod hex_view;
+    mod history;
     mod hunks;
     mod inline_blame;
     mod move_lines;

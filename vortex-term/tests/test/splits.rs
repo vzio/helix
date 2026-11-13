@@ -131,7 +131,7 @@ async fn test_split_write_quit_same_file() -> anyhow::Result<()> {
 async fn test_changes_in_splits_apply_to_all_views() -> anyhow::Result<()> {
     // See <https://github.com/helix-editor/helix/issues/4732>.
     // Transactions must be applied to any view that has the changed document open.
-    // This sequence would panic since the jumplist entry would be modified in one
+    // This sequence would panic since the history place would be modified in one
     // window but not the other. Attempting to update the changelist in the other
     // window would cause a panic since it would point outside of the document.
 
@@ -139,19 +139,21 @@ async fn test_changes_in_splits_apply_to_all_views() -> anyhow::Result<()> {
     // * <C-w>v       Create a vertical split of the current buffer.
     //                Both views look at the same doc.
     // * [<space>     Add a line ending to the beginning of the document.
-    //                The cursor is now at line 2 in window 2.
-    // * <C-s>        Save that selection to the jumplist in window 2.
+    //                The cursor is now at line 2 ("one") in window 2.
+    // * ge           Go to the last line in window 2; the place on line 2 is recorded in
+    //                the history of window 2.
     // * <C-w>w       Switch to window 1.
-    // * kd           Delete line 1 in window 1.
+    // * kd           Delete line 1 (the blank one) in window 1.
     // * <C-w>q       Close window 1, focusing window 2.
-    // * d            Delete line 1 in window 2.
+    // * gA<esc>      Step back to the recorded place in window 2, and stay there.
+    // * d            Delete a character there.
     //
-    // This panicked in the past because the jumplist entry on line 2 of window 2
+    // This panicked in the past because the history place on line 2 of window 2
     // was not updated and after the `kd` step, pointed outside of the document.
     test((
-        "#[|]#",
-        "<C-w>v[<space><C-s><C-w>wkd<C-w>qd",
-        "#[|]#",
+        "#[o|]#ne\ntwo\n",
+        "<C-w>v[<space>ge<C-w>wkd<C-w>qgA<esc>d",
+        "#[n|]#e\ntwo\n",
         LineFeedHandling::AsIs,
     ))
     .await?;
@@ -175,8 +177,8 @@ async fn test_changes_in_splits_apply_to_all_views() -> anyhow::Result<()> {
     // panics.
     // The key sequence:
     // * 3[<space>    Create three empty lines so we are at the end of the document.
-    // * <C-w>v<C-s>  Create a split and save that point at the end of the document
-    //                in the jumplist.
+    // * <C-w>vgg     Create a split and jump to the top, recording a place at the end of
+    //                the document in the history of window 2.
     // * <C-w>w       Switch back to the first window.
     // * uu           Undo twice (not three times which would bring us back to the
     //                root of the tree).
@@ -184,10 +186,11 @@ async fn test_changes_in_splits_apply_to_all_views() -> anyhow::Result<()> {
     //                where it was on step 1.
     // * <C-w>q       Close window 1, focusing window 2 and causing a sync. This step
     //                panics if we don't apply in the right order.
+    // * ga           Go to the recorded place.
     // * %d           Clean up the buffer.
     test((
         "#[|]#",
-        "3[<space><C-w>v<C-s><C-w>wuu3[<space><C-w>q%d",
+        "3[<space><C-w>vgg<C-w>wuu3[<space><C-w>qga%d",
         "#[|]#",
         LineFeedHandling::AsIs,
     ))
@@ -197,16 +200,16 @@ async fn test_changes_in_splits_apply_to_all_views() -> anyhow::Result<()> {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn test_changes_in_splits_jumplist_sync() -> anyhow::Result<()> {
+async fn test_changes_in_splits_history_sync() -> anyhow::Result<()> {
     // See <https://github.com/helix-editor/helix/issues/9833>
-    // When jumping backwards (<C-o>) switches between two documents, we need to
+    // When going back in the history (`ga`) switches between two documents, we need to
     // ensure that the current view has been synced with all changes to the
     // document that occurred since the last time the view focused this document.
     // If the view isn't synced then this case panics since we try to form a
     // selection on "test" (which was deleted in the other view).
     test((
         "#[test|]#",
-        "<C-w>sgf<C-w>wd<C-w>w<C-o><C-w>qd",
+        "<C-w>sgf<C-w>wd<C-w>wga<C-w>qd",
         "#[|]#",
         LineFeedHandling::AsIs,
     ))
@@ -216,14 +219,14 @@ async fn test_changes_in_splits_jumplist_sync() -> anyhow::Result<()> {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn test_reload_all_with_split_jumplist() -> anyhow::Result<()> {
+async fn test_reload_all_with_split_history() -> anyhow::Result<()> {
     // See reproduction from <https://github.com/helix-editor/helix/issues/9830>
     //
     // The key sequence:
     // * <C-w>s   Horizontal split: two views on the same document.
     // * ]<space> Add an empty line below, growing the document.
     // * %        Select the whole document.
-    // * 2G       Go to line 2. `goto_line` calls `push_jump`, recording a jump
+    // * 2G       Go to line 2. `goto_line` calls `record_jump`, recording a place
     //            whose selection is valid at the *current* (grown) revision.
     // * ms/      Surround-add `/`, growing the document again.
     // * :rla     reload-all: re-reads the file from disk (shrinking the buffer
@@ -231,7 +234,7 @@ async fn test_reload_all_with_split_jumplist() -> anyhow::Result<()> {
     //            each document, leaving the other split's `doc_revisions` stale.
     // * %J       Select-all and join, forcing a sync of the stale view.
     //
-    // On the unfixed code the jumplist entry recorded by `2G` is left ahead of
+    // On the unfixed code the history place recorded by `2G` is left ahead of
     // the stale view's `doc_revisions`; once that view is synced, the entry is
     // mapped through a changeset whose pre-image predates it and
     // `ChangeSet::update_positions` panics.
