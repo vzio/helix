@@ -1723,7 +1723,15 @@ answer:
 - **A line of another thread** (lldb-dap): 15-17 ms, about 460 hits/s, one thread or several,
   against about 25 ms a step for stepping; js-debug: 55-100 ms, about 22 hits/s.
 - **Installing**: 41 hidden breakpoints in one Rust file in 44 ms; 32 in one TypeScript file (in
-  both js-debug sessions). Debugging Vortex itself: see below.
+  both js-debug sessions). Debugging Vortex itself (`vx --health rust` with `vortex-term/src/main.rs`
+  open; 487 files, about 180,000 lines): `configurationDone` went out 4.5 s after the launch, once
+  that file was in (it was 13 minutes when every file went in first), and the program stopped at
+  its first line 50 s after the launch, lldb-dap still indexing the debug info. The rest went in
+  behind it in 20 minutes: 51,219 hidden breakpoints in the 283 files that have code in the
+  program, lldb-dap growing to 2.1 GB. For those 20 minutes the lines of the files not yet in run
+  unseen: playback passes through them and the lineline doesn't count them. Set in a running
+  program, some files took lldb-dap over 20 s, so the install waits up to 5 minutes for each
+  answer. On a program that big, set `own-paths` to the part you care about.
 - **Memory**: 8 bytes a hit, 800 KB per 100,000 hits.
 
 ### Memory
