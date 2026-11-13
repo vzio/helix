@@ -805,6 +805,16 @@ impl DiffView {
         self.go_to_hunk(index);
     }
 
+    /// Makes the first hunk that touches `lines` of the right side (from 0) the current one
+    /// (see [`vortex_vcs::line_history::touches`]), or else the hunk at the first of them.
+    pub fn go_to_lines(&mut self, lines: &[std::ops::Range<u32>]) {
+        let touching = vortex_vcs::line_history::touching(&self.line_hunks, lines).next();
+        match touching.and_then(|hunk| self.line_hunks.iter().position(|h| h == hunk)) {
+            Some(index) => self.go_to_hunk(index),
+            None => self.go_to_line(lines.first().map_or(0, |lines| lines.start)),
+        }
+    }
+
     /// `n`/`N`: the next or previous hunk. Past the last or first one, the first hunk of the next
     /// file of the entry or the last hunk of the previous one, around the ends of the entry.
     fn step_hunk(&mut self, forward: bool, editor: &mut Editor) -> EventResult {

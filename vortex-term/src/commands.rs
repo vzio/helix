@@ -3,6 +3,7 @@ pub(crate) mod changes;
 pub(crate) mod dap;
 pub(crate) mod diff_view;
 pub(crate) mod git_log;
+pub mod line_history;
 pub(crate) mod hex;
 pub(crate) mod hunks;
 pub(crate) mod lsp;
@@ -652,6 +653,7 @@ impl MappableCommand {
         toggle_inline_blame, "Toggle inline git blame",
         yank_diagnostic, "Yank the diagnostic under the cursor, or else the line's commit hash, to the clipboard",
         commit_picker, "Open the git commit log picker",
+        line_history, "Open the commits that changed the selected lines",
         toggle_explorer, "Open the file tree at the workspace root, revealing the current file",
         toggle_explorer_root, "Open the file tree at the workspace root",
         rename_symbol, "Rename symbol",
@@ -6824,6 +6826,12 @@ fn git_diff_view(cx: &mut Context) {
 
 fn commit_picker(cx: &mut Context) {
     if let Some(picker) = git_log::commit_picker(cx.editor) {
+        cx.push_layer(Box::new(overlaid(picker)));
+    }
+}
+
+fn line_history(cx: &mut Context) {
+    if let Some(picker) = line_history::open(cx.editor) {
         cx.push_layer(Box::new(overlaid(picker)));
     }
 }

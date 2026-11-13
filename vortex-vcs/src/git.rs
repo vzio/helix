@@ -23,6 +23,8 @@ use gix::{Commit, ObjectId, Repository, ThreadSafeRepository};
 use crate::{CommitInfo, FileChange};
 
 #[cfg(test)]
+mod line_history_test;
+#[cfg(test)]
 mod log_test;
 #[cfg(test)]
 mod summary_test;
@@ -30,10 +32,12 @@ mod summary_test;
 mod test;
 
 pub mod blame;
+mod line_history;
 mod log;
 pub mod stage;
 pub mod summary;
 
+pub use line_history::for_each_line_commit;
 pub use log::for_each_log_entry;
 
 #[inline]

@@ -326,6 +326,12 @@
                  the commit
   space B        who changed each line, when, and in which
                  commit (fork)
+  space L        the history of the cursor's line, or of the
+                 selected lines (fork, :line-history): only the
+                 commits that changed them, the one that added
+                 them last, marked (added). Enter shows the diff
+                 right at the change, o the whole commit. % then
+                 space L is the history of the whole file
   :wt            the repository's worktrees (fork, :worktrees):
                  the current one first, then the most recently
                  changed, each with its uncommitted changes and

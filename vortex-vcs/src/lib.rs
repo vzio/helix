@@ -35,6 +35,8 @@ pub mod staging;
 
 pub mod conflict;
 
+pub mod line_history;
+
 pub use diff::{Diff, DiffHandle, Hunk};
 
 mod status;
@@ -252,6 +254,31 @@ impl DiffProviderRegistry {
         Err(first_err.unwrap_or_else(|| anyhow!("no diff provider returns success")))
     }
 
+    /// Calls `f` with the commits of HEAD that changed `lines` of `file` (line ranges of its
+    /// version in HEAD), like `git log -L`, newest first in the sections of the commit log, and
+    /// with the number of commits looked at before each; see [`line_history`]. Blocks until all
+    /// the lines reached the commits that added them, or `f` returns `false`.
+    pub fn for_each_line_commit(
+        &self,
+        cwd: &Path,
+        trust_full: bool,
+        file: &Path,
+        lines: Vec<std::ops::Range<u32>>,
+        mut f: impl FnMut(line_history::LineEvent<'_>) -> bool,
+    ) -> Result<()> {
+        // report the error of the first provider, not the fallback's "no diff support"
+        let mut first_err = None;
+        for provider in &self.providers {
+            match provider.for_each_line_commit(cwd, trust_full, file, lines.clone(), &mut f) {
+                Ok(()) => return Ok(()),
+                Err(err) => {
+                    first_err.get_or_insert(err);
+                }
+            }
+        }
+        Err(first_err.unwrap_or_else(|| anyhow!("no diff provider returns success")))
+    }
+
     /// The contents of `file` in commit `id` (`id^` for its first parent), or `None` if the
     /// commit doesn't have it.
     pub fn file_at_commit(
@@ -442,6 +469,24 @@ impl DiffProvider {
             Self::Git => git::for_each_range_file(cwd, trust_full, oldest, newest, files, f),
             Self::None => {
                 let _ = (cwd, trust_full, oldest, newest, files, f);
+                bail!("No diff support compiled in")
+            }
+        }
+    }
+
+    fn for_each_line_commit(
+        &self,
+        cwd: &Path,
+        trust_full: bool,
+        file: &Path,
+        lines: Vec<std::ops::Range<u32>>,
+        f: &mut impl FnMut(line_history::LineEvent<'_>) -> bool,
+    ) -> Result<()> {
+        match self {
+            #[cfg(feature = "git")]
+            Self::Git => git::for_each_line_commit(cwd, trust_full, file, lines, f),
+            Self::None => {
+                let _ = (cwd, trust_full, file, lines, f);
                 bail!("No diff support compiled in")
             }
         }

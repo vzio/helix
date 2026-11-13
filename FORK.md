@@ -78,6 +78,7 @@ git blame FILE
 
 - [Side by side git diff](#side-by-side-git-diff)
 - [Git commit log](#git-commit-log)
+- [Line history](#line-history)
 - [Uncommitted changes, live](#uncommitted-changes-live)
 - [Stage, unstage and revert hunks](#stage-unstage-and-revert-hunks)
 - [Files changed on disk](#files-changed-on-disk)
@@ -107,6 +108,7 @@ Each feature lives in its own modules, to keep rebasing on upstream cheap:
 | Diff view | `vortex-term/src/ui/diff_view.rs`, `vortex-term/src/commands/diff_view.rs` |
 | Hunk actions, `n`/`N` across files | `vortex-term/src/commands/hunks.rs` (stage, unstage, revert), `vortex-vcs/src/staging.rs` (the texts of the index and of the working tree after an action), `vortex-vcs/src/git/stage.rs` (reading and writing one entry of the index), the `Actions` and `FileNav` of the diff view, `base` of `:practice` exercises, `vortex-term/tests/test/hunks.rs` |
 | Commit log | `vortex-term/src/commands/git_log.rs` (also the background reading of a commit's changes), `vortex-vcs/src/commit.rs`, `vortex-vcs/src/git/log.rs`, `range_changes` and `for_each_range_file` in `vortex-vcs/src/git.rs` (the files of a commit or range, read with one repository open) |
+| Line history | `vortex-vcs/src/line_history.rs` (mapping lines through a diff, the merge rule), `vortex-vcs/src/git/line_history.rs` (the walk through the repository), `vortex-term/src/commands/line_history.rs` (from the buffer to HEAD, the search on its thread and its status line, the rows and their preview, `Enter`), `vortex-vcs/src/git/line_history_test.rs`, `vortex-term/tests/test/line_history.rs`, `vortex-term/tests/test/repo_gen.rs` (big repositories for performance tests) |
 | Uncommitted changes, live views | `vortex-term/src/commands/uncommitted.rs` (the list of uncommitted hunks, their marks, unsaved edits), `vortex-term/src/commands/changes.rs` (the lists of changes of the uncommitted changes and of commits: hunk rows, file dividers, `+`/`-` marks, lockfiles), `with_groups` and `with_section_keys` in `vortex-term/src/ui/picker.rs` (dividers that head groups, `w`/`b` between them), `with_drawn_preview` in `vortex-term/src/ui/picker.rs` (a preview drawn by its owner), `vortex-term/src/live.rs` (the shared watch, background refreshes), `vortex-view/src/watcher.rs` (the reusable watcher), `RepoState` and `log_entries` in `vortex-vcs/src/lib.rs`, `[editor.changes]` in `vortex-view/src/editor.rs`, `vortex-term/tests/test/uncommitted.rs`, `vortex-term/tests/test/change_lists.rs` |
 | Files changed on disk | `vortex-term/src/handlers/disk.rs`, the disk state of `Document` in `vortex-view/src/document.rs`, `vortex-term/tests/test/stale_buffers.rs` |
 | Conflict diagnostics | `vortex-vcs/src/conflict.rs` (finding the blocks), `conflicted_files` in `vortex-vcs/src/git.rs` (the unmerged files), `vortex-term/src/handlers/conflicts.rs` (when to look, the documents' state), `vortex-term/tests/test/conflicts.rs` |
@@ -151,6 +153,14 @@ the panel) in `vortex-view/src/editor.rs`, where `[editor.terminal]` also absorb
 `Application::handle_terminal_events`; `toggle_terminal` in `commands.rs` and `keymap/default.rs`;
 `:sh`, `:!` (and `:!cmd` without a space) and `quit` on an awaited buffer in `typed.rs`; the `shell`
 element in `ui/statusline.rs`; the client mode at the top of `main.rs`.
+
+Line history shares the commit log's picker: `CommitLog::new` and the line history's rows,
+preview, `o` and range `Enter` in `commands/git_log.rs`; `sections` of `vortex-vcs/src/git/log.rs`,
+for the walk to sort commits as the log does; `Injector::is_shut_down` in `ui/picker.rs`, which the
+walk checks to stop; `go_to_lines` in `ui/diff_view.rs`; `open_lines_in_commits`,
+`open_lines_uncommitted` and how many pickers a commit's diff closes in `commands/diff_view.rs`;
+`draw_hunk`, `place` and `PreviewStyles`, shared previews of hunks, in `commands/changes.rs`;
+`line_history` in `commands.rs`, `typed.rs` (`:line-history`) and `keymap/default.rs` (`space L`).
 
 The uncommitted changes and files changed on disk also change core files: the disk state of
 `Document` (`disk_change`, and `save_impl`, whose external-change check now compares content
@@ -487,9 +497,125 @@ first hunk of its file.
 
 ### Ideas
 
-- List the commits that changed the current file.
+- ~~List the commits that changed the current file~~: `%` then `space L`, the
+  [line history](#line-history) of the whole file.
 - Show the commit message and stats in a preview.
 - Pick another branch.
+
+## Line history
+
+"Who changed this line, and why": the [commit log](#git-commit-log), showing only the commits
+that changed the cursor's line, or the selected lines, like `git log -L`. It looks and works like
+the commit log: the same columns, branch sections and dividers, modal keys and side by side diff.
+
+```
+   commit    date       author    summary
+ > ...                            Uncommitted changes
+── main (unpushed) ─────────────────────────────────
+   d4e5f6a7b 2026-11-12 Ana       Handle empty input
+── origin/main ─────────────────────────────────────
+   a1b2c3d4e 2026-10-02 Bruno     Parse the header once
+   9f8e7d6c5 2026-09-14 Ana       Add the parser (added)
+```
+
+### Usage
+
+| Keys | Action |
+| --- | --- |
+| `space L`, `:line-history` | Open the line history of the cursor's line in normal mode, or of the lines every selection covers (several selections make several ranges). `%` then `space L` is the history of the whole file. |
+| `Enter` | The side by side diff of the file in that commit, at the hunk that changed the lines (the first one, when several did). `n`/`N` go through that commit's hunks of this file. `q`/`Esc` come back to the line history. On the uncommitted changes: the diff of the file against HEAD (the buffer, with its unsaved edits), at the lines. |
+| `o` | The whole commit: its list of changes, as `Enter` in the commit log. On a range, the list of the range; on the uncommitted changes, their list. |
+| `Enter` on a range (`v`, `w`/`b`, `A-s`...) | The combined change of the file over the range (the [range rules](#ranges) of the commit log), at the first hunk that touches the lines as they are in the newest commit of the range. |
+| `Enter` in the diff | Open the file as it is now, at the hunk, closing the line history. |
+| `s`, `j`/`k`..., `v`, `A-v`, `w`/`e`/`b`, `S-Down`/`S-Up`, `A-s`, `Esc`, `q` | As in the [commit log](#usage-1). |
+
+- **Rows**: the commits, newest first in the sections of the commit log (`B (unpushed)`, `B`, the
+  base branch, with the same rules); the last one, which added the lines, is marked `(added)`.
+  The first row is the uncommitted changes when any of the lines has uncommitted changes, staged
+  or not, saved or not.
+- **Status line**: what's followed and the count, then the keys:
+  `src/main.rs:12-14 · 7 commits · s filter, v extend, w/b section, enter diff, o commit`. While
+  it searches it says how far it is: `searching… 1,240 commits` (the commits looked at). Several
+  ranges read `src/main.rs:3,12-14`.
+- **Preview**: the hunks of the commit that touched the lines, each under its place and counts
+  (`src/main.rs:12-14 · +3 -1`) with a few lines of context, as the lists of changes preview
+  hunks.
+- **No picker**, but a message, for a buffer without a file, a file outside a git repository, or
+  one git doesn't track (or that has no commit yet). When none of the lines is committed (they were
+  all added since HEAD), the status line says `these lines aren't committed yet` and the only row
+  is the uncommitted changes.
+
+### From the buffer to HEAD
+
+The lines are those of the buffer, which may differ from HEAD. They are mapped to their place in
+HEAD through the buffer's diff against HEAD, the one the gutter shows, the same way they are
+mapped from a commit to its parent (below). A line edited since HEAD is followed into the line it
+replaced; lines only in the buffer have no history and are left out (the uncommitted changes row
+still shows them).
+
+### Following the lines back
+
+From HEAD, each commit's diff of the file against its parent maps the lines to the parent, as
+`git log -L` does:
+
+- a line the diff doesn't touch keeps its place, shifted by the lines added and removed above it;
+- a range that starts or ends inside a hunk starts or ends with the hunk's old lines, so lines a
+  commit rewrote (edited, split, joined) are followed into the lines they replaced;
+- lines a commit added (a hunk without old lines) stop there: that commit is where they come from,
+  marked `(added)` when a whole range ends there;
+- a commit is listed when its diff touches the lines: replaces or adds some of them, or removes
+  lines between two of them (not lines right above or below them);
+- ranges that meet are merged, as git merges them.
+
+The walk ends when every line has reached the commit that added it, without looking at the older
+history. **Renames** are followed: when a commit's parent doesn't have the file, the parent's
+version is found by rename detection (the one of the lists of changes, 50% similarity), and the
+lines are followed under the old path from then on. A commit whose rename didn't change the lines
+isn't listed.
+
+**Merges** follow the rule of `git log -L` without `--first-parent`, which simplifies the history
+of the lines as `git log <path>` simplifies a file's: when the lines are the same in one of the
+parents (the first such parent, in order), the merge isn't listed and only that parent is followed;
+when every parent's diff touches them, the merge is listed and each parent is followed with the
+lines mapped to it. A listed merge is previewed and diffed against its first parent, like the commit
+log does.
+
+### Performance
+
+`git log -L` walks the whole history before printing anything, so line history has its own walk
+with gix, which lists commits as it finds them:
+
+- **The picker opens at once**, with the uncommitted changes when they're there, and fills as
+  commits are found, newest first. The walk runs on a thread of its own; the status line shows
+  its progress.
+- **A commit costs a lookup of the file in its tree**: when the file is the same blob as in the
+  parent, the lines pass on without reading anything. Only the commits that changed the file are
+  read and diffed.
+- **It stops at the origin**, once every line reached the commit that added it.
+- **Closing the picker stops it**: the walk checks after each commit whether its picker is still
+  open, so nothing goes on in the background after it closes (with `q`, `Esc`, or opening a file
+  from a diff on top of it).
+- Commits are taken by section (unpushed, pushed, base branch), then newest first, so that a commit
+  comes after its children and the lines a commit gets from all its children are known when it's
+  looked at. Finding the commits of the first sections takes a walk of the branch's own commits,
+  as in the commit log; the base branch's section needs none.
+- Everything is in memory and goes when the picker closes: no cache, no file written.
+
+### Limitations
+
+- The lines followed are a snapshot of the buffer when the picker opens: edits after that don't
+  change the list.
+- A commit dated before one of its children (clock skew) can be looked at before that child's
+  lines reach it; those lines are then not followed further.
+- When two sides of a merge renamed the file differently, the lines are followed under the path
+  of the first side that reaches the common ancestor.
+- In a shallow clone, the oldest commit is marked `(added)`: its parent isn't in the repository.
+- A listed merge's preview and diff are against its first parent, which may not show the change
+  that came from another side (the preview then says so).
+- Resuming the picker (`space '`) after closing it shows what was found until then: the search
+  isn't resumed.
+- `Enter` in the diff opens the file at its path in that commit; if the file was renamed since,
+  it opens the old path, which no longer exists.
 
 ## Uncommitted changes, live
 

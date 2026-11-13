@@ -229,6 +229,11 @@ impl<T, D> Injector<T, D> {
         inject_nucleo_item(&self.dst, &self.columns, item, &self.editor_data);
         Ok(())
     }
+    /// Whether the picker was closed (or its items replaced): what is pushed is dropped. A
+    /// background job that finds items rarely checks it to stop early.
+    pub fn is_shut_down(&self) -> bool {
+        self.version != self.picker_version.load(atomic::Ordering::Relaxed)
+    }
 }
 
 type ColumnFormatFn<T, D> = for<'a> fn(&'a T, &'a D) -> Cell<'a>;

@@ -15,9 +15,9 @@ use crate::LogEntry;
 
 /// Commits reachable from HEAD but not from any of the `hide` tips, with the label of their
 /// divider.
-struct Section {
-    label: String,
-    hide: Vec<ObjectId>,
+pub(super) struct Section {
+    pub(super) label: String,
+    pub(super) hide: Vec<ObjectId>,
 }
 
 /// The id of the commit `name` points to, if there is such a reference.
@@ -106,7 +106,7 @@ fn upstream(repo: &Repository, name: &FullName) -> Option<(String, String)> {
 }
 
 /// The sections of the log of HEAD, in the order they are listed.
-fn sections(repo: &Repository) -> Result<(ObjectId, Vec<Section>)> {
+pub(super) fn sections(repo: &Repository) -> Result<(ObjectId, Vec<Section>)> {
     let head_id = repo.head_id()?.detach();
     let head_name = repo.head_name()?;
     let current = head_name.as_ref().map(|name| name.as_bstr().to_string());

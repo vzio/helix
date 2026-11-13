@@ -7,7 +7,10 @@ use std::time::Duration;
 
 use vortex_vcs::DiffProviderRegistry;
 
-use tui::{buffer::Buffer as Surface, text::Span};
+use tui::{
+    buffer::Buffer as Surface,
+    text::{Span, Spans},
+};
 use vortex_core::{movement::Direction, Position};
 use vortex_event::status;
 use vortex_vcs::{CommitInfo, LogEntry};
@@ -17,6 +20,7 @@ use vortex_view::{
     Editor,
 };
 
+use super::line_history::{LineHistory, LineRow};
 use super::{changes, diff_view, uncommitted};
 use crate::compositor::{self, Component, Compositor, Event, EventResult};
 use crate::job::{self, Callback};
@@ -52,40 +56,8 @@ pub(crate) fn commit_picker(editor: &mut Editor) -> Option<CommitLog> {
         return None;
     }
 
-    let columns = [
-        PickerColumn::new("commit", |row: &LogRow, style: &CommitStyle| {
-            row.text(|commit| Span::styled(commit.short_id.clone(), style.id).into())
-        }),
-        PickerColumn::new("date", |row: &LogRow, style: &CommitStyle| {
-            row.text(|commit| Span::styled(commit.date.clone(), style.date).into())
-        }),
-        PickerColumn::new("author", |row: &LogRow, style: &CommitStyle| {
-            row.text(|commit| Span::styled(commit.author.clone(), style.author).into())
-        }),
-        PickerColumn::new("summary", |row: &LogRow, style: &CommitStyle| {
-            match &row.kind {
-                RowKind::Uncommitted => {
-                    Span::styled(style.uncommitted.label(), style.uncommitted_style).into()
-                }
-                _ => row.text(|commit| commit.summary.as_str().into()),
-            }
-        }),
-    ];
     let uncommitted = Arc::new(UncommittedCount::default());
-    let style = CommitStyle {
-        // the hash is there to be found and copied, not read: subtle
-        id: editor
-            .theme
-            .try_get_exact("ui.text.inactive")
-            .unwrap_or_else(|| editor.theme.get("comment")),
-        date: editor.theme.get("comment"),
-        author: editor.theme.get("variable"),
-        uncommitted_style: editor.theme.get("diff.delta"),
-        uncommitted: uncommitted.clone(),
-    };
-
     let watch = RepoWatch::start(editor, &cwd);
-    let marked = Rc::new(Cell::new(None));
     let requests = Requests::default();
     let open = {
         let cwd = cwd.clone();
@@ -103,34 +75,22 @@ pub(crate) fn commit_picker(editor: &mut Editor) -> Option<CommitLog> {
             RowKind::Divider(_) => {}
         }
     };
-    let first_rows = [LogRow {
-        pos: 0,
-        kind: RowKind::Uncommitted,
-    }];
-    let picker = Picker::new(columns, 3, first_rows, style, {
-        let open = open.clone();
-        move |cx, row, _action| open(cx, row)
-    })
-    .with_stacked_key_handler(key!(Enter), open)
-    .with_preferred(is_hash_query, LogRow::hash_starts_with)
-    .with_modes()
-    .with_dividers(|row, _| match &row.kind {
-        RowKind::Divider(title) => Some(title.as_str().into()),
-        _ => None,
-    })
-    .with_marked_rows({
-        let marked = marked.clone();
-        move |row| {
-            marked
-                .get()
-                .is_some_and(|(newest, oldest): (usize, usize)| {
-                    (newest..=oldest).contains(&row.pos)
-                })
-        }
-    });
-    let injector = picker.injector();
-
     let trust_full = trust_full(editor, &cwd);
+    let source = Source {
+        cwd: cwd.clone(),
+        providers: editor.diff_providers.clone(),
+        trust_full,
+    };
+    let mut log = CommitLog::new(
+        editor,
+        source,
+        uncommitted,
+        requests,
+        open,
+        vec![LogRow::uncommitted(None)],
+        None,
+    );
+    let injector = log.picker.injector();
     // the uncommitted changes are the first row
     let pos = AtomicUsize::new(1);
     editor
@@ -147,24 +107,8 @@ pub(crate) fn commit_picker(editor: &mut Editor) -> Option<CommitLog> {
             }
         });
     editor.set_status(HINT);
-    let work_dir = uncommitted::work_dir(editor, &cwd, trust_full);
-    let log = CommitLog {
-        picker,
-        source: Source {
-            cwd,
-            providers: editor.diff_providers.clone(),
-            trust_full,
-        },
-        marked,
-        selection: Selection::default(),
-        announced: false,
-        live: watch.map(Live::new),
-        refresh: Pending::new(),
-        uncommitted,
-        work_dir,
-        head: None,
-        requests,
-    };
+    log.work_dir = uncommitted::work_dir(editor, &cwd, trust_full);
+    log.live = watch.map(Live::new);
     // the number of uncommitted files, and the HEAD the log is read from
     let source = log.source.clone();
     log.refresh.run(move || source.read(None));
@@ -213,10 +157,10 @@ impl UncommittedCount {
 
 /// What the commit log reads off the main thread.
 #[derive(Clone)]
-struct Source {
-    cwd: PathBuf,
-    providers: DiffProviderRegistry,
-    trust_full: bool,
+pub(crate) struct Source {
+    pub(crate) cwd: PathBuf,
+    pub(crate) providers: DiffProviderRegistry,
+    pub(crate) trust_full: bool,
 }
 
 /// What the commit log learns when the working tree changes.
@@ -264,9 +208,12 @@ pub(crate) struct LogRow {
     /// The position among the rows, dividers included; the uncommitted changes are at 0.
     pos: usize,
     kind: RowKind,
+    /// In the line history: the lines followed, in the commit or in the buffer for the
+    /// uncommitted changes.
+    line: Option<Arc<LineRow>>,
 }
 
-enum RowKind {
+pub(crate) enum RowKind {
     /// The changes of the working tree since HEAD: always the first row.
     Uncommitted,
     /// The label of the section that follows.
@@ -280,7 +227,46 @@ impl LogRow {
             LogEntry::Divider(title) => RowKind::Divider(title),
             LogEntry::Commit(commit) => RowKind::Commit(commit),
         };
-        Self { pos, kind }
+        Self {
+            pos,
+            kind,
+            line: None,
+        }
+    }
+
+    /// The uncommitted changes, the first row.
+    pub(crate) fn uncommitted(line: Option<LineRow>) -> Self {
+        Self {
+            pos: 0,
+            kind: RowKind::Uncommitted,
+            line: line.map(Arc::new),
+        }
+    }
+
+    /// The divider of a section of the line history.
+    pub(crate) fn divider(pos: usize, label: String) -> Self {
+        Self {
+            pos,
+            kind: RowKind::Divider(label),
+            line: None,
+        }
+    }
+
+    /// A commit of the line history.
+    pub(crate) fn line_commit(pos: usize, commit: CommitInfo, line: LineRow) -> Self {
+        Self {
+            pos,
+            kind: RowKind::Commit(commit),
+            line: Some(Arc::new(line)),
+        }
+    }
+
+    pub(crate) fn kind(&self) -> &RowKind {
+        &self.kind
+    }
+
+    pub(crate) fn line(&self) -> Option<&LineRow> {
+        self.line.as_deref()
     }
 
     /// Whether the row is a commit whose id starts with `prefix` (a hash query, see
@@ -316,11 +302,11 @@ pub(crate) struct CommitRange {
     pub(crate) oldest: CommitInfo,
     pub(crate) newest: CommitInfo,
     /// The number of commits in the log between them, both included.
-    count: usize,
+    pub(crate) count: usize,
 }
 
 impl CommitRange {
-    fn single(commit: &CommitInfo) -> Self {
+    pub(crate) fn single(commit: &CommitInfo) -> Self {
         Self {
             oldest: commit.clone(),
             newest: commit.clone(),
@@ -329,7 +315,7 @@ impl CommitRange {
     }
 
     /// `a1b2c3d..d4e5f6a (5 commits)`, or `a1b2c3d` for one commit.
-    fn label(&self) -> String {
+    pub(crate) fn label(&self) -> String {
         match self.count {
             1 => self.newest.short_id.clone(),
             count => format!(
@@ -378,9 +364,127 @@ pub(crate) struct CommitLog {
     head: Option<Option<String>>,
     /// The lists of changes asked for: only the latest opens.
     requests: Requests,
+    /// The line history (`Space L`): what it follows and its search.
+    lines: Option<LineHistory>,
 }
 
 impl CommitLog {
+    /// A commit log with `first_rows`, where `open` is what Enter does on a row (on a range of
+    /// commits, see [`Self::open_range`]). With `lines`, the line history: it has a preview, and
+    /// its uncommitted changes are those of the lines.
+    pub(crate) fn new(
+        editor: &Editor,
+        source: Source,
+        uncommitted: Arc<UncommittedCount>,
+        requests: Requests,
+        open: impl Fn(&mut compositor::Context, &LogRow) + Clone + 'static,
+        first_rows: Vec<LogRow>,
+        lines: Option<LineHistory>,
+    ) -> Self {
+        let columns = [
+            PickerColumn::new("commit", |row: &LogRow, style: &CommitStyle| {
+                row.text(|commit| Span::styled(commit.short_id.clone(), style.id).into())
+            }),
+            PickerColumn::new("date", |row: &LogRow, style: &CommitStyle| {
+                row.text(|commit| Span::styled(commit.date.clone(), style.date).into())
+            }),
+            PickerColumn::new("author", |row: &LogRow, style: &CommitStyle| {
+                row.text(|commit| Span::styled(commit.author.clone(), style.author).into())
+            }),
+            PickerColumn::new("summary", |row: &LogRow, style: &CommitStyle| {
+                match &row.kind {
+                    RowKind::Uncommitted => {
+                        let label = match &style.uncommitted_label {
+                            Some(label) => label.clone(),
+                            None => style.uncommitted.label(),
+                        };
+                        Span::styled(label, style.uncommitted_style).into()
+                    }
+                    _ => row.text(|commit| match row.line() {
+                        // where the lines come from
+                        Some(line) if line.added => Spans::from(vec![
+                            Span::raw(commit.summary.as_str()),
+                            Span::styled(" (added)", style.added),
+                        ])
+                        .into(),
+                        _ => commit.summary.as_str().into(),
+                    }),
+                }
+            }),
+        ];
+        let style = CommitStyle {
+            // the hash is there to be found and copied, not read: subtle
+            id: editor
+                .theme
+                .try_get_exact("ui.text.inactive")
+                .unwrap_or_else(|| editor.theme.get("comment")),
+            date: editor.theme.get("comment"),
+            author: editor.theme.get("variable"),
+            uncommitted_style: editor.theme.get("diff.delta"),
+            uncommitted: uncommitted.clone(),
+            uncommitted_label: lines.as_ref().map(|_| "Uncommitted changes".to_string()),
+            added: editor.theme.get("diff.plus"),
+            preview: changes::PreviewStyles::new(editor),
+        };
+        let uncommitted_count = uncommitted;
+        let marked = Rc::new(Cell::new(None));
+        let picker = Picker::new(columns, 3, first_rows, style, {
+            let open = open.clone();
+            move |cx, row, _action| open(cx, row)
+        })
+        .with_stacked_key_handler(key!(Enter), open)
+        .with_preferred(is_hash_query, LogRow::hash_starts_with)
+        .with_modes()
+        .with_dividers(|row, _| match &row.kind {
+            RowKind::Divider(title) => Some(title.as_str().into()),
+            _ => None,
+        })
+        .with_marked_rows({
+            let marked = marked.clone();
+            move |row| {
+                marked
+                    .get()
+                    .is_some_and(|(newest, oldest): (usize, usize)| {
+                        (newest..=oldest).contains(&row.pos)
+                    })
+            }
+        });
+        let picker = if lines.is_some() {
+            picker.with_drawn_preview(super::line_history::draw_preview)
+        } else {
+            picker
+        };
+        let work_dir = source.cwd.clone();
+        CommitLog {
+            picker,
+            source,
+            marked,
+            selection: Selection::default(),
+            announced: false,
+            live: None,
+            refresh: Pending::new(),
+            uncommitted: uncommitted_count,
+            work_dir,
+            head: None,
+            requests,
+            lines,
+        }
+    }
+
+    pub(crate) fn injector(&self) -> crate::ui::picker::Injector<LogRow, CommitStyle> {
+        self.picker.injector()
+    }
+
+    /// The rows of the newest and the oldest commits of the selection, if it has commits.
+    fn range_rows(&self) -> Option<(&LogRow, &LogRow)> {
+        let (first, last) = self.selection.range?;
+        let mut commits = (first..=last)
+            .filter_map(|pos| self.picker.item(pos as u32))
+            .filter(|row| row.commit().is_some());
+        let newest = commits.next()?;
+        Some((newest, commits.next_back().unwrap_or(newest)))
+    }
+
     fn commit_at(&self, pos: usize) -> Option<&CommitInfo> {
         self.picker.item(pos as u32)?.commit()
     }
@@ -564,11 +668,7 @@ impl CommitLog {
             .picker
             .selection()
             .map(|row| row.commit().map(|commit| commit.id.clone()));
-        let rows = std::iter::once(LogRow {
-            pos: 0,
-            kind: RowKind::Uncommitted,
-        })
-        .chain(
+        let rows = std::iter::once(LogRow::uncommitted(None)).chain(
             log.into_iter()
                 .enumerate()
                 .map(|(i, entry)| LogRow::new(i + 1, entry)),
@@ -602,10 +702,48 @@ impl CommitLog {
             self.select(cursor, cursor);
         }
     }
+
+    /// Enter on a range of commits: the list of their combined change, or in the line history,
+    /// the diff of the file over the range at the lines.
+    fn open_range(&self, cx: &mut compositor::Context) {
+        let Some(range) = self.range() else {
+            return;
+        };
+        if self.lines.is_none() {
+            return open_commit_files(cx, self.source.cwd.clone(), range, &self.requests);
+        }
+        if let Some((newest, oldest)) = self.range_rows() {
+            if let (Some(newest_line), Some(oldest_line)) = (newest.line(), oldest.line()) {
+                let cwd = self.source.cwd.clone();
+                super::line_history::open_diff(cx, cwd, range, oldest_line, newest_line);
+            }
+        }
+    }
+
+    /// `o` in the line history: the list of all the changes of the commit under the cursor, or
+    /// of the range, or the uncommitted changes, as Enter in the commit log.
+    fn open_whole(&self, cx: &mut compositor::Context) {
+        let cwd = self.source.cwd.clone();
+        if let Some(range) = self.range() {
+            return open_commit_files(cx, cwd, range, &self.requests);
+        }
+        if self
+            .picker
+            .selection()
+            .is_some_and(|row| matches!(row.kind, RowKind::Uncommitted))
+        {
+            self.requests.start();
+            let watch = RepoWatch::start(cx.editor, &cwd);
+            uncommitted::open(cx, cwd, watch);
+        }
+    }
 }
 
 impl Component for CommitLog {
     fn render(&mut self, area: Rect, surface: &mut Surface, cx: &mut compositor::Context) {
+        if let Some(lines) = &mut self.lines {
+            lines.show_status(cx.editor);
+        }
         self.refresh();
         self.uncommitted
             .set_unsaved(uncommitted::modified_buffers(cx.editor, &self.work_dir).count());
@@ -630,9 +768,12 @@ impl Component for CommitLog {
             alt!('s') => self.select_section(),
             key!(Esc) if normal && (self.is_range() || self.selection.extend) => self.collapse(),
             key!(Enter) if self.is_range() => {
-                if let Some(range) = self.range() {
-                    open_commit_files(cx, self.source.cwd.clone(), range, &self.requests);
-                }
+                self.open_range(cx);
+                return EventResult::Consumed(None);
+            }
+            // the whole commit, in the line history
+            key!('o') if normal && self.lines.is_some() => {
+                self.open_whole(cx);
                 return EventResult::Consumed(None);
             }
             _ => {
@@ -665,6 +806,11 @@ pub(crate) struct CommitStyle {
     author: vortex_view::graphics::Style,
     uncommitted_style: vortex_view::graphics::Style,
     uncommitted: Arc<UncommittedCount>,
+    /// The label of the uncommitted changes, when it isn't their count (the line history).
+    uncommitted_label: Option<String>,
+    /// `(added)` in the line history.
+    added: vortex_view::graphics::Style,
+    pub(crate) preview: changes::PreviewStyles,
 }
 
 /// How long the changes of commits may take to read before the status line says they are
@@ -718,7 +864,7 @@ impl Request {
 /// Pushes the list of the changes of the commits of `range` on top of the commit picker. The
 /// changes are read in the background, while the log stays usable: the list appears when they
 /// are read, unless another list was asked for or the log was closed meanwhile.
-fn open_commit_files(
+pub(crate) fn open_commit_files(
     cx: &mut compositor::Context,
     cwd: PathBuf,
     range: CommitRange,
