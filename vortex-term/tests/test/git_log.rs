@@ -231,8 +231,8 @@ const DIVIDER: vortex_view::graphics::Color = vortex_view::graphics::Color::Rgb(
 /// Drives an application with keys and waits for the results of background tasks.
 pub(super) struct Session {
     pub(super) app: Application,
-    tx: tokio::sync::mpsc::UnboundedSender<std::io::Result<Event>>,
-    input: UnboundedReceiverStream<std::io::Result<Event>>,
+    pub(super) tx: tokio::sync::mpsc::UnboundedSender<std::io::Result<Event>>,
+    pub(super) input: UnboundedReceiverStream<std::io::Result<Event>>,
 }
 
 impl Session {

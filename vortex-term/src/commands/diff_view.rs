@@ -276,14 +276,15 @@ fn buffer_view(editor: &Editor, doc: DocumentId) -> DiffView {
 }
 
 /// The diff of `change` in the commits from `oldest` to `newest` (the same commit for one): from
-/// the first parent of `oldest` to `newest`. Opening the file from it closes the commit pickers
-/// below it. It may have no changes.
+/// the first parent of `oldest` to `newest`. Opening the file from it closes the `pickers`
+/// pickers below it. It may have no changes.
 fn commit_view(
     editor: &Editor,
     cwd: &Path,
     oldest: &CommitInfo,
     newest: &CommitInfo,
     change: &FileChange,
+    pickers: usize,
 ) -> anyhow::Result<DiffView> {
     let trust_full = editor
         .workspace_trust
@@ -329,10 +330,11 @@ fn commit_view(
         tab_width,
     )
     .with_soft_wrap(soft_wrap(editor, &path))
-    // the commit's files picker and the commit picker below it
-    .with_on_open(|compositor| {
-        compositor.remove(picker::ID);
-        compositor.remove(picker::ID);
+    // the commit's files picker and the commit picker below it, or the line history
+    .with_on_open(move |compositor| {
+        for _ in 0..pickers {
+            compositor.remove(picker::ID);
+        }
     }))
 }
 
@@ -351,7 +353,7 @@ pub(crate) fn open_commit(
     files: ListFiles,
     select: SelectFile,
 ) -> anyhow::Result<()> {
-    let mut view = commit_view(editor, cwd, oldest, newest, change)?;
+    let mut view = commit_view(editor, cwd, oldest, newest, change, 2)?;
     if !view.has_changes() {
         editor.set_status(format!("No changes in {}", relative(change.path())));
         return Ok(());
@@ -360,7 +362,7 @@ pub(crate) fn open_commit(
     let nav = FileNav {
         files,
         current: change.clone(),
-        open: Rc::new(move |editor, change| commit_view(editor, &cwd, &oldest, &newest, change)),
+        open: Rc::new(move |editor, change| commit_view(editor, &cwd, &oldest, &newest, change, 2)),
         select,
         closed: None,
     };
@@ -371,6 +373,52 @@ pub(crate) fn open_commit(
     crate::history::opened_screen(editor);
     compositor.push(Box::new(view.with_nav(nav)));
     Ok(())
+}
+
+/// Opens the diff of `change` in the commits from `oldest` to `newest` on top of the line
+/// history, at the first hunk that touches `lines` of its right side. `n`/`N` go through the
+/// hunks of this file only.
+pub(crate) fn open_lines_in_commits(
+    editor: &mut Editor,
+    compositor: &mut Compositor,
+    cwd: &Path,
+    (oldest, newest): (&CommitInfo, &CommitInfo),
+    change: &FileChange,
+    lines: &[std::ops::Range<u32>],
+) -> anyhow::Result<()> {
+    let mut view = commit_view(editor, cwd, oldest, newest, change, 1)?;
+    if !view.has_changes() {
+        editor.set_status(format!("No changes in {}", relative(change.path())));
+        return Ok(());
+    }
+    view.go_to_lines(lines);
+    // a screen opens: a jump (this fork: history)
+    crate::history::opened_screen(editor);
+    compositor.push(Box::new(view));
+    Ok(())
+}
+
+/// Opens the diff of the uncommitted changes of `path` on top of the line history, at the first
+/// hunk that touches `lines` of the buffer.
+pub(crate) fn open_lines_uncommitted(
+    editor: &mut Editor,
+    compositor: &mut Compositor,
+    path: &Path,
+    lines: &[std::ops::Range<u32>],
+) {
+    let change = FileChange::Modified {
+        path: path.to_path_buf(),
+    };
+    let mut view = match head_view(editor, &change) {
+        Ok(view) if view.has_changes() => view.with_on_open(|compositor| {
+            compositor.remove(picker::ID);
+        }),
+        Ok(_) => return editor.set_status(format!("No changes in {}", relative(path))),
+        Err(err) => return editor.set_error(err.to_string()),
+    };
+    view.go_to_lines(lines);
+    crate::history::opened_screen(editor);
+    compositor.push(Box::new(view));
 }
 
 /// Whether lines of `path` wrap in the editor: the setting of its buffer when it is open, else

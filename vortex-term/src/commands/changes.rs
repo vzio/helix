@@ -235,14 +235,14 @@ pub(crate) fn text(bytes: Option<&[u8]>) -> Result<Option<&str>, ()> {
 }
 
 /// The lines of `text` without their line endings.
-fn lines(text: &str) -> Vec<&str> {
+pub(crate) fn lines(text: &str) -> Vec<&str> {
     text.split_inclusive('\n')
         .map(|line| line.trim_end_matches('\n').trim_end_matches('\r'))
         .collect()
 }
 
-/// The preview of `hunk` of the diff from `before` to `after`.
-fn preview(before: &[&str], after: &[&str], hunk: &LineHunk) -> HunkPreview {
+/// The preview of `hunk` of the diff from `before` to `after` (their [`lines`]).
+pub(crate) fn preview(before: &[&str], after: &[&str], hunk: &LineHunk) -> HunkPreview {
     let (start, end) = (hunk.after.start as usize, hunk.after.end as usize);
     let mut lines = Vec::new();
     let mut push = |kind, text: &[&str]| {
@@ -416,7 +416,7 @@ fn plural(n: usize, one: &str, many: &str) -> String {
 }
 
 /// `+24 -7`, without the zero counts: empty when both are.
-fn line_counts_text(added: u32, removed: u32) -> String {
+pub(crate) fn line_counts_text(added: u32, removed: u32) -> String {
     let mut counts = Vec::new();
     if added > 0 {
         counts.push(format!("+{added}"));
@@ -545,12 +545,7 @@ impl RowData {
     pub(crate) fn location(&self, row: &ChangeRow) -> String {
         let path = self.relative(row.change.path());
         match &row.what {
-            What::Hunk(hunk) => match hunk.lines.len() {
-                // the place of removed lines: the line before them
-                0 => format!("{path}:{}", hunk.lines.start.max(1)),
-                1 => format!("{path}:{}", hunk.lines.start + 1),
-                _ => format!("{path}:{}-{}", hunk.lines.start + 1, hunk.lines.end),
-            },
+            What::Hunk(hunk) => place(&path, &hunk.lines),
             What::File(_) => path,
         }
     }
@@ -622,6 +617,67 @@ impl RowData {
     }
 }
 
+/// `src/main.rs:10-12`: where the lines of a hunk (from 0) are in `path`; for removed lines,
+/// the line before them.
+pub(crate) fn place(path: &str, lines: &Range<u32>) -> String {
+    match lines.len() {
+        0 => format!("{path}:{}", lines.start.max(1)),
+        1 => format!("{path}:{}", lines.start + 1),
+        _ => format!("{path}:{}-{}", lines.start + 1, lines.end),
+    }
+}
+
+/// The styles of a preview of hunks.
+pub(crate) struct PreviewStyles {
+    pub(crate) text: Style,
+    pub(crate) added: Style,
+    pub(crate) removed: Style,
+    pub(crate) quiet: Style,
+}
+
+impl PreviewStyles {
+    pub(crate) fn new(editor: &Editor) -> Self {
+        let data = RowData::new(editor, PathBuf::new());
+        Self {
+            text: editor.theme.get("ui.text"),
+            added: data.added,
+            removed: data.removed,
+            quiet: data.quiet,
+        }
+    }
+}
+
+/// Draws `title`, an empty line and the lines of `preview` (when there is one) from line `*y`
+/// of `area` down, moving `*y` past them.
+pub(crate) fn draw_hunk(
+    surface: &mut Surface,
+    area: Rect,
+    y: &mut u16,
+    title: &str,
+    preview: Option<&HunkPreview>,
+    styles: &PreviewStyles,
+) {
+    let width = area.width as usize;
+    let mut line = |surface: &mut Surface, text: &str, style: Style| {
+        if *y < area.bottom() {
+            surface.set_stringn(area.x, *y, text, width, style);
+            *y += 1;
+        }
+    };
+    let text = styles.text;
+    line(surface, title, text);
+    line(surface, "", text);
+    for (kind, content) in preview.iter().flat_map(|preview| &preview.lines) {
+        let (prefix, style) = match kind {
+            PreviewLine::Context => (' ', text),
+            PreviewLine::Removed => ('-', text.patch(styles.removed)),
+            PreviewLine::Added => ('+', text.patch(styles.added)),
+        };
+        let content = content.replace('\t', "    ");
+        line(surface, &format!("{prefix} {content}"), style);
+    }
+}
+
 /// Draws the preview of `row`: where it is, then its hunk with a few lines of context. A
 /// divider shows the first hunk of its file.
 pub(crate) fn draw_preview(
@@ -631,15 +687,13 @@ pub(crate) fn draw_preview(
     area: Rect,
     surface: &mut Surface,
 ) {
-    let text = editor.theme.get("ui.text");
-    let width = area.width as usize;
-    let mut y = area.y;
-    let mut line = |surface: &mut Surface, text: &str, style: Style| {
-        if y < area.bottom() {
-            surface.set_stringn(area.x, y, text, width, style);
-            y += 1;
-        }
+    let styles = PreviewStyles {
+        text: editor.theme.get("ui.text"),
+        added: data.added,
+        removed: data.removed,
+        quiet: data.quiet,
     };
+    let mut y = area.y;
     let (title, preview) = match &row.what {
         What::Hunk(hunk) => {
             let mut title = data.location(row);
@@ -657,18 +711,15 @@ pub(crate) fn draw_preview(
             summary.first.as_ref().map(|(_, preview)| preview),
         ),
     };
-    line(surface, &title, text);
-    line(surface, "", text);
-    if let Some(preview) = preview {
-        for (kind, content) in &preview.lines {
-            let (prefix, style) = match kind {
-                PreviewLine::Context => (' ', text),
-                PreviewLine::Removed => ('-', text.patch(data.removed)),
-                PreviewLine::Added => ('+', text.patch(data.added)),
-            };
-            let content = content.replace('\t', "    ");
-            line(surface, &format!("{prefix} {content}"), style);
-        }
+    draw_hunk(
+        surface,
+        area,
+        &mut y,
+        &title,
+        preview.map(Arc::as_ref),
+        &styles,
+    );
+    if preview.is_some() {
         return;
     }
     let What::File(summary) = &row.what else {
@@ -679,7 +730,9 @@ pub(crate) fn draw_preview(
         Body::Binary => "A binary file.",
         Body::Unchanged | Body::Hunks => "No lines changed.",
     };
-    line(surface, note, data.quiet);
+    if y < area.bottom() {
+        surface.set_stringn(area.x, y, note, area.width as usize, data.quiet);
+    }
 }
 
 /// Puts the cursor of `picker` on the hunk of `path` at `line`, or else on the first change of

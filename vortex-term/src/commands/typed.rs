@@ -2811,6 +2811,26 @@ fn git_log(cx: &mut compositor::Context, _args: Args, event: PromptEvent) -> any
     Ok(())
 }
 
+/// `:line-history` (this fork): the commits that changed the selected lines, as `Space L`.
+fn line_history(
+    cx: &mut compositor::Context,
+    _args: Args,
+    event: PromptEvent,
+) -> anyhow::Result<()> {
+    if event != PromptEvent::Validate {
+        return Ok(());
+    }
+    cx.jobs.callback(async move {
+        let call = move |editor: &mut Editor, compositor: &mut Compositor| {
+            if let Some(picker) = super::line_history::open(editor) {
+                compositor.push(Box::new(overlaid(picker)));
+            }
+        };
+        Ok(Callback::EditorCompositor(Box::new(call)))
+    });
+    Ok(())
+}
+
 /// `:worktrees` (this fork): the picker of the repository's worktrees.
 fn worktrees(cx: &mut compositor::Context, _args: Args, event: PromptEvent) -> anyhow::Result<()> {
     if event != PromptEvent::Validate {
@@ -4320,6 +4340,17 @@ pub const TYPABLE_COMMAND_LIST: &[TypableCommand] = &[
         fun: shell_popup,
         completer: SHELL_COMPLETER,
         signature: SHELL_SIGNATURE,
+    },
+    TypableCommand {
+        name: "line-history",
+        aliases: &[],
+        doc: "Open the commits that changed the selected lines (the cursor's line in normal mode), like `git log -L`. Enter shows the diff at the lines, `o` the whole commit.",
+        fun: line_history,
+        completer: CommandCompleter::none(),
+        signature: Signature {
+            positionals: (0, Some(0)),
+            ..Signature::DEFAULT
+        },
     },
     TypableCommand {
         name: "git-log",
