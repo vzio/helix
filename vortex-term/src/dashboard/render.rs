@@ -39,7 +39,7 @@ pub struct Model<'a> {
     pub hints: &'a Hints,
     /// Whether the title and its credit line are shown (`dashboard-title`).
     pub title: bool,
-    /// Only the vortex, none of the blocks (`:vortex`).
+    /// Only the vortex and the logo, none of the other blocks (`:vortex`).
     pub vortex_only: bool,
     /// The glitches of the title and of the background, kept from frame to frame; `None`
     /// draws none, whatever the theme says (the tests' frames are functions of the time).
@@ -628,11 +628,69 @@ pub fn render(model: &Model, theme: &Theme, area: Rect, surface: &mut Surface, n
     // the places of the vortex's cells, only for a glitch over them
     let mut drawn = background_glitch.as_ref().map(|_| Vec::new());
     if model.vortex_only {
-        if let Some(spin) = model.timeline.spin(model.stats, now) {
-            vortex::draw(surface, area, spin, &[], &look, drawn.as_mut());
+        // the vortex and the logo (unless `dashboard-title = false`) on its panel, centered: the
+        // largest title that fits with its margin, no credit line, no stats, no actions
+        let logo = model
+            .title
+            .then(|| {
+                [
+                    title::large(effects.dashboard_logo),
+                    title::MEDIUM,
+                    title::SMALL,
+                ]
+                .into_iter()
+                .find(|logo| {
+                    logo.width() + MARGIN_X * 2 <= area.width
+                        && logo.height() + MARGIN_Y * 2 <= area.height
+                })
+            })
+            .flatten();
+        let cells = logo
+            .map(|logo| {
+                logo.cells_in(
+                    model.timeline.title(model.stats, now),
+                    effects.dashboard_charset,
+                )
+            })
+            .unwrap_or_default();
+        let (title_x, title_y) = logo
+            .map(|logo| {
+                let y = area.y + area.height.saturating_sub(logo.height()) / 2;
+                (center(area, logo.width()), y)
+            })
+            .unwrap_or_default();
+        // the panel follows the title as it opens, like the dashboard's
+        let panel = logo.map(|logo| {
+            let left = cells.iter().map(|cell| cell.x).min().unwrap_or(0);
+            let right = cells.iter().map(|cell| cell.x + 1).max().unwrap_or(0);
+            let part = Rect::new(
+                title_x + left,
+                title_y,
+                right.saturating_sub(left),
+                logo.height(),
+            );
+            margin(part, area)
+        });
+        let spin = model.timeline.spin(model.stats, now);
+        if let Some(spin) = spin {
+            let holes: Vec<Rect> = panel.into_iter().collect();
+            vortex::draw(surface, area, spin, &holes, &look, drawn.as_mut());
+            if let Some(panel) = panel.filter(|_| vortex::fits(area)) {
+                surface.clear_with(panel, s.panel);
+            }
         }
-        if let (Some(glitch), Some(drawn)) = (background_glitch, &drawn) {
-            glitch.draw(now, surface, drawn);
+        if let Some(glitch) = background_glitch {
+            glitch.draw(now, surface, drawn.as_deref().unwrap_or(&[]));
+        }
+        if !cells.is_empty() {
+            let mut canvas = Canvas { area, surface };
+            draw_title(&mut canvas, &cells, title_x, title_y, s);
+            let logo_glitch = glitches
+                .as_mut()
+                .and_then(|glitches| glitches.logo.at(effects.glitch_logo));
+            if let Some(glitch) = logo_glitch {
+                glitch_title(canvas.surface, glitch, &cells, title_x, title_y, area, now);
+            }
         }
         return;
     }
@@ -1493,6 +1551,53 @@ pub(crate) mod tests {
                 now,
                 false,
             )),
+        );
+    }
+
+    /// `:vortex`: the vortex and the logo on its panel, nothing else.
+    fn vortex_only(title: bool, width: u16, height: u16) -> String {
+        let born = Instant::now();
+        let stats = loaded(born + Duration::from_millis(300));
+        let theme = vortex_view::theme::Loader::new(&[]).default();
+        let area = Rect::new(0, 0, width, height);
+        let mut buffer = Surface::empty(area);
+        let hints = hints();
+        let model = Model {
+            stats: &stats,
+            timeline: timeline(born, DashboardBackground::Static),
+            dir: Path::new("/src/vortex"),
+            hints: &hints,
+            title,
+            vortex_only: true,
+            glitches: None,
+        };
+        render(&model, &theme, area, &mut buffer, settled(born));
+        text(&buffer)
+    }
+
+    #[test]
+    fn the_vortex_alone_keeps_the_logo_unless_the_title_is_off() {
+        let titled = vortex_only(true, 160, 50);
+        assert!(titled.contains("██▀▀▄▄"), "{titled}");
+        // the logo on its panel, centered, with no credit line, stats or actions
+        let row = titled
+            .lines()
+            .position(|line| line.contains("██▀▀▄▄"))
+            .unwrap();
+        assert!((20..=25).contains(&row), "row {row}");
+        let line = titled.lines().nth(row).unwrap();
+        let left = line.find("▀█      █▀").unwrap();
+        assert!(line[..left].ends_with("  "), "no panel margin: {line}");
+        for gone in [title::CREDIT, "PROJECT", "Start typing"] {
+            assert!(!titled.contains(gone), "{gone}");
+        }
+        let untitled = vortex_only(false, 160, 50);
+        assert!(!untitled.contains('▀'), "{untitled}");
+        // a narrow window takes a smaller title
+        let narrow = vortex_only(true, 60, 20);
+        assert!(
+            !narrow.contains("██▀▀▄▄") && narrow.contains("┏━┓"),
+            "{narrow}"
         );
     }
 

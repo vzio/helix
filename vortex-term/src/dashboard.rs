@@ -107,8 +107,9 @@ impl Dashboard {
         }
     }
 
-    /// `:vortex`: only the vortex, as `dashboard-background` moves it (`off` shows it still),
-    /// over the focused view like the dashboard, and gone the same way.
+    /// `:vortex`: only the vortex and the logo (unless `dashboard-title = false`), as
+    /// `dashboard-background` moves it (`off` shows it still), over the focused view like the
+    /// dashboard, and gone the same way.
     pub fn open_vortex(editor: &mut Editor, keymaps: &Keymaps) -> Self {
         let mut dashboard = Self::open(editor, keymaps);
         dashboard.vortex_only = true;

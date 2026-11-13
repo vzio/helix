@@ -2263,7 +2263,7 @@ the dashboard.
 | `t` | The [worktrees](#worktrees) (`:wt`), when the repository has other worktrees |
 | `q` | Quit (`:q`) |
 | `:dashboard` | Show the dashboard again, over a new empty buffer (or over the current one when it is an empty scratch buffer), its animations from the start |
-| `:vortex` | Only the vortex, without the title and the blocks, moving as `dashboard-background` says (`off` shows it still); it goes like the dashboard. Handy for a screenshot |
+| `:vortex` | Only the vortex and the logo on its panel, centered (no credit line, no stats, no actions; no logo with `dashboard-title = false`), moving as `dashboard-background` says (`off` shows it still); it goes like the dashboard. Handy for a screenshot |
 
 Every other key goes to the keymap as in any buffer: `:`, the `space` menu and its infobox,
 `Ctrl-w`... A key that edits the buffer or leaves normal mode (`o`, `v`, a paste) drops into the
