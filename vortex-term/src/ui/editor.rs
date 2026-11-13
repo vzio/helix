@@ -53,6 +53,8 @@ pub struct EditorView {
     /// the theme's `[effects]`), and the cells of that ghost text in the frame being drawn.
     diagnostic_glitch: crate::ui::glitch::Slot,
     diagnostic_cells: std::cell::RefCell<Vec<(u16, u16)>>,
+    /// The mode bar as last drawn (this fork), for clicks on its badges.
+    modebar: Option<crate::ui::modebar::Drawn>,
 }
 
 #[derive(Debug, Clone)]
@@ -86,7 +88,56 @@ impl EditorView {
             dashboard: None,
             diagnostic_glitch: Default::default(),
             diagnostic_cells: Default::default(),
+            modebar: None,
         }
+    }
+
+    /// Runs the command of the mode bar's badge under a click (this fork).
+    fn click_modebar(
+        &mut self,
+        event: &MouseEvent,
+        cx: &mut commands::Context,
+    ) -> Option<EventResult> {
+        if !matches!(event.kind, MouseEventKind::Down(MouseButton::Left)) {
+            return None;
+        }
+        let drawn = self.modebar.as_ref()?;
+        let area = drawn.area;
+        let inside = (area.left()..area.right()).contains(&event.column)
+            && (area.top()..area.bottom()).contains(&event.row);
+        if !inside {
+            return None;
+        }
+        if let Some(command) = drawn.command_at(event.column, event.row).cloned() {
+            command.execute(cx);
+        }
+        Some(EventResult::Consumed(None))
+    }
+
+    /// The key of the layer of the fork's mode that is on (watch mode), run before the keymap:
+    /// `None` when it isn't one of the layer's.
+    fn layer_key(&mut self, key: KeyEvent, cx: &mut commands::Context) -> Option<()> {
+        if !cx.editor.watch.is_active()
+            || !self.keymaps.pending().is_empty()
+            || self.keymaps.sticky().is_some()
+            || !self.pseudo_pending.is_empty()
+            || self.on_next_key.is_some()
+            || cx.editor.count.is_some()
+            || cx.editor.mode() == Mode::Insert
+            || cx.editor.debug.is_focused()
+        {
+            return None;
+        }
+        match self.keymaps.layer_get(crate::keymap::Layer::Watch, key)? {
+            crate::keymap::KeyTrie::MappableCommand(command) => command.execute(cx),
+            crate::keymap::KeyTrie::Sequence(commands) => {
+                for command in commands {
+                    command.execute(cx);
+                }
+            }
+            crate::keymap::KeyTrie::Node(_) => return None,
+        }
+        Some(())
     }
 
     /// The glitch over the ghost text of error diagnostics just drawn (this fork): over the
@@ -255,8 +306,14 @@ impl EditorView {
             if let Some(tabstops) = Self::tabstop_highlights(doc, theme) {
                 overlays.push(tabstops);
             }
+            // looking around in watch mode (this fork), your cursor is drawn as in select mode
+            let mode = if crate::watch::looking(editor) {
+                Mode::Select
+            } else {
+                editor.mode()
+            };
             overlays.push(Self::doc_selection_highlights(
-                editor.mode(),
+                mode,
                 doc,
                 view,
                 theme,
@@ -1347,6 +1404,10 @@ impl EditorView {
             self.handle_non_key_input(cxt)
         }
 
+        if let Some(result) = self.click_modebar(event, cxt) {
+            return result;
+        }
+
         if let Some(result) = commands::hex::handle_mouse(cxt.editor, event) {
             return result;
         }
@@ -1654,6 +1715,9 @@ impl Component for EditorView {
                     return result;
                 }
 
+                // the keys of watch mode (this fork) come first while it is on
+                let layer_handled = self.layer_key(key, &mut cx).is_some();
+
                 let mode = cx.editor.mode();
 
                 // a hex view (this fork) overwriting or selecting takes Esc to stop that
@@ -1668,6 +1732,7 @@ impl Component for EditorView {
                 // Esc in normal mode, with nothing pending, hides the terminal panel (popups,
                 // which are above, take it first)
                 if key == key!(Esc)
+                    && !layer_handled
                     && !hex_uses_esc
                     && mode == Mode::Normal
                     && (cx.editor.terminal.is_visible() || cx.editor.debug.visible)
@@ -1686,7 +1751,8 @@ impl Component for EditorView {
 
                 // the debug panel (this fork), while focused, takes its keys first; Space and
                 // what follows go to the keymap
-                if cx.editor.debug.is_focused()
+                if !layer_handled
+                    && cx.editor.debug.is_focused()
                     && self.keymaps.pending().is_empty()
                     && self.keymaps.sticky().is_none()
                     && self.pseudo_pending.is_empty()
@@ -1708,7 +1774,8 @@ impl Component for EditorView {
                 }
 
                 // the dashboard (this fork) takes its own keys first
-                if self.keymaps.pending().is_empty()
+                if !layer_handled
+                    && self.keymaps.pending().is_empty()
                     && self.pseudo_pending.is_empty()
                     && self.on_next_key.is_none()
                     && cx.editor.count.is_none()
@@ -1739,11 +1806,12 @@ impl Component for EditorView {
 
                 // a document in the hex view (this fork) takes its keys first
                 // (not while a sticky menu is open: `space G` stays usable over a memory view)
-                let hex_handled = self.keymaps.pending().is_empty()
-                    && self.keymaps.sticky().is_none()
-                    && self.pseudo_pending.is_empty()
-                    && self.on_next_key.is_none()
-                    && commands::hex::handle_key(&mut cx, key, &mut self.hex_keys);
+                let hex_handled = layer_handled
+                    || self.keymaps.pending().is_empty()
+                        && self.keymaps.sticky().is_none()
+                        && self.pseudo_pending.is_empty()
+                        && self.on_next_key.is_none()
+                        && commands::hex::handle_key(&mut cx, key, &mut self.hex_keys);
 
                 if !hex_handled && !self.on_next_key(OnKeyCallbackKind::PseudoPending, &mut cx, key)
                 {
@@ -1889,6 +1957,20 @@ impl Component for EditorView {
             editor_area = editor_area.clip_top(1);
         }
 
+        // the mode bar (this fork) above the message line, below everything else
+        let modebar = crate::ui::modebar::current(cx.editor, &self.keymaps);
+        let modebar_area = modebar.as_ref().map(|bar| {
+            let height = bar.height().min(editor_area.height.saturating_sub(1));
+            let area = Rect::new(
+                editor_area.x,
+                editor_area.bottom().saturating_sub(height),
+                editor_area.width,
+                height,
+            );
+            editor_area = editor_area.clip_bottom(height);
+            area
+        });
+
         // the debug panel or the terminal panel goes below all the splits
         let (editor_area, debug_area) = crate::debug::split_area(cx.editor, editor_area);
         let (editor_area, panel_area) = if debug_area.is_some() {
@@ -1938,6 +2020,16 @@ impl Component for EditorView {
         }
 
         crate::practice::render(cx.editor, editor_area, surface);
+
+        self.modebar = match (&modebar, modebar_area) {
+            (Some(bar), Some(area)) => Some(crate::ui::modebar::render(
+                bar,
+                &cx.editor.theme,
+                area,
+                surface,
+            )),
+            _ => None,
+        };
 
         if config.auto_info {
             if let Some(mut info) = cx.editor.autoinfo.take() {
@@ -2041,7 +2133,12 @@ impl Component for EditorView {
         {
             return (None, CursorKind::Hidden);
         }
-        match editor.cursor() {
+        let mut cursor = editor.cursor();
+        // looking around in watch mode (this fork): the cursor of select mode
+        if crate::watch::looking(editor) && cursor.0.is_some() {
+            cursor.1 = editor.config().cursor_shape.from_mode(Mode::Select);
+        }
+        match cursor {
             // all block cursors are drawn manually
             (pos, CursorKind::Block) => {
                 if self.terminal_focused {

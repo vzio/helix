@@ -200,7 +200,7 @@ pub struct Session {
     pub id: u64,
     /// Watch mode is on: the working tree is watched.
     pub active: bool,
-    /// Changes are followed: opened, jumped to and flashed. Moving pauses it.
+    /// Changes are followed: opened, jumped to and flashed. Otherwise you are looking around.
     pub following: bool,
     pub baseline: Arc<Baseline>,
     files: HashMap<PathBuf, SessionFile>,
@@ -213,6 +213,9 @@ pub struct Session {
     /// session's hunks.
     pub search_owns_n: bool,
     pub flash: Option<Flash>,
+    /// The latest activity, for the mode bar: what was just followed, a skipped buffer, a
+    /// lockfile, a key that waits for watch mode to end.
+    pub activity: Option<String>,
     /// The watcher; dropping it stops watching.
     pub watcher: Option<Box<dyn Any>>,
 }
@@ -240,8 +243,27 @@ impl Session {
             at: None,
             search_owns_n: false,
             flash: None,
+            activity: None,
             watcher: None,
         }
+    }
+
+    /// The number of files changed during the session.
+    pub fn file_count(&self) -> usize {
+        self.files.len()
+    }
+
+    /// Where the hunk followed or gone to last is among the hunks `n`/`N` go through: its
+    /// number (from 1) and their count. The number is `None` before any.
+    pub fn position(&self) -> (Option<usize>, usize) {
+        let hunks = self.hunks_in_order();
+        let at = self.at.as_ref().and_then(|(path, seq)| {
+            hunks
+                .iter()
+                .position(|hunk| hunk.seq == *seq && &hunk.path == path)
+                .map(|i| i + 1)
+        });
+        (at, hunks.len())
     }
 
     /// The files changed during the session.

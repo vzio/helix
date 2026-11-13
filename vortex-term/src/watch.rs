@@ -5,11 +5,16 @@
 //!   `vortex_view::watch`), the working tree is watched with the shared [`RepoWatch`] machinery
 //!   (gitignore-aware, debounced, the open buffers reloaded with the stale-buffer rule) and every
 //!   batch of changed files is diffed against the baseline on the watcher's thread.
+//! - Watch mode is a mode: while it is on, its keys (`[keys.watch]`: `v`, `n`, `N`, `c`, `Esc`)
+//!   come first and its state, change and activity are on the [mode bar](crate::ui::modebar).
 //! - While following, a change opens its file (or switches to it), jumps to its first new hunk,
-//!   centers it and flashes it. Moving pauses following: new changes are only counted. `n` to
-//!   the newest change follows again.
-//! - Any other action ends watch mode; the session's changes stay (gutter markers, `n`/`N`,
-//!   `:watch-changes`) until the next watch or `:watch-clear`.
+//!   centers it and flashes it; other keys don't move anything. `v` looks around: your own
+//!   cursor, drawn as in select mode, moves and searches freely while new changes are only
+//!   counted; `v` again (or `n` up to the newest change) follows again.
+//! - Keys that would edit or open something else wait: the bar says that `Esc` leaves watch mode
+//!   first. A typed command other than the watch commands and `:goto` leaves it. The session's
+//!   changes stay (gutter markers, `n`/`N`, `:watch-changes`) until the next watch or
+//!   `:watch-clear`.
 
 use std::collections::hash_map::DefaultHasher;
 use std::collections::HashMap;
@@ -35,8 +40,9 @@ use vortex_view::{
 use crate::commands::changes::{self, ChangeRow, What};
 use crate::compositor::{Compositor, Context};
 use crate::job::Callback;
+use crate::keymap::ReverseKeymap;
 use crate::live::RepoWatch;
-use crate::ui::{overlay::overlaid, picker};
+use crate::ui::{modebar, overlay::overlaid, picker};
 
 /// How long the hunk following jumped to stays highlighted, fading out.
 const FLASH: Duration = Duration::from_millis(900);
@@ -62,8 +68,8 @@ fn display(path: &Path) -> String {
 
 /// `:watch`: starts watch mode, or ends it when it is on.
 pub fn toggle(editor: &mut Editor) -> anyhow::Result<()> {
-    if editor.watch.is_active() {
-        end(editor);
+    if let Some(count) = end(editor) {
+        editor.set_status(ended_message(count));
         Ok(())
     } else {
         start(editor)
@@ -127,29 +133,37 @@ pub fn start(editor: &mut Editor) -> anyhow::Result<()> {
     };
     let mut session = Session::new(id, baseline);
     session.watcher = Some(Box::new(watcher));
+    session.activity = Some(match changes.len() {
+        0 => format!("watching {}", display(&work_dir)),
+        dirty => format!(
+            "watching {} · {dirty} file{} already uncommitted, not counted",
+            display(&work_dir),
+            plural(dirty)
+        ),
+    });
     editor.watch.session = Some(session);
-    editor.set_status(format!(
-        "Watching {}: following changes ({} already uncommitted, not counted)",
-        display(&work_dir),
-        changes.len()
-    ));
     Ok(())
 }
 
-/// Ends watch mode: the working tree is no longer watched. The changes stay.
-pub fn end(editor: &mut Editor) {
-    let Some(session) = editor.watch.active() else {
-        return;
-    };
+fn plural(count: usize) -> &'static str {
+    if count == 1 {
+        ""
+    } else {
+        "s"
+    }
+}
+
+/// Ends watch mode: the working tree is no longer watched. The changes stay. Returns the number
+/// of changes of the session, `None` when watch mode wasn't on.
+pub fn end(editor: &mut Editor) -> Option<usize> {
+    let session = editor.watch.active()?;
     session.end();
-    let message = match session.change_count() {
-        0 => "Watch ended: no changes".to_string(),
-        count => format!(
-            "Watch ended: n/N go through its {count} change{}, :watch-clear forgets them",
-            if count == 1 { "" } else { "s" }
-        ),
-    };
-    editor.set_status(message);
+    Some(session.change_count())
+}
+
+/// The result of `:watch-stop` (and `:watch` ending it) for the status line: short.
+pub fn ended_message(count: usize) -> String {
+    format!("Watch ended: {count} change{}", plural(count))
 }
 
 /// Forgets the session: its markers, and `n`/`N` search again.
@@ -266,25 +280,74 @@ fn apply(editor: &mut Editor, id: u64, updates: Vec<FileUpdate>) {
             }
         }
     }
+    // the files that changed but aren't followed into, for the bar
+    let session = editor.watch.session.as_mut().unwrap();
+    let quiet = applied.changed.iter().rev().find_map(|path| {
+        let file = session.file(path)?;
+        let note = match file.quiet {
+            Quiet::Lockfile => "lockfile, not followed",
+            Quiet::Binary => "binary, not followed",
+            Quiet::No if file.kind == FileKind::Deleted => "deleted",
+            Quiet::No => return None,
+        };
+        Some(format!("{} {note}", relative(&baseline, path)))
+    });
     if !following {
+        if let Some(note) = quiet {
+            session.activity = Some(note);
+        }
         return;
     }
     // the newest file, but a buffer with unsaved edits of its own is never overwritten: its file
     // is skipped (the statusline warns that it changed on disk)
-    let target = applied.to_follow.into_iter().rev().find(|target| {
-        !editor
+    let unsaved = |editor: &Editor, target: &Target| {
+        editor
             .document_by_path(&target.path)
             .is_some_and(|doc| doc.is_modified())
-    });
+    };
+    let skipped = applied
+        .to_follow
+        .iter()
+        .rev()
+        .find(|target| unsaved(editor, target))
+        .map(|target| target.path.clone());
+    let target = applied
+        .to_follow
+        .into_iter()
+        .rev()
+        .find(|target| !unsaved(editor, target));
+    let mut activity = quiet;
     if let Some(target) = target {
         go_to(editor, &target, Action::Replace);
+        activity = Some(format!(
+            "followed {}:{}",
+            relative(&baseline, &target.path),
+            target.lines.start + 1
+        ));
         if let Some(session) = editor.watch.session.as_mut() {
             session.followed(&target);
         }
     }
+    if let Some(path) = skipped {
+        activity = Some(format!(
+            "skipped {}: unsaved edits",
+            relative(&baseline, &path)
+        ));
+    }
     if let Some(session) = editor.watch.session.as_mut() {
         session.see_all();
+        if activity.is_some() {
+            session.activity = activity;
+        }
     }
+}
+
+/// A path of the session, relative to its working tree.
+fn relative(baseline: &Baseline, path: &Path) -> String {
+    path.strip_prefix(baseline.work_dir())
+        .unwrap_or(path)
+        .display()
+        .to_string()
 }
 
 /// Opens the file of `target` (or switches to the split that shows it), puts the cursor on the
@@ -360,7 +423,8 @@ pub(crate) fn jump(editor: &mut Editor, forward: bool) -> bool {
     });
     let Some((target, wrapped)) = session.step(cursor, forward) else {
         if session.active {
-            editor.set_status("No changes yet this session");
+            editor.watch.session.as_mut().unwrap().activity =
+                Some("no changes yet this session".into());
             return true;
         }
         return false;
@@ -369,34 +433,85 @@ pub(crate) fn jump(editor: &mut Editor, forward: bool) -> bool {
     let Some(session) = editor.watch.session.as_mut() else {
         return true;
     };
+    // the notes are the bar's: once watch mode ended, the jump shows itself
     if session.went_to(&target) {
-        editor.set_status("Following changes again");
+        session.activity = Some("at the newest change: following again".into());
     } else {
         match wrapped {
-            Wrapped::ToFirst => editor.set_status("Wrapped around to the first change"),
-            Wrapped::ToLast => editor.set_status("Wrapped around to the last change"),
+            Wrapped::ToFirst => {
+                session.activity = Some("wrapped around to the first change".into())
+            }
+            Wrapped::ToLast => session.activity = Some("wrapped around to the last change".into()),
             Wrapped::No => {}
         }
     }
     true
 }
 
-/// What a command does to watch mode.
+/// `v` in watch mode: look around (your own cursor, following stops), or follow again, from the
+/// newest change.
+pub(crate) fn look(editor: &mut Editor) {
+    let Some(session) = editor.watch.active() else {
+        editor.set_error("watch mode is off");
+        return;
+    };
+    if !session.following {
+        session.following = true;
+        let newest = session.hunks_in_order().pop();
+        session.activity = Some("following again".into());
+        if let Some(target) = newest {
+            go_to(editor, &target, Action::Replace);
+            if let Some(session) = editor.watch.session.as_mut() {
+                session.followed(&target);
+            }
+        }
+    } else {
+        session.pause();
+        session.activity = None;
+    }
+}
+
+/// Whether you are looking around in watch mode: the cursor is drawn as in select mode.
+pub(crate) fn looking(editor: &Editor) -> bool {
+    editor
+        .watch
+        .session
+        .as_ref()
+        .is_some_and(|session| session.active && !session.following)
+}
+
+/// `Esc` in watch mode: leaves it, to edit where you are. Nothing is printed: the bar going away
+/// says it.
+pub(crate) fn leave(editor: &mut Editor) {
+    if end(editor).is_none() {
+        editor.set_error("watch mode is off");
+    }
+}
+
+/// What a command is to watch mode.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Effect {
-    /// Nothing: `Esc`, the command line, `n`/`N` (see [`jump`]), focusing the terminal panel.
+    /// Runs either way: the watch commands, the command line, the palette, focusing the
+    /// terminal panel, a bookmark.
     None,
-    /// Moving (and selecting, scrolling, copying): following pauses.
+    /// Moving (and selecting, scrolling, copying): runs while you look around, not while
+    /// following.
     Move,
-    /// Searching: following pauses; once watch mode ended, `n`/`N` repeat the search.
+    /// Searching: as moving; once watch mode ended, `n`/`N` repeat the search.
     Search,
-    /// Anything else (editing, opening a file yourself, a picker...) ends watch mode.
+    /// Anything else (editing, opening a file yourself, a picker...): waits for watch mode to
+    /// end (`Esc`).
     End,
 }
 
 /// The static commands that change nothing.
 const NONE: &[&str] = &[
     "no_op",
+    "watch_look",
+    "watch_next_change",
+    "watch_prev_change",
+    "watch_changes",
+    "watch_leave",
     "normal_mode",
     "command_mode",
     "command_palette",
@@ -525,49 +640,72 @@ fn effect(name: &str) -> Effect {
     }
 }
 
-fn take_effect(editor: &mut Editor, effect: Effect) {
+/// The note on the bar for a key that waits for watch mode to end.
+pub const LEAVE_TO_EDIT: &str = "Esc leaves watch mode, then edit";
+/// The note on the bar for a movement while following.
+pub const LOOK_TO_MOVE: &str = "following: v looks around to move";
+
+/// Decides whether a command runs in watch mode, and what it does to it. `false` when it waits
+/// for watch mode to end (the bar says so).
+fn take_effect(editor: &mut Editor, effect: Effect) -> bool {
     let Some(session) = editor.watch.session.as_mut() else {
-        return;
+        return true;
     };
+    if !session.active {
+        if effect == Effect::Search {
+            session.search_owns_n = true;
+        }
+        return true;
+    }
     match effect {
-        Effect::None => {}
-        Effect::Move if session.active => session.pause(),
-        Effect::Search if session.active => session.pause(),
-        Effect::Search => session.search_owns_n = true,
-        Effect::End if session.active => end(editor),
-        Effect::Move | Effect::End => {}
+        Effect::None => true,
+        Effect::Move | Effect::Search if !session.following => true,
+        Effect::Move | Effect::Search => {
+            session.activity = Some(LOOK_TO_MOVE.into());
+            false
+        }
+        Effect::End => {
+            session.activity = Some(LEAVE_TO_EDIT.into());
+            false
+        }
     }
 }
 
-/// Called before a static command runs.
-pub(crate) fn before_command(editor: &mut Editor, name: &str) {
-    if editor.watch.session.is_some() {
-        take_effect(editor, effect(name));
-    }
-}
-
-/// Called before a typed command (`:...`) runs.
-pub(crate) fn before_typed(editor: &mut Editor, name: &str) {
+/// Called before a static command runs: `false` when it must not run (watch mode holds it).
+pub(crate) fn before_command(editor: &mut Editor, name: &str) -> bool {
     if editor.watch.session.is_none() {
-        return;
+        return true;
     }
-    let effect = match name {
-        "watch" | "watch-stop" | "watch-clear" | "watch-changes" => Effect::None,
-        "goto" => Effect::Move,
-        _ => Effect::End,
-    };
-    take_effect(editor, effect);
+    take_effect(editor, effect(name))
 }
 
-/// The mouse moved the cursor or scrolled: following pauses.
+/// Called before a typed command (`:...`) runs. A typed command is meant: `:goto` looks around,
+/// the watch commands keep watch mode, any other leaves it.
+pub(crate) fn before_typed(editor: &mut Editor, name: &str) {
+    let Some(session) = editor.watch.active() else {
+        return;
+    };
+    match name {
+        "watch" | "watch-stop" | "watch-clear" | "watch-changes" => {}
+        "goto" => session.pause(),
+        _ => {
+            end(editor);
+        }
+    }
+}
+
+/// The mouse moved the cursor or scrolled: you are looking around.
 pub(crate) fn moved(editor: &mut Editor) {
     if let Some(session) = editor.watch.active() {
-        session.pause();
+        if session.following {
+            session.pause();
+            session.activity = None;
+        }
     }
 }
 
-/// The statusline element: `WATCH following`, `WATCH 3 new`, `WATCH paused`; nothing outside
-/// watch mode.
+/// The statusline element (not in the default statusline: the mode bar shows watch mode): a
+/// small `●` while following, `◌` while looking around; nothing outside watch mode.
 pub(crate) fn statusline(editor: &Editor) -> Option<Span<'static>> {
     let session = editor.watch.session.as_ref().filter(|s| s.active)?;
     let theme = &editor.theme;
@@ -583,18 +721,64 @@ pub(crate) fn statusline(editor: &Editor) -> Option<Span<'static>> {
             })
     };
     let span = if session.following {
-        Span::styled(
-            " WATCH following ",
-            style("ui.statusline.watch.following", Color::Green),
-        )
+        Span::styled(" ● ", style("ui.statusline.watch.following", Color::Green))
     } else {
-        let text = match session.new_count() {
-            0 => " WATCH paused ".to_string(),
-            new => format!(" WATCH {new} new "),
-        };
-        Span::styled(text, style("ui.statusline.watch.paused", Color::Yellow))
+        Span::styled(" ◌ ", style("ui.statusline.watch.paused", Color::Yellow))
     };
     Some(span)
+}
+
+/// The rows watch mode takes on the mode bar.
+pub const BAR_ROWS: u16 = 2;
+
+/// Watch mode's mode bar: its state, the current change and the latest activity, then its keys.
+pub(crate) fn bar(editor: &Editor, keys: &ReverseKeymap) -> Option<modebar::Bar> {
+    use modebar::{Row, Segment};
+    let session = editor.watch.session.as_ref().filter(|s| s.active)?;
+    let state = if session.following {
+        Segment::state("WATCH ● following").scope("ui.modebar.state.following")
+    } else {
+        Segment::state("WATCH ◌ looking").scope("ui.modebar.state.looking")
+    };
+    let (at, hunks) = session.position();
+    let files = session.file_count();
+    let mut middle = Vec::new();
+    if let Some((path, _)) = session.at.as_ref() {
+        middle.push(relative(&session.baseline, path));
+    }
+    middle.push(match (at, hunks) {
+        (_, 0) => "no changes yet".to_string(),
+        (Some(at), hunks) => format!("{at}/{hunks} change{}", plural(hunks)),
+        (None, hunks) => format!("{hunks} change{}", plural(hunks)),
+    });
+    if files > 0 {
+        middle.push(format!("{files} file{}", plural(files)));
+    }
+    let new = session.new_count();
+    if !session.following && new > 0 {
+        middle.push(format!("{new} new"));
+    }
+    let activity = session.activity.clone().unwrap_or_default();
+    let look = if session.following { "look" } else { "follow" };
+    Some(modebar::Bar {
+        rows: vec![
+            Row {
+                left: vec![state],
+                middle: vec![Segment::info(middle.join(" · "))],
+                right: vec![Segment::info(activity)],
+            },
+            Row {
+                left: vec![
+                    Segment::key("watch_look", look, keys),
+                    Segment::key("watch_next_change", "next", keys),
+                    Segment::key("watch_prev_change", "previous", keys),
+                    Segment::key("watch_changes", "changes", keys),
+                    Segment::key("watch_leave", "leave", keys),
+                ],
+                ..Row::default()
+            },
+        ],
+    })
 }
 
 /// The style of the flash on line `line` of `doc`, fading out; `None` when it isn't flashing.
@@ -681,7 +865,7 @@ fn session_rows(editor: &Editor, session: &Session) -> Vec<ChangeRow> {
 /// file, the newest first. Enter goes to the change.
 pub fn open_changes(editor: &mut Editor, compositor: &mut Compositor) {
     let Some(session) = editor.watch.session.as_mut() else {
-        editor.set_status("No watch session: :watch starts one");
+        editor.set_error("no watch session");
         return;
     };
     if session.active {

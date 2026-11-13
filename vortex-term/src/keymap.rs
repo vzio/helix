@@ -2,7 +2,7 @@ pub mod default;
 pub mod macros;
 
 pub use crate::commands::MappableCommand;
-pub use default::default;
+pub use default::{default, layers};
 
 use arc_swap::{
     access::{DynAccess, DynGuard},
@@ -266,8 +266,29 @@ pub enum KeymapResult {
 /// A map of command names to keybinds that will execute the command.
 pub type ReverseKeymap = HashMap<String, Vec<Vec<KeyEvent>>>;
 
+/// A layer of keys over the editor's modes, used while a mode of this fork is on (watch mode;
+/// debug mode next): its keys are looked up first, one key each (no menus). Configured in
+/// `[keys.watch]`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum Layer {
+    Watch,
+}
+
+impl Layer {
+    pub const ALL: [Layer; 1] = [Layer::Watch];
+
+    /// The name of its table under `[keys]`.
+    pub fn name(self) -> &'static str {
+        match self {
+            Layer::Watch => "watch",
+        }
+    }
+}
+
 pub struct Keymaps {
     pub map: Box<dyn DynAccess<HashMap<Mode, KeyTrie>>>,
+    /// The layers (this fork): keys of the fork's modes, looked up before the editor's mode.
+    layers: Box<dyn DynAccess<HashMap<Layer, KeyTrie>>>,
     /// Stores pending keys waiting for the next key. This is relative to a
     /// sticky node if one is in use.
     state: Vec<KeyEvent>,
@@ -279,9 +300,40 @@ impl Keymaps {
     pub fn new(map: Box<dyn DynAccess<HashMap<Mode, KeyTrie>>>) -> Self {
         Self {
             map,
+            layers: Box::new(arc_swap::access::Constant(layers())),
             state: Vec::new(),
             sticky: None,
         }
+    }
+
+    /// The keymaps with the layers of a configuration.
+    pub fn with_layers(mut self, layers: Box<dyn DynAccess<HashMap<Layer, KeyTrie>>>) -> Self {
+        self.layers = layers;
+        self
+    }
+
+    /// Replaces the layers (for tests).
+    pub fn set_layers(&mut self, layers: HashMap<Layer, KeyTrie>) {
+        self.layers = Box::new(arc_swap::access::Constant(layers));
+    }
+
+    /// The command (or commands) of `key` in `layer`, if it has one. A layer's keys are single
+    /// keys: a menu in it is ignored.
+    pub fn layer_get(&self, layer: Layer, key: KeyEvent) -> Option<KeyTrie> {
+        let layers = self.layers.load();
+        match layers.get(&layer)?.search(&[key])? {
+            KeyTrie::Node(_) => None,
+            trie => Some(trie.clone()),
+        }
+    }
+
+    /// The keys of each command of `layer`, for its badges.
+    pub fn layer_reverse_map(&self, layer: Layer) -> ReverseKeymap {
+        self.layers
+            .load()
+            .get(&layer)
+            .map(KeyTrie::reverse_map)
+            .unwrap_or_default()
     }
 
     pub fn map(&self) -> DynGuard<HashMap<Mode, KeyTrie>> {
@@ -375,6 +427,15 @@ pub fn merge_keys(dst: &mut HashMap<Mode, KeyTrie>, mut delta: HashMap<Mode, Key
                 .remove(mode)
                 .unwrap_or_else(|| KeyTrie::Node(KeyTrieNode::default())),
         )
+    }
+}
+
+/// Merges a configuration's layers (`[keys.watch]`) into the default ones.
+pub fn merge_layers(dst: &mut HashMap<Layer, KeyTrie>, mut delta: HashMap<Layer, KeyTrie>) {
+    for (layer, keys) in dst {
+        if let Some(delta) = delta.remove(layer) {
+            keys.merge_nodes(delta);
+        }
     }
 }
 

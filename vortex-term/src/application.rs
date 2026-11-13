@@ -122,7 +122,10 @@ impl Application {
         let keys = Box::new(Map::new(Arc::clone(&config), |config: &Config| {
             &config.keys
         }));
-        let editor_view = Box::new(ui::EditorView::new(Keymaps::new(keys)));
+        let layers = Box::new(Map::new(Arc::clone(&config), |config: &Config| {
+            &config.layers
+        }));
+        let editor_view = Box::new(ui::EditorView::new(Keymaps::new(keys).with_layers(layers)));
         compositor.push(editor_view);
 
         let jobs = Jobs::new();

@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use super::macros::keymap;
-use super::{KeyTrie, Mode};
+use super::{KeyTrie, Layer, Mode};
 use vortex_core::hashmap;
 
 pub fn default() -> HashMap<Mode, KeyTrie> {
@@ -443,5 +443,19 @@ pub fn default() -> HashMap<Mode, KeyTrie> {
         Mode::Normal => normal,
         Mode::Select => select,
         Mode::Insert => insert,
+    )
+}
+
+/// The keys of the fork's modes (see [`Layer`]): one key per command, shown on the mode bar.
+pub fn layers() -> HashMap<Layer, KeyTrie> {
+    let watch = keymap!({ "Watch mode"
+        "v" => watch_look,
+        "n" => watch_next_change,
+        "N" => watch_prev_change,
+        "c" => watch_changes,
+        "esc" => watch_leave,
+    });
+    hashmap!(
+        Layer::Watch => watch,
     )
 }

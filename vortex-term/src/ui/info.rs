@@ -17,7 +17,10 @@ impl Component for Info {
         let height = self.height + 2; // +2 for border
         let area = viewport.intersection(Rect::new(
             viewport.width.saturating_sub(width),
-            viewport.height.saturating_sub(height + 2), // +2 for statusline
+            // +2 for statusline, and the mode bar's rows (this fork)
+            viewport
+                .height
+                .saturating_sub(height + 2 + crate::ui::modebar::height(cx.editor)),
             width,
             height,
         ));

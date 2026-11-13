@@ -830,7 +830,6 @@ impl Default for StatusLineConfig {
         Self {
             left: vec![
                 E::Mode,
-                E::Watch,
                 E::Spinner,
                 E::FileName,
                 E::ReadOnlyIndicator,
@@ -878,7 +877,8 @@ pub enum StatusLineElement {
     /// The editor mode (Normal, Insert, Visual/Selection)
     Mode,
 
-    /// Watch mode (fork feature): `WATCH following`, `WATCH 3 new`, `WATCH paused`
+    /// Watch mode (fork feature): a small `●` while following, `◌` while looking around. Not in
+    /// the default statusline: the mode bar shows watch mode
     Watch,
 
     /// The LSP activity spinner

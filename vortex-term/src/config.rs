@@ -1,5 +1,5 @@
 use crate::keymap;
-use crate::keymap::{merge_keys, KeyTrie};
+use crate::keymap::{merge_keys, merge_layers, KeyTrie, Layer};
 use serde::Deserialize;
 use std::collections::HashMap;
 use std::fmt::Display;
@@ -13,14 +13,34 @@ use vortex_view::{document::Mode, theme};
 pub struct Config {
     pub theme: Option<theme::Config>,
     pub keys: HashMap<Mode, KeyTrie>,
+    /// The keys of the fork's modes (`[keys.watch]`).
+    pub layers: HashMap<Layer, KeyTrie>,
     pub editor: vortex_view::editor::Config,
+}
+
+/// `[keys]`: a table per editor mode, and the fork's layers.
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+pub struct RawKeys {
+    watch: Option<KeyTrie>,
+    #[serde(flatten)]
+    modes: HashMap<Mode, KeyTrie>,
+}
+
+impl RawKeys {
+    /// Merges these keys into `keys` and `layers`.
+    fn merge_into(self, keys: &mut HashMap<Mode, KeyTrie>, layers: &mut HashMap<Layer, KeyTrie>) {
+        merge_keys(keys, self.modes);
+        if let Some(watch) = self.watch {
+            merge_layers(layers, HashMap::from([(Layer::Watch, watch)]));
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ConfigRaw {
     pub theme: Option<theme::Config>,
-    pub keys: Option<HashMap<Mode, KeyTrie>>,
+    pub keys: Option<RawKeys>,
     pub editor: Option<toml::Value>,
 }
 
@@ -29,6 +49,7 @@ impl Default for Config {
         Config {
             theme: None,
             keys: keymap::default(),
+            layers: keymap::layers(),
             editor: vortex_view::editor::Config::default(),
         }
     }
@@ -67,11 +88,12 @@ impl Config {
         let res = match (global_config, local_config) {
             (Ok(global), Ok(local)) => {
                 let mut keys = keymap::default();
+                let mut layers = keymap::layers();
                 if let Some(global_keys) = global.keys {
-                    merge_keys(&mut keys, global_keys)
+                    global_keys.merge_into(&mut keys, &mut layers);
                 }
                 if let Some(local_keys) = local.keys {
-                    merge_keys(&mut keys, local_keys)
+                    local_keys.merge_into(&mut keys, &mut layers);
                 }
 
                 let editor = match (global.editor, local.editor) {
@@ -87,6 +109,7 @@ impl Config {
                 Config {
                     theme: local.theme.or(global.theme),
                     keys,
+                    layers,
                     editor,
                 }
             }
@@ -97,12 +120,14 @@ impl Config {
             }
             (Ok(config), Err(_)) | (Err(_), Ok(config)) => {
                 let mut keys = keymap::default();
+                let mut layers = keymap::layers();
                 if let Some(keymap) = config.keys {
-                    merge_keys(&mut keys, keymap);
+                    keymap.merge_into(&mut keys, &mut layers);
                 }
                 Config {
                     theme: config.theme,
                     keys,
+                    layers,
                     editor: config.editor.map_or_else(
                         || Ok(vortex_view::editor::Config::default()),
                         |val| val.try_into().map_err(ConfigLoadError::BadConfig),
@@ -197,6 +222,37 @@ mod tests {
                 ..Default::default()
             }
         );
+    }
+
+    /// `[keys.watch]` remaps watch mode's keys; the other modes' tables still work beside it.
+    #[test]
+    fn watch_keys_in_their_own_table() {
+        use crate::keymap::{KeyTrie, Layer};
+        let config = Config::load_test(
+            r#"
+            [keys.watch]
+            l = "watch_look"
+            v = "no_op"
+
+            [keys.normal]
+            A-F12 = "move_next_word_end"
+        "#,
+        );
+        let watch = &config.layers[&Layer::Watch];
+        let look = KeyTrie::MappableCommand(crate::commands::MappableCommand::watch_look);
+        assert_eq!(watch.search(&["l".parse().unwrap()]), Some(&look));
+        assert_ne!(watch.search(&["v".parse().unwrap()]), Some(&look));
+        // the defaults are still there
+        assert!(watch.search(&["n".parse().unwrap()]).is_some());
+        assert!(config.keys[&Mode::Normal]
+            .search(&["A-F12".parse().unwrap()])
+            .is_some());
+        // an unknown table is an error
+        assert!(Config::load(
+            Ok(&"[keys.wach]\nl = \"watch_look\"".to_owned()),
+            Err(ConfigLoadError::default()),
+        )
+        .is_err());
     }
 
     #[test]

@@ -2858,10 +2858,9 @@ fn watch_stop(cx: &mut compositor::Context, _args: Args, event: PromptEvent) -> 
     if event != PromptEvent::Validate {
         return Ok(());
     }
-    if cx.editor.watch.is_active() {
-        crate::watch::end(cx.editor);
-    } else {
-        cx.editor.set_status("Not watching");
+    match crate::watch::end(cx.editor) {
+        Some(count) => cx.editor.set_status(crate::watch::ended_message(count)),
+        None => bail!("watch mode is off"),
     }
     Ok(())
 }
