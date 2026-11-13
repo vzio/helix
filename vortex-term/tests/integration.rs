@@ -29,11 +29,13 @@ mod test {
     mod history;
     mod hunks;
     mod inline_blame;
+    mod line_history;
     mod move_lines;
     mod movement;
     mod picker_modes;
     mod practice;
     mod practice_panel;
+    mod repo_gen;
     mod splits;
     mod stale_buffers;
     mod terminal;

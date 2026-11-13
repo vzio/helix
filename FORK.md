@@ -601,6 +601,11 @@ with gix, which lists commits as it finds them:
   as in the commit log; the base branch's section needs none.
 - Everything is in memory and goes when the picker closes: no cache, no file written.
 
+Measured in a debug build, on repositories made by the tests' generator (`repo_gen.rs`), following
+a whole file that one commit in 25 changes: with 20,000 commits, the first commit is listed after
+20-35 ms and the walk ends after about 1 s (800 commits listed); with 50,000 commits, after about
+25 ms and 2.3 s (2,000 listed). Closing the picker stops the walk within about 15 ms.
+
 ### Limitations
 
 - The lines followed are a snapshot of the buffer when the picker opens: edits after that don't
