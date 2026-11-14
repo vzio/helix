@@ -196,8 +196,7 @@ fn breakpoint_marks(editor: &Editor) -> Vec<u64> {
 pub fn line_forward(editor: &mut Editor) {
     if editor.debug.is_rewinding() {
         rewind::forward(editor, 1);
-    } else if no_session(editor) {
-    } else {
+    } else if !no_session(editor) {
         playback::step_once(editor);
     }
 }
