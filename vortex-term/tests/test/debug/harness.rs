@@ -6,7 +6,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-use termina::event::{Event, KeyEvent};
+use termina::event::{Event, KeyEvent, Modifiers, MouseButton, MouseEvent, MouseEventKind};
 use tokio::sync::mpsc::UnboundedSender;
 use tokio_stream::wrappers::UnboundedReceiverStream;
 use vortex_core::diagnostic::Severity;
@@ -64,6 +64,31 @@ impl Harness {
         for key in parse_macro(keys)? {
             self.tx.send(Ok(Event::Key(KeyEvent::from(key))))?;
         }
+        self.step(Duration::from_secs(3)).await;
+        Ok(())
+    }
+
+    /// The text of the test backend's screen, one string per row.
+    pub fn rows(&self) -> Vec<String> {
+        let screen = self.app.screen();
+        (0..screen.area.height)
+            .map(|y| {
+                (0..screen.area.width)
+                    .map(|x| screen.get(x, y).map_or(" ", |cell| cell.symbol.as_str()))
+                    .collect()
+            })
+            .collect()
+    }
+
+    /// Presses the left mouse button on a cell of the screen and lets the editor process it.
+    pub async fn click(&mut self, column: u16, row: u16) -> anyhow::Result<()> {
+        let event = MouseEvent {
+            kind: MouseEventKind::Down(MouseButton::Left),
+            column,
+            row,
+            modifiers: Modifiers::NONE,
+        };
+        self.tx.send(Ok(Event::Mouse(event)))?;
         self.step(Duration::from_secs(3)).await;
         Ok(())
     }
