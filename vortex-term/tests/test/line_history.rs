@@ -796,7 +796,14 @@ async fn measure(commits: usize, touch_every: usize, limit: Duration) -> (Durati
          (status then: {progress:?}), walk ended after {walk:?}: {end:?}"
     );
     // every touch is listed, the one that created the file too
-    // (the count of the picker: the info says it too, but is cut by the long path)
+    // (the count of the picker: the info says it too, but is cut by the long path). The matcher
+    // may take the last rows a frame after the walk ended, under load.
+    let count = format!("{0}/{0}", repo.touches);
+    let listed = |session: &Session| {
+        let row = session.frame()[0].clone();
+        row.split("││").next().unwrap().trim_end().ends_with(&count)
+    };
+    wait_until(&mut session, "every touch to be listed", limit, listed).await;
     let row = session.frame()[0].clone();
     let row = row.split("││").next().unwrap().trim_end();
     assert!(

@@ -33,9 +33,15 @@ mod workspace_trust;
 
 pub fn setup(config: Arc<ArcSwap<Config>>) -> Handlers {
     // once per process: the registry panics on an event registered twice, and the unit tests that
-    // build an editor each set the handlers up
-    static EVENTS: std::sync::Once = std::sync::Once::new();
-    EVENTS.call_once(events::register);
+    // build an editor each set the handlers up. The integration tests have a registry per runtime,
+    // so each registers its own.
+    #[cfg(not(feature = "integration"))]
+    {
+        static EVENTS: std::sync::Once = std::sync::Once::new();
+        EVENTS.call_once(events::register);
+    }
+    #[cfg(feature = "integration")]
+    events::register();
 
     let event_tx = completion::CompletionHandler::new(config).spawn();
     let signature_hints = SignatureHelpHandler::new().spawn();
