@@ -1287,7 +1287,11 @@ async fn the_gutter_shows_bookmarks_outside_debug_mode_and_breakpoints_in_it() -
     // in debug mode the breakpoints own the column
     h.keys("<space>G").await;
     assert!(h.app.editor.debug.mode_on());
-    assert_eq!(cell(&h.app, 1).unwrap().0, "●", "the breakpoint, not the bookmark");
+    assert_eq!(
+        cell(&h.app, 1).unwrap().0,
+        "●",
+        "the breakpoint, not the bookmark"
+    );
     assert_eq!(cell(&h.app, 2).unwrap().0, "●");
     h.keys("<esc>").await;
     assert_eq!(cell(&h.app, 1).unwrap().0, "1", "the bookmark again");
@@ -1373,7 +1377,11 @@ async fn in_a_debug_session_the_gutter_follows_debug_mode() -> anyhow::Result<()
         "●",
         "debug mode: the breakpoint"
     );
-    assert_eq!(cell(&h.app, 4), None, "a bookmark alone isn't drawn in debug mode");
+    assert_eq!(
+        cell(&h.app, 4),
+        None,
+        "a bookmark alone isn't drawn in debug mode"
+    );
     h.keys("<esc>").await;
     assert_eq!(cell(&h.app, 4).unwrap().0, "2", "outside it again");
     assert_eq!(h.numbers(), [(2, 1), (4, 2)], "the bookmarks are kept");
