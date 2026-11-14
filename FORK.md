@@ -3318,8 +3318,9 @@ in the order it was built.
 
 **The gutter** shows bookmarks in the column of diagnostics and breakpoints: the number, `1` to
 `9`, then `◆` from the tenth on, so the order is visible at a glance. With a diagnostic on the
-same line the bookmark is drawn in the diagnostic's color, so the warning isn't lost. A
-breakpoint on the same line wins while a debug session runs; otherwise the bookmark does. Theme
+same line the bookmark is drawn in the diagnostic's color, so the warning isn't lost. In
+[debug mode](#debug-mode) the column is the breakpoints' and bookmarks aren't drawn; outside it
+breakpoints aren't drawn. Theme
 scope: `ui.gutter.bookmark` (falls back to `ui.linenr.selected`).
 
 ### Removed
