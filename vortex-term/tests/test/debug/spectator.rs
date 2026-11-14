@@ -584,7 +584,7 @@ async fn threads_joining_and_leaving_are_announced_and_can_be_spectated() -> any
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn a_thread_joining_says_so_in_the_status() -> anyhow::Result<()> {
+async fn a_thread_joining_is_listed_and_the_status_line_says_nothing() -> anyhow::Result<()> {
     let mut e = env(|p| {
         Script::new(p)
             .stop(Stop::new(2, "entry"))
@@ -595,12 +595,19 @@ async fn a_thread_joining_says_so_in_the_status() -> anyhow::Result<()> {
     e.settled(1).await;
     e.focus().await?;
     e.h.keys("n").await?;
-    e.h.until("the notice", |app| {
-        app.editor
-            .get_status()
-            .is_some_and(|(m, _)| m.contains("Thread 2 joined") && m.contains("< / > to spectate"))
+    e.h.until("two threads", |app| {
+        app.editor.debug.all_threads().len() == 2
     })
     .await;
+    // no notice, and none with keys: the panel lists the thread
+    assert!(
+        e.h.app
+            .editor
+            .get_status()
+            .is_none_or(|(m, _)| !m.contains("joined") && !m.contains("to spectate")),
+        "{:?}",
+        e.h.app.editor.get_status()
+    );
     e.h.finish().await
 }
 

@@ -8,7 +8,7 @@
 
 use std::path::PathBuf;
 
-use super::git_log::{git, id, on_screen, status, Repo, Session};
+use super::git_log::{git, id, on_screen, Repo, Session};
 use super::uncommitted::{commit_all, cwd, lines, type_at, write};
 
 fn enter(test: &str) -> Option<PathBuf> {
@@ -163,12 +163,7 @@ impl Session {
     async fn wait_for_diff_at(&mut self, hunk: &str) {
         let hunk = format!("{hunk} ");
         self.wait_for_screen(&hunk, |rows| {
-            rows.iter().any(|row| {
-                row.contains(&hunk)
-                    && ["n/N", "s/u/r", "r revert"]
-                        .iter()
-                        .any(|keys| row.contains(keys))
-            })
+            super::hunks::footer_of(rows).is_some_and(|footer| footer.starts_with(&hunk))
         })
         .await;
     }
@@ -205,16 +200,15 @@ async fn the_uncommitted_list_has_dividers_with_counts_and_edit_marks() {
     session
         .keys(&format!(":o b.txt<ret>{}", type_at(18, "ZZ")))
         .await;
-    let session = Session::open_uncommitted_list(session, "(8 files, 1 unsaved)").await;
+    let mut session = Session::open_uncommitted_list(session, "(8 files, 1 unsaved)").await;
 
     let mut expected = uncommitted_rows();
     expected[4] = "── b.txt  3 hunks  +3 -3  1 unsaved".into();
     expected.insert(7, "  • -+ b.txt:18".into());
     assert_eq!(session.list(), expected);
-    assert_eq!(
-        status(&session.app),
-        "Uncommitted changes: 12 changes in 8 files, +69 -59, 1 unsaved"
-    );
+    session
+        .assert_info("Uncommitted changes: 12 changes in 8 files, +69 -59, 1 unsaved")
+        .await;
     // the cursor starts on the first hunk, not on the divider above it
     assert_eq!(session.selected_row(), "S   + a.txt:6");
 }
@@ -249,10 +243,9 @@ async fn files_without_hunks_and_the_notes_of_their_dividers() {
             "── bun.lockb (untracked, binary)",
         ]
     );
-    assert_eq!(
-        status(&session.app),
-        "Uncommitted changes: 5 changes in 5 files, +1"
-    );
+    session
+        .assert_info("Uncommitted changes: 5 changes in 5 files, +1")
+        .await;
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -467,13 +460,12 @@ async fn a_commit_has_the_same_shape_as_the_uncommitted_changes() {
     assert_eq!(session.cursor(), "Change everything");
     session.open_commit_list("Cargo.lock").await;
     assert_eq!(session.list(), commit_rows());
-    assert_eq!(
-        status(&session.app),
-        format!(
+    session
+        .assert_info(&format!(
             "{}: 11 changes in 8 files, +68 -58 · Change everything",
             id("Change everything")
-        )
-    );
+        ))
+        .await;
     // the cursor starts on the first hunk, and walks like the uncommitted list
     assert_eq!(session.selected_row(), "+ a.txt:6");
     session.keys("jjj").await;
@@ -499,13 +491,12 @@ async fn a_commit_has_the_same_shape_as_the_uncommitted_changes() {
             "-+ c.txt:1",
         ]
     );
-    assert_eq!(
-        status(&session.app),
-        format!(
+    session
+        .assert_info(&format!(
             "{}: 2 changes in 2 files, +2 -2 · Touch a and c",
             id("Touch a and c")
-        )
-    );
+        ))
+        .await;
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -528,14 +519,13 @@ async fn a_range_has_the_combined_changes_in_the_same_shape() {
     expected.insert(8, "── c.txt  1 hunk  +1 -1".into());
     expected.insert(9, "-+ c.txt:1".into());
     assert_eq!(session.list(), expected);
-    assert_eq!(
-        status(&session.app),
-        format!(
+    session
+        .assert_info(&format!(
             "{}..{} (2 commits): 13 changes in 9 files, +70 -60",
             id("Change everything"),
             id("Touch a and c")
-        )
-    );
+        ))
+        .await;
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -625,4 +615,47 @@ async fn the_uncommitted_list_keeps_the_cursor_on_its_hunk_while_the_files_chang
         "{:#?}",
         session.list()
     );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn lists_of_changes_have_no_header_their_totals_on_the_prompt_row_and_a_key_help() {
+    let Some(_) =
+        enter("lists_of_changes_have_no_header_their_totals_on_the_prompt_row_and_a_key_help")
+    else {
+        return;
+    };
+    two_commits();
+    let mut session = Session::open_log().await;
+    session.keys("j").await;
+    session.open_commit_list("Cargo.lock").await;
+
+    // the first row under the separator is a file's divider, not the names of the columns
+    let frame = session.frame();
+    assert!(frame[2].starts_with("──"), "{frame:#?}");
+    assert!(!frame.iter().any(|row| row.contains("edit")), "{frame:#?}");
+    // the totals are on the prompt row, the status line stays empty
+    session
+        .assert_info(&format!(
+            "{}: 11 changes in 8 files, +68 -58 · Change everything",
+            id("Change everything")
+        ))
+        .await;
+    assert_eq!(super::git_log::status(&session.app), "");
+
+    session.keys("?").await;
+    let rows = session.rows();
+    assert!(on_screen(&rows, "Changes"), "{rows:#?}");
+    assert!(on_screen(&rows, "any key closes"), "{rows:#?}");
+    assert!(on_screen(&rows, "open the file in a split"), "{rows:#?}");
+    // any key closes it, and the list is still there
+    session.keys("j").await;
+    let rows = session.rows();
+    assert!(!on_screen(&rows, "any key closes"), "{rows:#?}");
+    assert!(on_screen(&rows, "Cargo.lock"), "{rows:#?}");
+
+    // in filter mode `?` is part of the query
+    session.keys("s?").await;
+    let rows = session.rows();
+    assert!(!on_screen(&rows, "any key closes"), "{rows:#?}");
+    assert!(session.frame()[0].contains('?'), "{:#?}", session.frame());
 }

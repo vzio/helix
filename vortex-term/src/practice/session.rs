@@ -212,8 +212,7 @@ pub fn start_index(editor: &mut Editor, index: usize) -> anyhow::Result<()> {
 
 /// Shows the buffer of the running attempt: in the view that has it, else in the current view.
 pub(super) fn focus_attempt(editor: &mut Editor) -> anyhow::Result<()> {
-    let attempt =
-        attempt().ok_or_else(|| anyhow!("no exercise is open, start one with :practice"))?;
+    let attempt = attempt().ok_or_else(|| anyhow!("no exercise is open"))?;
     let shown = editor
         .tree
         .views()
@@ -238,8 +237,7 @@ pub(super) fn command_ran() {
 /// Reveals the next hint of the running attempt. Returns its number and text, or `None` when
 /// all were shown.
 pub(super) fn reveal_hint() -> anyhow::Result<Option<(usize, String)>> {
-    let attempt =
-        attempt().ok_or_else(|| anyhow!("no exercise is open, start one with :practice"))?;
+    let attempt = attempt().ok_or_else(|| anyhow!("no exercise is open"))?;
     let exercises = exercises()?;
     let hints = &exercises[attempt.exercise].hints;
     if attempt.hints >= hints.len() {

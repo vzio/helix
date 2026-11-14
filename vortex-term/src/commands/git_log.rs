@@ -32,9 +32,6 @@ use crate::ui::{
 };
 use crate::{alt, key, shift};
 
-/// Shown in the status line when the log opens.
-const HINT: &str = "s filter, v extend, w/b section, enter files";
-
 pub(crate) fn trust_full(editor: &Editor, cwd: &Path) -> bool {
     editor
         .workspace_trust
@@ -106,7 +103,6 @@ pub(crate) fn commit_picker(editor: &mut Editor) -> Option<CommitLog> {
                 false
             }
         });
-    editor.set_status(HINT);
     log.work_dir = uncommitted::work_dir(editor, &cwd, trust_full);
     log.live = watch.map(Live::new);
     // the number of uncommitted files, and the HEAD the log is read from
@@ -352,8 +348,8 @@ pub(crate) struct CommitLog {
     /// The selected range of more than one commit, for the picker to mark the rows of.
     marked: Rc<Cell<Option<(usize, usize)>>>,
     selection: Selection,
-    /// Whether the status line shows the selection.
-    announced: bool,
+    /// What is being loaded (the changes of a range), shown on the prompt row.
+    loading: Option<String>,
     /// Sees the working tree change while the log is open.
     live: Option<Live>,
     refresh: Pending<Refresh>,
@@ -435,6 +431,29 @@ impl CommitLog {
         .with_stacked_key_handler(key!(Enter), open)
         .with_preferred(is_hash_query, LogRow::hash_starts_with)
         .with_modes()
+        .without_header()
+        .with_help(
+            if lines.is_some() {
+                "Line history"
+            } else {
+                "Commit log"
+            },
+            {
+                let mut keys = vec![
+                    ("Enter", "the changes of the commit or range"),
+                    ("v A-v", "extend mode: movements extend the range"),
+                    ("w e, b", "extend to the section's end, start"),
+                    ("S-↓ S-↑", "extend by one commit"),
+                    ("A-s", "the whole section"),
+                    ("Esc", "collapse the range"),
+                ];
+                if lines.is_some() {
+                    keys[0] = ("Enter", "the diff of the file at the lines");
+                    keys.push(("o", "all the changes of the commit"));
+                }
+                vec![("commits", keys)]
+            },
+        )
         .with_dividers(|row, _| match &row.kind {
             RowKind::Divider(title) => Some(title.as_str().into()),
             _ => None,
@@ -455,12 +474,12 @@ impl CommitLog {
             picker
         };
         let work_dir = source.cwd.clone();
-        CommitLog {
+        let mut log = CommitLog {
             picker,
             source,
             marked,
             selection: Selection::default(),
-            announced: false,
+            loading: None,
             live: None,
             refresh: Pending::new(),
             uncommitted: uncommitted_count,
@@ -468,7 +487,9 @@ impl CommitLog {
             head: None,
             requests,
             lines,
-        }
+        };
+        log.update_info();
+        log
     }
 
     pub(crate) fn injector(&self) -> crate::ui::picker::Injector<LogRow, CommitStyle> {
@@ -545,25 +566,33 @@ impl CommitLog {
         self.marked.get().is_some()
     }
 
-    /// Shows the selection in the status line when it's more than the commit under the cursor.
-    fn announce(&mut self, editor: &mut Editor) {
-        let text = (self.is_range() || self.selection.extend)
-            .then(|| self.range())
-            .flatten()
-            .map(|range| {
-                let extend = if self.selection.extend {
-                    "[extend] "
-                } else {
-                    ""
-                };
-                format!("{extend}{}", range.label())
-            });
-        match text {
-            Some(text) => editor.set_status(text),
-            None if self.announced => editor.clear_status(),
-            None => {}
-        }
-        self.announced = self.is_range() || self.selection.extend;
+    /// Shows on the prompt row what is being loaded, else the selection when it's more than the
+    /// commit under the cursor, else (line history) what the history follows.
+    fn update_info(&mut self) {
+        let info = self
+            .loading
+            .clone()
+            .or_else(|| {
+                (self.is_range() || self.selection.extend)
+                    .then(|| self.range())
+                    .flatten()
+                    .map(|range| {
+                        let extend = if self.selection.extend {
+                            "[extend] "
+                        } else {
+                            ""
+                        };
+                        format!("{extend}{}", range.label())
+                    })
+            })
+            .or_else(|| self.lines.as_ref().map(LineHistory::status));
+        self.picker.set_info(info);
+    }
+
+    /// Says on the prompt row that the changes of a range are being read (`None`: they are not).
+    fn set_loading(&mut self, loading: Option<String>) {
+        self.loading = loading;
+        self.update_info();
     }
 
     /// Moves the cursor by one commit, extending the selection to it.
@@ -741,15 +770,14 @@ impl CommitLog {
 
 impl Component for CommitLog {
     fn render(&mut self, area: Rect, surface: &mut Surface, cx: &mut compositor::Context) {
-        if let Some(lines) = &mut self.lines {
-            lines.show_status(cx.editor);
-        }
         self.refresh();
         self.uncommitted
             .set_unsaved(uncommitted::modified_buffers(cx.editor, &self.work_dir).count());
+        self.update_info();
         self.picker.render(area, surface, cx);
         // the first commit gets the cursor when it arrives
         self.follow_cursor();
+        self.update_info();
     }
 
     fn handle_event(&mut self, event: &Event, cx: &mut compositor::Context) -> EventResult {
@@ -779,11 +807,11 @@ impl Component for CommitLog {
             _ => {
                 let result = self.picker.handle_event(event, cx);
                 self.follow_cursor();
-                self.announce(cx.editor);
+                self.update_info();
                 return result;
             }
         }
-        self.announce(cx.editor);
+        self.update_info();
         EventResult::Consumed(None)
     }
 
@@ -878,14 +906,16 @@ pub(crate) fn open_commit_files(
     let loading = format!("Loading changes of {}…", range.label());
     let done = Arc::new(AtomicBool::new(false));
 
-    // the status line says so only when it takes long enough to be noticed
+    // the prompt row says so only when it takes long enough to be noticed
     tokio::spawn({
-        let (request, loading, done) = (request.clone(), loading.clone(), done.clone());
+        let (request, done) = (request.clone(), done.clone());
         async move {
             tokio::time::sleep(LOADING_DELAY).await;
-            job::dispatch(move |editor, compositor| {
+            job::dispatch(move |_, compositor| {
                 if request.is_current(compositor) && !done.load(Ordering::Relaxed) {
-                    editor.set_status(loading);
+                    if let Some(log) = compositor.find::<Overlay<CommitLog>>() {
+                        log.content.set_loading(Some(loading));
+                    }
                 }
             })
             .await;
@@ -897,14 +927,11 @@ pub(crate) fn open_commit_files(
         done.store(true, Ordering::Relaxed);
         job::dispatch_blocking(move |editor, compositor| {
             if !request.is_current(compositor) {
-                // the log was closed while it was read: not "loading" forever
-                let loading_shown = editor
-                    .get_status()
-                    .is_some_and(|(status, _)| *status == loading);
-                if !request.log_is_open(compositor) && loading_shown {
-                    editor.clear_status();
-                }
                 return;
+            }
+            // read: not "loading" any more
+            if let Some(log) = compositor.find::<Overlay<CommitLog>>() {
+                log.content.set_loading(None);
             }
             let rows = match rows {
                 Ok(Some(rows)) => rows,
@@ -915,15 +942,15 @@ pub(crate) fn open_commit_files(
                 return editor.set_status(format!("{} changes no files", range.label()));
             }
             let totals = changes::Totals::of(&rows).describe();
-            if range.count == 1 {
-                editor.set_status(format!(
+            let info = if range.count == 1 {
+                format!(
                     "{}: {totals} · {}",
                     range.newest.short_id, range.newest.summary
-                ));
+                )
             } else {
-                editor.set_status(format!("{}: {totals}", range.label()));
-            }
-            let picker = commit_changes_picker(editor, cwd, range, rows);
+                format!("{}: {totals}", range.label())
+            };
+            let picker = commit_changes_picker(editor, cwd, range, rows).with_info(info);
             compositor.push(Box::new(overlaid(picker)));
         });
     });

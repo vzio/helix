@@ -4,7 +4,7 @@
 use vortex_view::{handlers::dap::jump_to_stack_frame, Editor};
 
 /// The error for what can't be done in rewind.
-pub const READ_ONLY: &str = "REWIND: nothing is executing, values can't change (L returns to live)";
+pub const READ_ONLY: &str = "REWIND: nothing is executing, values can't change";
 
 /// Goes back `by` stops.
 pub fn back(editor: &mut Editor, by: usize) {
@@ -13,7 +13,7 @@ pub fn back(editor: &mut Editor, by: usize) {
         editor.set_error(if editor.debug.spectator.caps.records() {
             "Nothing recorded before this stop yet"
         } else {
-            "The history is off (capture settings: R)"
+            "The history is off"
         });
         return;
     }

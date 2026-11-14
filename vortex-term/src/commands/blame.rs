@@ -28,7 +28,6 @@ pub fn blame_line(cx: &mut Context) {
         doc_mut!(cx.editor, &doc_id)
             .blame
             .set_status_line(Some(line));
-        cx.editor.set_status("Computing blame...");
     } else {
         show_in_statusline(cx.editor, doc_id, line);
     }

@@ -58,18 +58,27 @@ pub(super) fn list_row(row: &str, with_marks: bool) -> String {
     }
 }
 
+/// Whether the list of the uncommitted changes is on the screen: its totals are on the prompt
+/// row (or the status line says there are none).
+pub(super) fn uncommitted_list_is_open(rows: &[String]) -> bool {
+    // (the status line may say "No uncommitted changes" too: it is not inside of a frame)
+    rows.iter().any(|row| {
+        row.contains("Uncommitted changes:")
+            || (row.contains('│') && row.contains("No uncommitted changes"))
+    })
+}
+
 impl Session {
-    /// Whether the picker on top is a list of changes with the column of marks.
+    /// Whether the picker on top is the list of the uncommitted changes, which has the column of
+    /// marks: its totals are on the prompt row.
     fn list_has_marks(&self) -> bool {
-        let frame = self.frame();
-        assert!(frame[2].contains("change"), "{frame:#?}");
-        frame[2].contains("marks")
+        self.frame()[0].contains("ncommitted changes")
     }
 
     /// The rows of the list of changes on top (see [`list_row`]): dividers and hunks.
     pub(super) fn list(&self) -> Vec<String> {
         let marks = self.list_has_marks();
-        self.frame()[3..]
+        self.frame()[2..]
             .iter()
             .filter(|row| !row.split("││").next().unwrap().trim().is_empty())
             .map(|row| list_row(row, marks))
@@ -80,7 +89,7 @@ impl Session {
     pub(super) fn selected_row(&self) -> String {
         let marks = self.list_has_marks();
         let frame = self.frame();
-        let row = frame[3..]
+        let row = frame[2..]
             .iter()
             .find(|row| row.starts_with(" > "))
             .unwrap_or_else(|| panic!("no cursor: {frame:#?}"));
@@ -111,7 +120,7 @@ impl Session {
     /// From the commit log: opens the picker of the uncommitted hunks.
     pub(super) async fn open_uncommitted_files(&mut self) {
         self.keys("<ret>").await;
-        self.wait_for_screen("the hunks", |rows| on_screen(rows, "marks"))
+        self.wait_for_screen("the hunks", uncommitted_list_is_open)
             .await;
     }
 
@@ -158,10 +167,9 @@ async fn the_uncommitted_files_are_sorted_with_the_lockfile_last() {
             "── Cargo.lock  +60 -50",
         ]
     );
-    assert_eq!(
-        status(&session.app),
-        "Uncommitted changes: 4 changes in 4 files, +62 -51"
-    );
+    session
+        .assert_info("Uncommitted changes: 4 changes in 4 files, +62 -51")
+        .await;
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -265,7 +273,7 @@ async fn the_log_keeps_the_cursor_on_the_same_commit_when_a_commit_arrives() {
         .await;
     assert_eq!(session.cursor(), COMMITS[2]);
     // (and the range is the commit alone again)
-    assert_eq!(status(&session.app), super::git_log::HINT);
+    assert_eq!(session.info(), "");
 }
 
 /// The number of the line of the right side of the diff at the top of the screen.
@@ -324,7 +332,6 @@ async fn the_diff_of_an_uncommitted_file_follows_the_working_tree() {
         .wait_for_screen("no changes", |rows| on_screen(rows, "no changes"))
         .await;
     let rows = session.rows();
-    assert!(on_screen(&rows, "q close"), "{rows:#?}");
     assert!(!on_screen(&rows, "EXTERNAL EDIT"), "{rows:#?}");
 
     // and it comes back with the next change, still at the same place
@@ -426,7 +433,7 @@ async fn closed_views_stop_following_the_working_tree() {
     session.open_uncommitted_files().await;
     // all of them
     session.keys("<esc><esc>").await;
-    assert!(!on_screen(&session.rows(), "marks"));
+    assert!(!uncommitted_list_is_open(&session.rows()));
     assert!(!on_screen(&session.rows(), "Initial commit"));
 
     // (a watch that was still on would have its views, and the editor, handle these)
@@ -510,10 +517,7 @@ async fn open_buffers_follow_the_files_while_the_log_is_open() {
         })
         .await;
     assert_eq!(buffer(&session, "m2.txt"), "hello m2.txt\n");
-    assert_eq!(
-        status(&session.app),
-        "m2.txt changed on disk: :reload to load it, or :write! to overwrite it"
-    );
+    assert_eq!(status(&session.app), "m2.txt changed on disk");
 }
 
 /// `lines("line ", n)` with its line `n` replaced by `new`.
@@ -594,10 +598,9 @@ async fn the_hunks_have_the_marks_of_where_their_changes_are() {
             "── Cargo.lock  +60 -50",
         ]
     );
-    assert_eq!(
-        status(&session.app),
-        "Uncommitted changes: 10 changes in 8 files, +71 -57, 5 unsaved"
-    );
+    session
+        .assert_info("Uncommitted changes: 10 changes in 8 files, +71 -57, 5 unsaved")
+        .await;
     // the preview says where the change is, and has the hunk
     session.keys("jj").await;
     assert_eq!(session.selected_row(), "SM  -+ b.txt:5");
@@ -630,10 +633,9 @@ async fn the_label_of_the_log_counts_the_unsaved_buffers() {
         session.list(),
         ["── m2.txt  1 hunk  +1 -1  1 unsaved", "  • -+ m2.txt:1"]
     );
-    assert_eq!(
-        status(&session.app),
-        "Uncommitted changes: 1 change in 1 file, +1 -1, 1 unsaved"
-    );
+    session
+        .assert_info("Uncommitted changes: 1 change in 1 file, +1 -1, 1 unsaved")
+        .await;
     session.keys("<esc>").await;
 
     // and a change on disk, with a second buffer that is modified
@@ -782,10 +784,9 @@ async fn the_hunks_follow_the_edits_of_the_buffers_keeping_the_cursor() {
         .await;
     assert_eq!(session.selected_row(), " M• -+ b.txt:10");
     // the totals follow the list
-    assert_eq!(
-        status(&session.app),
-        "Uncommitted changes: 2 changes in 1 file, +2 -2, 2 unsaved"
-    );
+    session
+        .assert_info("Uncommitted changes: 2 changes in 1 file, +2 -2, 2 unsaved")
+        .await;
 
     // the buffer of another file: its rows come before the cursor
     session.edit_buffer("a.txt", 3, "XX");
@@ -873,7 +874,7 @@ async fn enter_on_an_unsaved_hunk_opens_the_buffer_at_it() {
     session.keys("<ret>").await;
     // the list and the log are gone, and the buffer is where the hunk is
     session
-        .wait_for_screen("the buffer", |rows| !on_screen(rows, "marks"))
+        .wait_for_screen("the buffer", |rows| !uncommitted_list_is_open(rows))
         .await;
     let rows = session.rows();
     assert!(!on_screen(&rows, "Initial commit"), "{rows:#?}");
@@ -887,4 +888,37 @@ async fn enter_on_an_unsaved_hunk_opens_the_buffer_at_it() {
     let text = doc.text();
     let cursor = doc.selection(view.id).primary().cursor(text.slice(..));
     assert_eq!(text.char_to_line(cursor), 26);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn the_uncommitted_list_has_its_totals_on_the_prompt_row_and_a_key_help() {
+    let Some(_) = enter("the_uncommitted_list_has_its_totals_on_the_prompt_row_and_a_key_help")
+    else {
+        return;
+    };
+    write("a.txt", &lines("line ", 5));
+    commit_all("Add a.txt");
+    write("a.txt", &with_line(3, "three", 5));
+
+    let mut session = Session::open_log_on_uncommitted().await;
+    session.wait_for_uncommitted("(1 file)").await;
+    session.open_uncommitted_files().await;
+    // the totals live on the prompt row; nothing is in the status line, and no header
+    session
+        .assert_info("Uncommitted changes: 1 change in 1 file, +1 -1")
+        .await;
+    assert_eq!(status(&session.app), "");
+    let frame = session.frame();
+    assert!(frame[2].starts_with("──"), "{frame:#?}");
+    assert!(!frame.iter().any(|row| row.contains("marks")), "{frame:#?}");
+
+    session.keys("?").await;
+    let rows = session.rows();
+    assert!(on_screen(&rows, "Changes"), "{rows:#?}");
+    assert!(on_screen(&rows, "any key closes"), "{rows:#?}");
+    session.keys("j").await;
+    assert!(!on_screen(&session.rows(), "any key closes"));
+    session
+        .assert_info("Uncommitted changes: 1 change in 1 file, +1 -1")
+        .await;
 }

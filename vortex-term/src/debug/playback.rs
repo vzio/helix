@@ -194,9 +194,7 @@ pub fn play(editor: &mut Editor, mode: Mode) {
     if mode == Mode::FastForward {
         let baseline = watched_values(editor);
         if baseline.is_empty() {
-            editor.set_error(
-                "Nothing to fast forward to: watch an expression (a) or mark a variable (*)",
-            );
+            editor.set_error("Nothing to fast forward to: watch an expression or mark a variable");
             return;
         }
         editor.debug.spectator.baseline = baseline;
@@ -211,7 +209,7 @@ pub fn play(editor: &mut Editor, mode: Mode) {
     if is_stopped(editor, key) {
         send_step(editor, false);
     } else {
-        editor.set_status("Pausing the thread to play it");
+        log::info!("pausing the thread to play it");
         pause_thread(editor, key);
     }
 }
@@ -244,7 +242,7 @@ pub fn step_once(editor: &mut Editor) {
         return;
     }
     if editor.debug.spectator.step.is_some() {
-        editor.set_error("A step is still running: Space pauses it");
+        editor.set_error("A step is still running");
         return;
     }
     let Some(key) = spectated(editor) else {
@@ -811,7 +809,7 @@ pub fn run_to_cursor(editor: &mut Editor) {
             line,
             breakpoint: false,
         });
-        editor.set_status(format!("Playing to line {}", line + 1));
+        log::info!("playing to line {}", line + 1);
         return;
     }
     let Some(key) = spectated(editor) else {
@@ -838,7 +836,7 @@ pub fn run_to_cursor(editor: &mut Editor) {
         line,
         breakpoint: !covered,
     });
-    editor.set_status(format!("Running to line {}", line + 1));
+    log::info!("running to line {}", line + 1);
     if covered {
         threads::continue_thread(editor, key);
         return;

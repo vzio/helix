@@ -763,23 +763,14 @@ async fn the_ring_goes_to_the_first_non_blank_character() -> anyhow::Result<()> 
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn no_bookmarks_says_how_to_set_one() -> anyhow::Result<()> {
+async fn no_bookmarks_says_so() -> anyhow::Result<()> {
     let (_dir, mut h) = forty()?;
     h.keys("<C-i>").await;
-    assert_eq!(
-        h.status(),
-        "No bookmarks: C-s sets one on the cursor's line"
-    );
+    assert_eq!(h.status(), "No bookmarks");
     h.keys("<C-o>").await;
-    assert_eq!(
-        h.status(),
-        "No bookmarks: C-s sets one on the cursor's line"
-    );
+    assert_eq!(h.status(), "No bookmarks");
     h.keys("<space>j").await;
-    assert_eq!(
-        h.status(),
-        "No bookmarks: C-s sets one on the cursor's line"
-    );
+    assert_eq!(h.status(), "No bookmarks");
     assert_eq!(h.line(), 0);
     h.finish().await
 }
@@ -1375,5 +1366,57 @@ async fn a_breakpoint_wins_over_a_bookmark_while_a_debug_session_is_active() -> 
         "a bookmark alone is still its number"
     );
     assert_eq!(h.numbers(), [(2, 1), (4, 2)], "the bookmarks are kept");
+    h.finish().await
+}
+
+/// The rows of the screen.
+fn screen_rows(app: &Application) -> Vec<String> {
+    let screen = app.screen();
+    (0..screen.area.height)
+        .map(|y| {
+            (0..screen.area.width)
+                .map(|x| screen.get(x, y).map_or(" ", |cell| cell.symbol.as_str()))
+                .collect()
+        })
+        .collect()
+}
+
+fn on_screen(app: &Application, text: &str) -> bool {
+    screen_rows(app).iter().any(|row| row.contains(text))
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn the_bookmark_picker_is_modal_has_no_header_and_question_mark_shows_its_keys(
+) -> anyhow::Result<()> {
+    let (_dir, mut h) = forty()?;
+    h.keys("2j<C-s>5j<C-s>gg").await;
+    assert_eq!(h.bookmarks(), 2);
+
+    h.keys("<space>j").await;
+    h.settle(Duration::from_millis(300)).await;
+    // no header with the names of the columns, and nothing in the status line
+    let rows = screen_rows(&h.app);
+    assert!(!rows.iter().any(|row| row.contains(" file ")), "{rows:#?}");
+    assert!(
+        on_screen(&h.app, "forty.txt:3") && on_screen(&h.app, "forty.txt:8"),
+        "{rows:#?}"
+    );
+    let top = rows.iter().position(|row| row.starts_with('┌')).unwrap();
+    assert!(rows[top + 3].contains("forty.txt:3"), "{rows:#?}");
+    assert_eq!(h.status(), "");
+
+    // normal mode: `?` lists the keys, any key closes it and goes no further
+    h.keys("?").await;
+    assert!(on_screen(&h.app, "Bookmarks"));
+    assert!(on_screen(&h.app, "any key closes"));
+    assert!(on_screen(&h.app, "remove it"));
+    h.keys("j").await;
+    assert!(!on_screen(&h.app, "any key closes"));
+    assert!(on_screen(&h.app, "forty.txt:8"));
+    assert_eq!(h.bookmarks(), 2);
+
+    // filter mode: `?` is typed into the query
+    h.keys("s?").await;
+    assert!(!on_screen(&h.app, "any key closes"));
     h.finish().await
 }

@@ -21,7 +21,6 @@ use std::sync::Arc;
 
 use parking_lot::Mutex;
 use tui::buffer::Buffer as Surface;
-use vortex_core::diagnostic::Severity;
 use vortex_core::{Rope, Selection};
 use vortex_vcs::staging::{self, touches, LineHunk};
 use vortex_vcs::{DiffProviderRegistry, FileChange};
@@ -284,8 +283,6 @@ pub(crate) struct UncommittedChanges {
     pending: Pending<anyhow::Result<Vec<ChangeRow>>>,
     /// The files listed, for `n`/`N` in the diffs opened from the list.
     files: Arc<Mutex<NavFiles>>,
-    /// The totals of the list (see [`summary`]), as last put in the status line.
-    totals: String,
 }
 
 /// The modified buffers of `buffers`, to read off the main thread.
@@ -312,14 +309,14 @@ impl UncommittedChanges {
             self.pending.run(move || source.list(snapshot));
         }
         match self.pending.take() {
-            Some(Ok(rows)) => self.replace(rows, editor),
+            Some(Ok(rows)) => self.replace(rows),
             Some(Err(err)) => log::debug!("uncommitted changes: {err}"),
             None => {}
         }
     }
 
-    fn replace(&mut self, rows: Vec<ChangeRow>, editor: &mut Editor) {
-        self.show_totals(editor, summary(&rows), false);
+    fn replace(&mut self, rows: Vec<ChangeRow>) {
+        self.show_totals(summary(&rows));
         let selected = self
             .picker
             .selection()
@@ -332,18 +329,9 @@ impl UncommittedChanges {
         }
     }
 
-    /// Updates the totals of the list in the status line, when it shows them (or nothing), so as
-    /// not to hide a message the user should see, such as a revert's undo hint; and when the list
-    /// is `regained`, shown again after a diff opened from it.
-    fn show_totals(&mut self, editor: &mut Editor, totals: String, regained: bool) {
-        let shown = match editor.get_status() {
-            Some((status, severity)) => *severity == Severity::Info && *status == self.totals,
-            None => true,
-        };
-        if regained || (shown && totals != self.totals) {
-            editor.set_status(totals.clone());
-        }
-        self.totals = totals;
+    /// Updates the totals of the list on the prompt row of its picker.
+    fn show_totals(&mut self, totals: String) {
+        self.picker.set_info(Some(totals));
     }
 }
 
@@ -416,9 +404,12 @@ pub(crate) fn open(cx: &mut compositor::Context, cwd: PathBuf, watch: Option<Arc
                 }
             };
             let totals = summary(&rows);
-            editor.set_status(totals.clone());
+            if rows.is_empty() {
+                editor.set_status(totals.clone());
+            }
             let files = Arc::new(Mutex::new(nav_files(&rows)));
-            let picker = changes_picker(editor, cwd, rows, watch.clone(), files.clone());
+            let picker = changes_picker(editor, cwd, rows, watch.clone(), files.clone())
+                .with_info(totals.clone());
             let list = UncommittedChanges {
                 picker,
                 source,
@@ -426,7 +417,6 @@ pub(crate) fn open(cx: &mut compositor::Context, cwd: PathBuf, watch: Option<Arc
                 buffers,
                 pending: Pending::new(),
                 files,
-                totals,
             };
             compositor.push(Box::new(overlaid(list)));
         };
@@ -489,13 +479,8 @@ fn changes_picker(
                             select_row(&mut overlay.content.picker, change.path(), None);
                         }
                     }),
-                    // the list's totals again, which may have changed meanwhile
-                    Rc::new(|compositor, cx| {
-                        if let Some(overlay) = compositor.find::<Overlay<UncommittedChanges>>() {
-                            let list = &mut overlay.content;
-                            list.show_totals(cx.editor, list.totals.clone(), true);
-                        }
-                    }),
+                    // the list's totals are on its prompt row: nothing to show again
+                    Rc::new(|_, _| {}),
                 )
             };
             Ok(Callback::EditorCompositor(Box::new(call)))

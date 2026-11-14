@@ -234,11 +234,19 @@ async fn wait_until(
     start.elapsed()
 }
 
-/// Whether the walk of the line history has ended: its status line has the count and no
-/// `searching…`.
+/// What the line history says on the prompt row of its picker (the prompt, then its info and
+/// the count).
+fn info(session: &Session) -> String {
+    session.info()
+}
+
+/// Whether the walk of the line history has ended: its info has the count and no `searching…`.
 fn walk_ended(session: &Session) -> bool {
-    let status = status(&session.app);
-    status.contains("s filter, v extend") && !status.contains("searching…")
+    let info = info(session);
+    // (cut with a `…`: the end of it, which says whether it still searches, is not shown)
+    (info.contains(" commit") || info.contains("committed yet"))
+        && !info.contains("searching…")
+        && !info.ends_with('…')
 }
 
 impl Session {
@@ -259,6 +267,8 @@ impl Session {
     /// Opens the line history with `keys` (`<space>L` or `:line-history<ret>`) and waits for the
     /// walk to end.
     async fn open_line_history(&mut self, keys: &str) {
+        // wide: its info is cut when the list has the half of the terminal
+        self.widen().await;
         self.keys(keys).await;
         wait_until(
             self,
@@ -273,8 +283,7 @@ impl Session {
     async fn wait_for_hunk_footer(&mut self, text: &str) {
         let text = text.to_string();
         self.wait_for_screen(&text.clone(), move |rows| {
-            rows.iter()
-                .any(|row| row.contains(&text) && row.contains("n/N"))
+            rows.iter().any(|row| row.trim().starts_with(text.as_str()))
         })
         .await;
     }
@@ -298,7 +307,10 @@ impl Session {
 }
 
 fn picker_is_open(session: &Session) -> bool {
-    session.rows().iter().any(|row| row.starts_with('┌'))
+    session
+        .rows()
+        .iter()
+        .any(|row| row.trim_start().starts_with('┌'))
 }
 
 // -- the tests ------------------------------------------------------------------------------
@@ -329,12 +341,11 @@ async fn the_cursors_line_lists_the_commits_that_changed_it() {
     let rows = session.rows();
     assert!(!on_screen(&rows, "Rename the title"));
     assert!(!on_screen(&rows, "Fix beta"));
-    let status = status(&session.app);
-    assert!(
-        status.starts_with("notes.txt:3 · 3 commits · "),
-        "{status:?}"
-    );
-    assert!(status.contains("enter diff, o commit"), "{status:?}");
+    let info = info(&session);
+    assert!(info.contains("notes.txt:3 · 3 commits"), "{info:?}");
+    // the keys are not in the status line, nor on the prompt row: `?` lists them
+    assert!(!info.contains("enter diff"), "{info:?}");
+    assert_eq!(status(&session.app), "");
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -363,11 +374,8 @@ async fn selections_of_several_ranges_list_the_commits_of_all() {
         "{:#?}",
         session.log()
     );
-    let status = status(&session.app);
-    assert!(
-        status.starts_with("list.txt:2,7 · 4 commits · "),
-        "{status:?}"
-    );
+    let info = info(&session);
+    assert!(info.contains("list.txt:2,7 · 4 commits"), "{info:?}");
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -389,11 +397,8 @@ async fn the_whole_file_lists_every_commit_that_touched_it() {
     // (the test is no test when git lists all the commits)
     assert_eq!(expected.len(), 4, "{expected:?}");
     assert_eq!(summaries(&session), expected, "{:#?}", session.log());
-    let status = status(&session.app);
-    assert!(
-        status.starts_with("notes.txt:1-6 · 4 commits · "),
-        "{status:?}"
-    );
+    let info = info(&session);
+    assert!(info.contains("notes.txt:1-6 · 4 commits"), "{info:?}");
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -421,7 +426,7 @@ async fn the_uncommitted_row_is_there_when_the_line_has_unsaved_changes() {
         "{:#?}",
         session.log()
     );
-    assert!(status(&session.app).contains("· 3 commits ·"));
+    assert!(info(&session).contains("· 3 commits"));
     session.keys("<esc>").await;
     assert!(!picker_is_open(&session));
 }
@@ -466,10 +471,10 @@ async fn lines_that_only_exist_in_the_buffer_have_the_uncommitted_row_alone() {
     session.keys("onothing like it<esc>").await;
     session.wait_for_hunks(1).await;
     session.open_line_history("<space>L").await;
-    let status = status(&session.app);
+    let info = info(&session);
     assert!(
-        status.starts_with("notes.txt:4 · these lines aren't committed yet · "),
-        "{status:?}"
+        info.contains("notes.txt:4 · these lines aren't committed yet"),
+        "{info:?}"
     );
     assert_eq!(listed(&session), [UNCOMMITTED], "{:#?}", session.log());
 }
@@ -559,11 +564,13 @@ async fn o_opens_everything_the_commit_changed() {
         .wait_for_screen("the list of changes", |rows| on_screen(rows, "other.txt"))
         .await;
     let short = id("Change three places");
-    let status = status(&session.app);
+    // the totals are on the prompt row of the list
+    let info = info(&session);
     assert!(
-        status.starts_with(&format!("{short}: ")) && status.contains("changes in 2 files"),
-        "{status:?}"
+        info.contains(&format!("{short}: ")) && info.contains("changes in 2 files"),
+        "{info:?}"
     );
+    assert_eq!(status(&session.app), "");
     let rows = session.rows();
     // the tracked file and the other one the commit changed
     assert!(on_screen(&rows, "notes.txt"), "{rows:#?}");
@@ -662,12 +669,11 @@ async fn the_typable_command_does_what_the_key_does() {
         "{:#?}",
         session.log()
     );
-    let status = status(&session.app);
-    assert!(
-        status.starts_with("notes.txt:3 · 3 commits · "),
-        "{status:?}"
-    );
-    assert!(status.contains("enter diff, o commit"), "{status:?}");
+    let info = info(&session);
+    assert!(info.contains("notes.txt:3 · 3 commits"), "{info:?}");
+    // the keys are not in the status line, nor on the prompt row: `?` lists them
+    assert!(!info.contains("enter diff"), "{info:?}");
+    assert_eq!(status(&session.app), "");
 }
 
 /// How many places the focused view's history has.
@@ -716,19 +722,6 @@ fn big(commits: usize, touch_every: usize) -> super::repo_gen::GeneratedRepo {
     repo
 }
 
-/// `2,000`, as the status line writes counts.
-fn with_commas(n: usize) -> String {
-    let digits = n.to_string();
-    let mut text = String::new();
-    for (i, digit) in digits.chars().enumerate() {
-        if i > 0 && (digits.len() - i).is_multiple_of(3) {
-            text.push(',');
-        }
-        text.push(digit);
-    }
-    text
-}
-
 /// The summary of the newest commit that touches the tracked file of [`big`].
 fn newest_touch(commits: usize, touch_every: usize) -> String {
     let index = (commits - 1) / touch_every * touch_every;
@@ -752,9 +745,9 @@ async fn closing_the_picker_stops_the_walk() {
     .await;
     eprintln!("walk seen running after {started:?}");
     assert!(
-        status(&session.app).contains("searching…") || !walk_ended(&session),
+        info(&session).contains("searching…") || !walk_ended(&session),
         "the walk ended before it could be stopped: {:?}",
-        status(&session.app)
+        info(&session)
     );
 
     // ...until the picker closes
@@ -777,6 +770,8 @@ async fn measure(commits: usize, touch_every: usize, limit: Duration) -> (Durati
     let repo = big(commits, touch_every);
     let mut session = open_file(&repo.tracked, 1);
     session.keys("%").await;
+    // wide: the info of the prompt row is cut in a list with a preview
+    session.widen().await;
     let first = newest_touch(commits, touch_every);
 
     let start = Instant::now();
@@ -786,24 +781,27 @@ async fn measure(commits: usize, touch_every: usize, limit: Duration) -> (Durati
     })
     .await;
     let first_row = start.elapsed();
-    // the status line says how it goes: still searching, or the count of the end
-    let progress = status(&session.app);
+    // the prompt row says how it goes: still searching, or the count of the end
+    let progress = info(&session);
     assert!(
-        progress.contains("searching…") || progress.contains(" commits · "),
+        progress.contains("searching…") || progress.contains(" commit"),
         "{progress:?}"
     );
 
     wait_until(&mut session, "the walk to end", limit, walk_ended).await;
     let walk = start.elapsed();
-    let end = status(&session.app);
+    let end = info(&session);
     eprintln!(
         "{commits} commits, touched every {touch_every}: first row after {first_row:?} \
          (status then: {progress:?}), walk ended after {walk:?}: {end:?}"
     );
     // every touch is listed, the one that created the file too
+    // (the count of the picker: the info says it too, but is cut by the long path)
+    let row = session.frame()[0].clone();
+    let row = row.split("││").next().unwrap().trim_end();
     assert!(
-        end.contains(&format!("· {} commits ·", with_commas(repo.touches))),
-        "{end:?}, expected {} commits",
+        row.ends_with(&format!("{0}/{0}", repo.touches)),
+        "{row:?}, expected {} commits",
         repo.touches
     );
     (first_row, walk)

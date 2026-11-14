@@ -298,7 +298,7 @@ pub fn prev_bookmark(cx: &mut Context) {
 
 fn go_round(editor: &mut Editor, direction: Direction) {
     let Some(bookmark) = editor.bookmark_step(direction) else {
-        editor.set_status("No bookmarks: C-s sets one on the cursor's line");
+        editor.set_status("No bookmarks");
         return;
     };
     let total = editor.bookmarks().len();
@@ -433,7 +433,7 @@ pub fn bookmark_picker(cx: &mut Context) {
 fn open_picker(compositor: &mut Compositor, editor: &mut Editor, cursor: u32) {
     let rows = rows(editor);
     if rows.is_empty() {
-        editor.set_status("No bookmarks: C-s sets one on the cursor's line");
+        editor.set_status("No bookmarks");
         return;
     }
     let columns = [
@@ -456,6 +456,19 @@ fn open_picker(compositor: &mut Compositor, editor: &mut Editor, cursor: u32) {
         }
         go_to(cx.editor, &row.bookmark);
     })
+    .with_modes()
+    .without_header()
+    .with_help(
+        "Bookmarks",
+        vec![(
+            "bookmarks",
+            vec![
+                ("Enter", "go to it"),
+                ("C-s C-v", "in a split"),
+                ("C-x", "remove it"),
+            ],
+        )],
+    )
     .with_initial_cursor(cursor)
     .with_preview(|_editor, row: &Row| match &row.bookmark.at {
         At::Buffer { doc, line } => Some(((*doc).into(), Some((*line, *line)))),

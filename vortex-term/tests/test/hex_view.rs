@@ -605,8 +605,8 @@ async fn searching() {
     assert_eq!(offset(&session.app), 50);
     assert_eq!(status(&session.app), "");
 
-    // `?` searches backwards
-    session.keys("gg?de ad<ret>").await;
+    // `N` searches backwards: from the start, around to the last match
+    session.keys("gg/de ad<ret>ggN").await;
     assert_eq!(offset(&session.app), 62);
     session.close().await;
 }
@@ -691,7 +691,7 @@ async fn yanking() {
 
 // Read-only
 
-/// Typing without `i` does not change anything, and says how to overwrite.
+/// Typing without `i` does not change anything, and says so.
 #[tokio::test(flavor = "multi_thread")]
 async fn typing_is_refused_in_read_only_mode() {
     let (_dir, path) = file_with("image.png", &png());
@@ -699,11 +699,7 @@ async fn typing_is_refused_in_read_only_mode() {
     for key in ["x", "d", "A", "5", "p", "c"] {
         session.app.editor.clear_status();
         session.keys(key).await;
-        assert_eq!(
-            status(&session.app),
-            "read-only, i to overwrite",
-            "after {key:?}"
-        );
+        assert_eq!(status(&session.app), "read-only", "after {key:?}");
         assert_eq!(bytes(&session.app), png(), "after {key:?}");
         assert!(!doc(&session.app).is_modified());
     }
@@ -1264,4 +1260,39 @@ async fn quitting_with_overwritten_bytes_is_refused() {
     while session.app.event_loop_until_idle(&mut session.input).await {}
     let errors = session.app.close().await;
     assert!(errors.is_empty(), "{errors:?}");
+}
+
+/// `?` lists the keys of the view in an overlay, any key closes it, and it is not a search.
+#[tokio::test(flavor = "multi_thread")]
+async fn question_mark_opens_the_key_help() {
+    let (_dir, path) = file_with("image.png", &png());
+    let mut session = Session::open(&path, 100).await;
+    assert!(!screen_rows(&session.app)
+        .iter()
+        .any(|row| row.contains("any key closes")));
+
+    session.keys("?").await;
+    let rows = screen_rows(&session.app);
+    assert!(rows.iter().any(|row| row.contains("Hex view")), "{rows:#?}");
+    assert!(
+        rows.iter().any(|row| row.contains("any key closes")),
+        "{rows:#?}"
+    );
+    assert!(
+        rows.iter().any(|row| row.contains("overwrite mode")),
+        "{rows:#?}"
+    );
+    // not a prompt for a backward search
+    assert!(!rows.iter().any(|row| row.contains("search:")), "{rows:#?}");
+    assert_eq!(status(&session.app), "");
+
+    // any key closes it, and is only that: the cursor did not move
+    session.keys("l").await;
+    let rows = screen_rows(&session.app);
+    assert!(
+        !rows.iter().any(|row| row.contains("any key closes")),
+        "{rows:#?}"
+    );
+    assert_eq!(offset(&session.app), 0);
+    session.close().await;
 }

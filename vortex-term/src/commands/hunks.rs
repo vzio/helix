@@ -151,11 +151,8 @@ pub(crate) fn run(
             };
             if reverted == work {
                 return Ok(Outcome::Done(match scope {
-                    Scope::Hunk(_) => "The hunk is staged: u unstages it, then r reverts it".into(),
-                    Scope::File => format!(
-                        "{} is staged: U unstages it, then R reverts it",
-                        relative(&path)
-                    ),
+                    Scope::Hunk(_) => "The hunk is staged: unstage it first".into(),
+                    Scope::File => format!("{} is staged: unstage it first", relative(&path)),
                 }));
             }
             let doc = match editor.document_by_path(&path) {
@@ -164,11 +161,7 @@ pub(crate) fn run(
             };
             edit(editor, doc, &reverted);
             // shown once it is written, instead of `'file' written`
-            let message = format!(
-                "Reverted {} and wrote {}: u in its buffer brings it back",
-                what(&scope),
-                relative(&path)
-            );
+            let message = format!("Reverted {} and wrote {}", what(&scope), relative(&path));
             editor.save_messages.insert(doc, message.clone());
             if let Err(err) = editor.save::<PathBuf>(doc, None, false) {
                 editor.save_messages.remove(&doc);

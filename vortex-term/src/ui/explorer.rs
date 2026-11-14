@@ -49,12 +49,43 @@ use tree::Tree;
 
 pub const ID: &str = "explorer";
 
-/// Shown in the status line when the tree opens.
-const HINT: &str = "s filter, a add, r rename, x/p move, d del, ? help";
-
-const HELP: &str = "s: filter  l/h: expand/collapse  enter: open  a: new (end with / for a \
-                    directory)  r: rename  x: cut  p: paste  d: delete  R: refresh  \
-                    H: show/hide git ignored  q: close";
+/// The keys of the tree, for the key help overlay (`?`).
+fn key_help() -> crate::ui::keyhelp::KeyHelp {
+    crate::ui::keyhelp::KeyHelp::new(
+        "File tree",
+        &[
+            (
+                "files",
+                vec![
+                    ("a", "new (end with / for a directory)"),
+                    ("r", "rename"),
+                    ("x", "cut"),
+                    ("p", "paste"),
+                    ("d", "delete"),
+                    ("R", "refresh"),
+                    ("H", "show/hide git-ignored"),
+                ],
+            ),
+            (
+                "tree",
+                vec![
+                    ("l h", "expand, collapse"),
+                    ("Enter", "open"),
+                    ("C-s C-v", "open in a split"),
+                ],
+            ),
+            (
+                "list",
+                vec![
+                    ("j k", "move"),
+                    ("s", "filter"),
+                    ("Esc q", "close"),
+                    ("?", "these keys"),
+                ],
+            ),
+        ],
+    )
+}
 
 /// What `rebuild` selects once the rows have changed.
 enum Select {
@@ -93,7 +124,6 @@ pub struct ExplorerPicker {
 /// expanded to and selected.
 pub fn open(cx: &mut commands::Context, reveal: bool) {
     let explorer = ExplorerPicker::new(cx.editor, reveal);
-    cx.editor.set_status(HINT);
     cx.push_layer(Box::new(overlaid(explorer)));
 }
 
@@ -473,10 +503,7 @@ impl ExplorerPicker {
             key!('r') => return self.prompt_rename(),
             key!('x') => {
                 if let Some(entry) = self.selected() {
-                    cx.editor.set_status(format!(
-                        "Cut {}, press p on the destination to move it",
-                        entry.node.name
-                    ));
+                    cx.editor.set_status(format!("Cut {}", entry.node.name));
                     self.cut = Some(entry.node.path.clone());
                     self.rebuild(cx.editor, Select::Keep);
                 }
@@ -495,13 +522,12 @@ impl ExplorerPicker {
             }
             key!('R') => {
                 self.reload(cx.editor);
-                cx.editor.set_status("Explorer refreshed");
             }
             key!('H') => {
                 self.flip_hidden = !self.flip_hidden;
                 self.rebuild(cx.editor, Select::Keep);
             }
-            key!('?') => cx.editor.set_status(HELP),
+            key!('?') => return EventResult::Consumed(Some(key_help().push())),
             key!(Esc) if !self.query.is_empty() => self.clear_query(cx.editor),
             key!(Esc) | key!('q') | ctrl!('c') => return close_callback(),
             _ => {}

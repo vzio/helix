@@ -32,9 +32,6 @@ pub const FOCUS_KEY: KeyEvent = KeyEvent {
     modifiers: KeyModifiers::CONTROL,
 };
 
-/// The keys that cycle the spectated thread, for notices.
-pub const THREAD_KEYS: &str = "< / >";
-
 /// Shows the panel; the terminal panel, which shares its place, hides.
 pub fn show(editor: &mut Editor) {
     editor.terminal.hide();
@@ -170,8 +167,8 @@ pub enum Handled {
     /// Not the panel's: the editor's keymap gets it.
     No,
     Yes,
-    /// The panel's, and it opens a prompt.
-    Prompt(Box<Prompt>),
+    /// The panel's, and it opens a prompt (or another overlay, such as the key help).
+    Prompt(Box<dyn crate::compositor::Component>),
 }
 
 /// Handles a key while the panel is focused.
@@ -239,6 +236,7 @@ pub fn handle_key(editor: &mut Editor, key: KeyEvent) -> Handled {
         }
         Char('*') if plain => toggle_mark(editor),
         Char('M') if plain => super::memory::open_selected(editor),
+        Char('?') if plain => return Handled::Prompt(Box::new(key_help())),
         // the editor's: the command line, the terminal panel
         Char(':') if plain => return Handled::No,
         Char('t') if ctrl => return Handled::No,
@@ -294,6 +292,50 @@ pub fn handle_key(editor: &mut Editor, key: KeyEvent) -> Handled {
         _ => {}
     }
     Handled::Yes
+}
+
+/// The keys of the panel, for the key help overlay (`?`).
+fn key_help() -> crate::ui::keyhelp::KeyHelp {
+    crate::ui::keyhelp::KeyHelp::new(
+        "Debug panel",
+        &[
+            (
+                "panel",
+                vec![
+                    ("j k, gg G, C-d C-u", "move"),
+                    ("Tab S-Tab, w b, 1-5", "next, previous, a given section"),
+                    ("Enter", "open or close, select a frame, go to a breakpoint"),
+                    ("l h", "open, close"),
+                    ("s", "search the section (Esc clears)"),
+                    ("c", "change a value, watch, or condition"),
+                    ("m", "a breakpoint's log message"),
+                    ("a", "add a watch, or watch a variable"),
+                    ("d", "delete the watch or breakpoint"),
+                    ("t", "turn a breakpoint off or on"),
+                    ("y", "yank the value"),
+                    ("i", "evaluate an expression"),
+                    ("M", "the memory of the value"),
+                    (":, C-t", "command line, terminal"),
+                    ("q Esc C-g", "back to the editor"),
+                ],
+            ),
+            (
+                "playback",
+                vec![
+                    ("Space", "play or pause"),
+                    ("n, + -", "one step, faster, slower"),
+                    ("f, r", "fast forward to a change, run to the cursor"),
+                    ("< >", "spectate the previous, next thread"),
+                    ("z o p", "freeze, solo, pause or continue a thread"),
+                    ("e u", "what playback steps into, the step's unit"),
+                    ("*", "mark a variable for fast forward"),
+                    ("[ ] { } L", "rewind one, ten, back to live"),
+                    ("R, x", "capture settings, clear time labels"),
+                ],
+            ),
+            ("help", vec![("?", "these keys")]),
+        ],
+    )
 }
 
 /// Enter: opens or closes a node, selects a frame or a thread, or goes to a breakpoint. In the
@@ -595,7 +637,7 @@ fn add_watch(editor: &mut Editor) -> Handled {
                 });
                 editor.debug.generation += 1;
                 load::reload_frame(editor);
-                editor.set_status("Watching it: 2 shows the watches");
+                editor.set_status("Watching it");
                 return Handled::Yes;
             }
             _ => String::new(),
@@ -782,7 +824,7 @@ fn toggle_mark(editor: &mut Editor) {
     let marked = &mut editor.debug.spectator.marked;
     if !marked.remove(&path.names) {
         marked.insert(path.names.clone());
-        editor.set_status("Marked: fast forward (f) stops when it changes");
+        editor.set_status("Marked: fast forward stops when it changes");
     } else {
         editor.set_status("Unmarked");
     }

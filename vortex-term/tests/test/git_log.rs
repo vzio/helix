@@ -349,16 +349,20 @@ impl Session {
         screen_rows(&self.app)
     }
 
-    /// The lines inside of the frame of the picker on top: the prompt, the line below it, the
-    /// header, and the rows, without their trailing spaces.
+    /// The lines inside of the frame of the picker on top: the prompt, the line below it, and
+    /// the rows (the fork's lists have no header), without their trailing spaces.
     pub(super) fn frame(&self) -> Vec<String> {
         let rows = self.rows();
         let top = rows
             .iter()
-            .position(|row| row.starts_with('┌'))
-            .expect("a picker on the screen");
+            .position(|row| row.contains('┌'))
+            .unwrap_or_else(|| panic!("a picker on the screen:\n{rows:#?}"));
+        // (the picker is centered when the terminal is wide, see `widen`, with the buffer
+        // beside it)
+        let left = rows[top].chars().take_while(|c| *c != '┌').count();
         rows[top + 1..]
             .iter()
+            .map(|row| row.chars().skip(left).collect::<String>())
             .take_while(|row| !row.starts_with('└'))
             .map(|row| {
                 row.trim_start_matches('│')
@@ -373,8 +377,7 @@ impl Session {
     /// The rows of the commits and dividers of the commit picker.
     pub(super) fn log(&self) -> Vec<String> {
         let frame = self.frame();
-        assert!(frame[2].contains("commit"), "{frame:#?}");
-        frame[3..]
+        frame[2..]
             .iter()
             .filter(|row| !row.is_empty())
             .cloned()
@@ -601,13 +604,13 @@ async fn extend_mode_selects_a_range() {
     };
     let mut session = Session::open_log().await;
     assert_eq!(session.marked(), [] as [&str; 0]);
-    assert_eq!(status(&session.app), HINT);
+    assert_eq!(session.info(), "");
 
     session.keys("<A-v>").await;
-    assert_eq!(status(&session.app), format!("[extend] {}", id(COMMITS[0])));
+    assert_eq!(session.info(), format!("[extend] {}", id(COMMITS[0])));
     session.keys("<down><down>").await;
     assert_eq!(
-        status(&session.app),
+        session.info(),
         format!("[extend] {}", range(COMMITS[2], COMMITS[0], 3))
     );
     // the rows between the anchor and the cursor, not the cursor's own
@@ -617,7 +620,7 @@ async fn extend_mode_selects_a_range() {
     // over a divider: it's not a commit
     session.keys("<down>").await;
     assert_eq!(
-        status(&session.app),
+        session.info(),
         format!("[extend] {}", range(COMMITS[3], COMMITS[0], 4))
     );
     assert_eq!(session.marked(), &COMMITS[..3]);
@@ -629,22 +632,22 @@ async fn extend_mode_selects_a_range() {
 
     // no extend mode: the range stays until the next movement
     session.keys("<A-v>").await;
-    assert_eq!(status(&session.app), range(COMMITS[3], COMMITS[0], 4));
+    assert_eq!(session.info(), range(COMMITS[3], COMMITS[0], 4));
     assert_eq!(session.marked(), &COMMITS[..3]);
     session.keys("<down>").await;
-    assert_eq!(status(&session.app), "");
+    assert_eq!(session.info(), "");
     assert_eq!(session.marked(), [] as [&str; 0]);
     assert_eq!(session.cursor(), COMMITS[4]);
 
     // Esc collapses and leaves extend mode, and then closes
     session.keys("<A-v><down><down>").await;
     assert_eq!(
-        status(&session.app),
+        session.info(),
         format!("[extend] {}", range(COMMITS[6], COMMITS[4], 3))
     );
     assert_eq!(session.marked(), &COMMITS[4..6]);
     session.keys("<esc>").await;
-    assert_eq!(status(&session.app), "");
+    assert_eq!(session.info(), "");
     assert_eq!(session.marked(), [] as [&str; 0]);
     assert_eq!(session.cursor(), COMMITS[6]);
     session.keys("<up>").await;
@@ -662,43 +665,43 @@ async fn shift_arrows_extend_by_one_commit() {
     let mut session = Session::open_log().await;
 
     session.keys("<S-down><S-down>").await;
-    assert_eq!(status(&session.app), range(COMMITS[2], COMMITS[0], 3));
+    assert_eq!(session.info(), range(COMMITS[2], COMMITS[0], 3));
     assert_eq!(session.marked(), &COMMITS[..2]);
     session.keys("<S-up>").await;
-    assert_eq!(status(&session.app), range(COMMITS[1], COMMITS[0], 2));
+    assert_eq!(session.info(), range(COMMITS[1], COMMITS[0], 2));
     assert_eq!(session.cursor(), COMMITS[1]);
     session.keys("<S-up>").await;
-    assert_eq!(status(&session.app), "");
+    assert_eq!(session.info(), "");
     // extending onto the uncommitted changes, past the divider, is still the commit alone
     session.keys("<S-up>").await;
     assert_eq!(session.cursor(), UNCOMMITTED);
-    assert_eq!(status(&session.app), "");
+    assert_eq!(session.info(), "");
     assert_eq!(session.marked(), [] as [&str; 0]);
     session.keys("<down>").await;
     assert_eq!(session.cursor(), COMMITS[0]);
     // up to the uncommitted changes, which are not a commit
     session.keys("<up>").await;
     assert_eq!(session.cursor(), UNCOMMITTED);
-    assert_eq!(status(&session.app), "");
+    assert_eq!(session.info(), "");
     // no wrapping around the log
     session.keys("<S-up>").await;
     assert_eq!(session.cursor(), UNCOMMITTED);
-    assert_eq!(status(&session.app), "");
+    assert_eq!(session.info(), "");
     assert_eq!(session.marked(), [] as [&str; 0]);
     session.keys("<down>").await;
     assert_eq!(session.cursor(), COMMITS[0]);
 
     // over the divider, and a plain movement is the commit alone again
     session.keys("<S-down><S-down><S-down>").await;
-    assert_eq!(status(&session.app), range(COMMITS[3], COMMITS[0], 4));
+    assert_eq!(session.info(), range(COMMITS[3], COMMITS[0], 4));
     session.keys("<up>").await;
-    assert_eq!(status(&session.app), "");
+    assert_eq!(session.info(), "");
     assert_eq!(session.marked(), [] as [&str; 0]);
     assert_eq!(session.cursor(), COMMITS[2]);
 
     session.keys("<end><S-down>").await;
     assert_eq!(session.cursor(), COMMITS[7]);
-    assert_eq!(status(&session.app), "");
+    assert_eq!(session.info(), "");
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -709,22 +712,22 @@ async fn alt_s_selects_the_section_of_the_cursor() {
     let mut session = Session::open_log().await;
 
     session.keys("<A-s>").await;
-    assert_eq!(status(&session.app), range(COMMITS[2], COMMITS[0], 3));
+    assert_eq!(session.info(), range(COMMITS[2], COMMITS[0], 3));
     assert_eq!(session.marked(), &COMMITS[1..3]);
 
     session.keys("<esc><down><down><down>").await;
     assert_eq!(session.cursor(), COMMITS[3]);
     session.keys("<A-s>").await;
-    assert_eq!(status(&session.app), range(COMMITS[4], COMMITS[3], 2));
+    assert_eq!(session.info(), range(COMMITS[4], COMMITS[3], 2));
     assert_eq!(session.marked(), &COMMITS[4..5]);
 
     session.keys("<end><A-s>").await;
-    assert_eq!(status(&session.app), range(COMMITS[7], COMMITS[5], 3));
+    assert_eq!(session.info(), range(COMMITS[7], COMMITS[5], 3));
     assert_eq!(session.marked(), &COMMITS[5..7]);
 
     // (extending goes on from the oldest commit of the section)
     session.keys("<esc><home><down><A-s><S-down>").await;
-    assert_eq!(status(&session.app), range(COMMITS[2], COMMITS[1], 2));
+    assert_eq!(session.info(), range(COMMITS[2], COMMITS[1], 2));
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -741,7 +744,7 @@ async fn the_range_covers_the_commits_the_query_hides() {
 
     session.keys("<A-v><down>").await;
     assert_eq!(
-        status(&session.app),
+        session.info(),
         format!("[extend] {}", range(COMMITS[3], COMMITS[0], 4))
     );
     session.keys("<ret>").await;
@@ -782,13 +785,12 @@ async fn enter_on_a_range_lists_the_combined_change_and_diffs_it() {
     // merge brought: m3)
     let expected = new_files(&["f3.txt", "f4.txt", "m3.txt"]);
     assert_eq!(session.list(), expected);
-    assert_eq!(
-        status(&session.app),
-        format!(
+    session
+        .assert_info(&format!(
             "{}: 3 changes in 3 files, +3",
             range(COMMITS[2], COMMITS[0], 3)
-        )
-    );
+        ))
+        .await;
 
     // the diff of a file, with the base on the left and the newest commit on the right
     session.keys("<ret>").await;
@@ -810,14 +812,8 @@ async fn enter_on_a_range_lists_the_combined_change_and_diffs_it() {
     assert_eq!(session.list(), expected);
     session.keys("<esc>").await;
     assert_eq!(session.marked(), &COMMITS[1..3]);
-    // (the status line keeps what the list said)
-    assert_eq!(
-        status(&session.app),
-        format!(
-            "{}: 3 changes in 3 files, +3",
-            range(COMMITS[2], COMMITS[0], 3)
-        )
-    );
+    // (the log says the range again)
+    assert_eq!(session.info(), range(COMMITS[2], COMMITS[0], 3));
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -854,14 +850,13 @@ async fn enter_on_one_commit_is_what_it_was() {
         .wait_for_screen("the files", |rows| on_screen(rows, "m3.txt"))
         .await;
     assert_eq!(session.list(), new_files(&["m3.txt"]));
-    assert_eq!(
-        status(&session.app),
-        format!(
+    session
+        .assert_info(&format!(
             "{}: 1 change in 1 file, +1 · {}",
             id(COMMITS[1]),
             COMMITS[1]
-        )
-    );
+        ))
+        .await;
     session.keys("<ret>").await;
     let left = format!("{}^: (new file)", id(COMMITS[1]));
     let right = format!("{}: m3.txt", id(COMMITS[1]));
@@ -877,14 +872,13 @@ async fn enter_on_one_commit_is_what_it_was() {
     session
         .wait_for_screen("the files", |rows| on_screen(rows, "m3.txt"))
         .await;
-    assert_eq!(
-        status(&session.app),
-        format!(
+    session
+        .assert_info(&format!(
             "{}: 1 change in 1 file, +1 · {}",
             id(COMMITS[1]),
             COMMITS[1]
-        )
-    );
+        ))
+        .await;
     // (Esc closes the files, then leaves extend mode)
     session.keys("<esc><esc>").await;
 
@@ -901,14 +895,78 @@ async fn enter_on_one_commit_is_what_it_was() {
         .await;
 }
 
-pub(super) const HINT: &str = "s filter, v extend, w/b section, enter files";
-
-/// The query in the prompt of the picker on top.
+/// The query and the count in the prompt of the picker on top, without its info.
 pub(super) fn prompt(session: &Session) -> String {
-    session.frame()[0].trim().to_string()
+    let frame = session.frame();
+    let row = frame[0].split("││").next().unwrap_or_default();
+    let info = session.info();
+    let row = if info.is_empty() {
+        row.to_string()
+    } else {
+        row.replacen(&info, "", 1)
+    };
+    row.trim().to_string()
 }
 
 impl Session {
+    /// Makes the terminal wide: the prompt row of a picker with a preview gives its info half
+    /// of the list, which is cut when it is long (see [`Session::info_is`]).
+    pub(super) async fn widen(&mut self) {
+        const COLS: u16 = 300;
+        let rows = self.app.screen().area.height;
+        if self.app.screen().area.width == COLS {
+            return;
+        }
+        self.app.resize_screen(COLS, rows);
+        let event = Event::WindowResized(termina::WindowSize {
+            cols: COLS,
+            rows,
+            pixel_width: None,
+            pixel_height: None,
+        });
+        self.tx.send(Ok(event)).unwrap();
+        assert!(self.app.event_loop_until_idle(&mut self.input).await);
+        // a frame at the new size
+        self.run_for(Duration::from_millis(100)).await;
+    }
+
+    /// What the picker on top says on its prompt row, between the prompt and the count (the
+    /// totals of a list, the range of the log); empty when it says nothing. The row is cut when
+    /// it is long, see [`Session::info_is`].
+    pub(super) fn info(&self) -> String {
+        let frame = self.frame();
+        // (the preview is beside the list)
+        let row = frame[0].split("││").next().unwrap_or_default().trim_end();
+        let Some((rest, _count)) = row.rsplit_once(' ') else {
+            return String::new();
+        };
+        let rest = rest.trim_end().trim_end_matches("(running)").trim_end();
+        match rest.rsplit_once("  ") {
+            Some((_, info)) => info.trim().to_string(),
+            None => String::new(),
+        }
+    }
+
+    /// Whether the prompt row says `expected`, or the start of it before the `…` it is cut with.
+    pub(super) fn info_is(&self, expected: &str) -> bool {
+        let info = self.info();
+        info == expected
+            || info
+                .strip_suffix('…')
+                .is_some_and(|cut| !cut.is_empty() && expected.starts_with(cut))
+    }
+
+    /// Asserts that the prompt row says `expected` (in a wide terminal, see [`Session::widen`]).
+    pub(super) async fn assert_info(&mut self, expected: &str) {
+        self.widen().await;
+        assert!(
+            self.info_is(expected),
+            "the prompt row says {:?}, not {expected:?}: {:#?}",
+            self.info(),
+            self.frame()
+        );
+    }
+
     /// Runs until the commits on the screen are `expected`, newest first.
     async fn wait_for_commits(&mut self, expected: &[&str]) {
         self.wait_for_screen("the commits", |rows| {
@@ -928,8 +986,7 @@ async fn the_log_opens_in_normal_mode_where_the_letters_are_keys() {
         return;
     };
     let mut session = Session::open_log().await;
-    assert_eq!(status(&session.app), HINT);
-    assert!(HINT.len() <= 50);
+    assert_eq!(session.info(), "");
 
     // letters don't reach the prompt (`x` and `p` are no keys of the log), pasting neither
     session.keys("xp").await;
@@ -937,7 +994,7 @@ async fn the_log_opens_in_normal_mode_where_the_letters_are_keys() {
     assert_eq!(session.log().len(), 12);
     // moving keeps the hint
     session.keys("j").await;
-    assert_eq!(status(&session.app), HINT);
+    assert_eq!(session.info(), "");
 
     // `s` is the filter, where letters (also the ones that are keys) are typed
     session.keys("scrash").await;
@@ -954,7 +1011,7 @@ async fn the_log_opens_in_normal_mode_where_the_letters_are_keys() {
     session
         .keys("<backspace><backspace><backspace><backspace>")
         .await;
-    assert_eq!(status(&session.app), HINT);
+    assert_eq!(session.info(), "");
 
     // Esc is back to normal mode with the query: the letters are keys again
     session.keys("<esc>").await;
@@ -1037,10 +1094,10 @@ async fn v_extends_the_range_with_j_and_k() {
     };
     let mut session = Session::open_log().await;
     session.keys("v").await;
-    assert_eq!(status(&session.app), format!("[extend] {}", id(COMMITS[0])));
+    assert_eq!(session.info(), format!("[extend] {}", id(COMMITS[0])));
     session.keys("jj").await;
     assert_eq!(
-        status(&session.app),
+        session.info(),
         format!("[extend] {}", range(COMMITS[2], COMMITS[0], 3))
     );
     assert_eq!(session.marked(), &COMMITS[..2]);
@@ -1050,14 +1107,14 @@ async fn v_extends_the_range_with_j_and_k() {
     // and back
     session.keys("kk").await;
     assert_eq!(
-        status(&session.app),
+        session.info(),
         format!("[extend] {}", range(COMMITS[1], COMMITS[0], 2))
     );
     assert_eq!(session.marked(), &COMMITS[..1]);
 
     // Esc collapses to the commit under the cursor, and leaves extend mode
     session.keys("<esc>").await;
-    assert_eq!(status(&session.app), "");
+    assert_eq!(session.info(), "");
     assert_eq!(session.marked(), [] as [&str; 0]);
     assert_eq!(session.cursor(), COMMITS[1]);
     session.keys("j").await;
@@ -1067,14 +1124,14 @@ async fn v_extends_the_range_with_j_and_k() {
     session.keys("vjj").await;
     assert_eq!(session.marked(), &COMMITS[2..4]);
     session.keys("v").await;
-    assert_eq!(status(&session.app), range(COMMITS[4], COMMITS[2], 3));
+    assert_eq!(session.info(), range(COMMITS[4], COMMITS[2], 3));
     assert_eq!(session.marked(), &COMMITS[2..4]);
 
     // the keys that extend work in filter mode too, `v` is a letter there
     session.keys("<esc>").await;
     session.keys("s<A-v>v").await;
     assert_eq!(prompt(&session).split_whitespace().next(), Some("v"));
-    assert!(status(&session.app).starts_with("[extend] "));
+    assert!(session.info().starts_with("[extend] "));
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -1086,31 +1143,31 @@ async fn w_and_e_extend_to_the_oldest_commit_of_the_section() {
 
     session.keys("w").await;
     assert_eq!(session.cursor(), COMMITS[2]);
-    assert_eq!(status(&session.app), range(COMMITS[2], COMMITS[0], 3));
+    assert_eq!(session.info(), range(COMMITS[2], COMMITS[0], 3));
     assert_eq!(session.marked(), &COMMITS[..2]);
     // it stops at the divider, again and with `e`
     session.keys("w").await;
     assert_eq!(session.cursor(), COMMITS[2]);
-    assert_eq!(status(&session.app), range(COMMITS[2], COMMITS[0], 3));
+    assert_eq!(session.info(), range(COMMITS[2], COMMITS[0], 3));
     session.keys("e").await;
     assert_eq!(session.cursor(), COMMITS[2]);
-    assert_eq!(status(&session.app), range(COMMITS[2], COMMITS[0], 3));
+    assert_eq!(session.info(), range(COMMITS[2], COMMITS[0], 3));
 
     // `w` doesn't leave extend mode on: a plain movement starts a new selection
     session.keys("j").await;
     assert_eq!(session.cursor(), COMMITS[3]);
-    assert_eq!(status(&session.app), "");
+    assert_eq!(session.info(), "");
     assert_eq!(session.marked(), [] as [&str; 0]);
 
     // from a commit in the middle of a section, without a range: the range starts there
     session.keys("e").await;
     assert_eq!(session.cursor(), COMMITS[4]);
-    assert_eq!(status(&session.app), range(COMMITS[4], COMMITS[3], 2));
+    assert_eq!(session.info(), range(COMMITS[4], COMMITS[3], 2));
     session.keys("jj").await;
     assert_eq!(session.cursor(), COMMITS[6]);
     session.keys("w").await;
     assert_eq!(session.cursor(), COMMITS[7]);
-    assert_eq!(status(&session.app), range(COMMITS[7], COMMITS[6], 2));
+    assert_eq!(session.info(), range(COMMITS[7], COMMITS[6], 2));
     assert_eq!(session.marked(), &COMMITS[6..7]);
 
     // in extend mode the anchor stays
@@ -1120,13 +1177,13 @@ async fn w_and_e_extend_to_the_oldest_commit_of_the_section() {
     session.keys("w").await;
     assert_eq!(session.cursor(), COMMITS[2]);
     assert_eq!(
-        status(&session.app),
+        session.info(),
         format!("[extend] {}", range(COMMITS[2], COMMITS[1], 2))
     );
     // (and it's still on: moving extends)
     session.keys("j").await;
     assert_eq!(
-        status(&session.app),
+        session.info(),
         format!("[extend] {}", range(COMMITS[3], COMMITS[1], 3))
     );
 }
@@ -1141,28 +1198,28 @@ async fn b_extends_to_the_newest_commit_of_the_section() {
     // the first commit of the section, nothing to extend to
     session.keys("b").await;
     assert_eq!(session.cursor(), COMMITS[0]);
-    assert_eq!(status(&session.app), HINT);
+    assert_eq!(session.info(), "");
 
     session.keys("G").await;
     session.keys("b").await;
     assert_eq!(session.cursor(), COMMITS[5]);
-    assert_eq!(status(&session.app), range(COMMITS[7], COMMITS[5], 3));
+    assert_eq!(session.info(), range(COMMITS[7], COMMITS[5], 3));
     assert_eq!(session.marked(), &COMMITS[6..]);
     // it stops at the divider
     session.keys("b").await;
     assert_eq!(session.cursor(), COMMITS[5]);
-    assert_eq!(status(&session.app), range(COMMITS[7], COMMITS[5], 3));
+    assert_eq!(session.info(), range(COMMITS[7], COMMITS[5], 3));
 
     // with a range, the anchor stays: back to the end of the section the cursor is in
     session.keys("w").await;
     assert_eq!(session.cursor(), COMMITS[7]);
-    assert_eq!(status(&session.app), "");
+    assert_eq!(session.info(), "");
     assert_eq!(session.marked(), [] as [&str; 0]);
 
     // from the middle, without a range
     session.keys("kb").await;
     assert_eq!(session.cursor(), COMMITS[5]);
-    assert_eq!(status(&session.app), range(COMMITS[6], COMMITS[5], 2));
+    assert_eq!(session.info(), range(COMMITS[6], COMMITS[5], 2));
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -1177,13 +1234,12 @@ async fn enter_on_a_range_made_with_w_lists_the_combined_change() {
         .await;
     let expected = new_files(&["f3.txt", "f4.txt", "m3.txt"]);
     assert_eq!(session.list(), expected);
-    assert_eq!(
-        status(&session.app),
-        format!(
+    session
+        .assert_info(&format!(
             "{}: 3 changes in 3 files, +3",
             range(COMMITS[2], COMMITS[0], 3)
-        )
-    );
+        ))
+        .await;
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -1211,13 +1267,13 @@ async fn w_and_b_go_to_the_matching_commits_of_the_section() {
     // them all
     session.keys("w").await;
     assert_eq!(session.cursor(), COMMITS[2]);
-    assert_eq!(status(&session.app), range(COMMITS[2], COMMITS[0], 3));
+    assert_eq!(session.info(), range(COMMITS[2], COMMITS[0], 3));
     session.keys("w").await;
     assert_eq!(session.cursor(), COMMITS[2]);
-    assert_eq!(status(&session.app), range(COMMITS[2], COMMITS[0], 3));
+    assert_eq!(session.info(), range(COMMITS[2], COMMITS[0], 3));
     session.keys("b").await;
     assert_eq!(session.cursor(), COMMITS[0]);
-    assert_eq!(status(&session.app), "");
+    assert_eq!(session.info(), "");
 
     // the only match of the second section is at both ends of it
     for _ in 0..3 {
@@ -1229,7 +1285,7 @@ async fn w_and_b_go_to_the_matching_commits_of_the_section() {
     assert_eq!(session.cursor(), COMMITS[3]);
     session.keys("wb").await;
     assert_eq!(session.cursor(), COMMITS[3]);
-    assert_eq!(status(&session.app), "");
+    assert_eq!(session.info(), "");
 
     // Esc in normal mode: the range first, then the query, then the picker; in filter mode it
     // only goes to normal mode
@@ -1263,9 +1319,9 @@ async fn the_alt_keys_work_in_filter_mode() {
     };
     let mut session = Session::open_log().await;
     session.keys("s<A-s>").await;
-    assert_eq!(status(&session.app), range(COMMITS[2], COMMITS[0], 3));
+    assert_eq!(session.info(), range(COMMITS[2], COMMITS[0], 3));
     session.keys("<S-down>").await;
-    assert_eq!(status(&session.app), range(COMMITS[2], COMMITS[1], 2));
+    assert_eq!(session.info(), range(COMMITS[2], COMMITS[1], 2));
     assert_eq!(prompt(&session).split_whitespace().next(), Some("9/9"));
 }
 
@@ -1543,8 +1599,46 @@ async fn the_commit_of_the_hash_is_listed_first_and_opens() {
     session
         .wait_for_screen("the commit", |rows| on_screen(rows, "m1.txt"))
         .await;
-    assert_eq!(
-        status(&session.app),
-        format!("{}: 1 change in 1 file, +1 · {oldest}", id(oldest))
+    session
+        .assert_info(&format!(
+            "{}: 1 change in 1 file, +1 · {oldest}",
+            id(oldest)
+        ))
+        .await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn the_log_has_no_header_nothing_in_the_status_line_and_a_key_help_on_question_mark() {
+    let Some(_) = Repo::enter(
+        "the_log_has_no_header_nothing_in_the_status_line_and_a_key_help_on_question_mark",
+    ) else {
+        return;
+    };
+    let mut session = Session::open_log().await;
+    // the row under the separator is an entry, not the names of the columns
+    let frame = session.frame();
+    assert!(frame[2].contains(UNCOMMITTED), "{frame:#?}");
+    assert!(
+        !frame.iter().any(|row| row.contains("author")),
+        "{frame:#?}"
     );
+    // the keys are not in the status line
+    assert_eq!(status(&session.app), "");
+
+    session.keys("?").await;
+    let rows = session.rows();
+    assert!(on_screen(&rows, "Commit log"), "{rows:#?}");
+    assert!(on_screen(&rows, "any key closes"), "{rows:#?}");
+    assert!(on_screen(&rows, "extend mode"), "{rows:#?}");
+    // any key closes it and goes no further
+    session.keys("j").await;
+    let rows = session.rows();
+    assert!(!on_screen(&rows, "any key closes"), "{rows:#?}");
+    assert_eq!(session.cursor(), COMMITS[0]);
+
+    // in filter mode `?` is part of the query
+    session.keys("s?").await;
+    let rows = session.rows();
+    assert!(!on_screen(&rows, "any key closes"), "{rows:#?}");
+    assert!(session.frame()[0].contains('?'), "{:#?}", session.frame());
 }

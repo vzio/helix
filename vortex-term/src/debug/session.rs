@@ -295,18 +295,18 @@ fn handle_other_event(editor: &mut Editor, id: DebugAdapterId, event: Event) -> 
                 .get_client_mut(id)
                 .unwrap()
                 .progress_start(body);
-            editor.set_status(status);
+            log::info!("{status}");
         }
         Event::ProgressUpdate(body) => {
             let client = editor.debug_adapters.get_client_mut(id).unwrap();
             if let Some(status) = client.progress_update(body) {
-                editor.set_status(status);
+                log::info!("{status}");
             }
         }
         Event::ProgressEnd(body) => {
             let client = editor.debug_adapters.get_client_mut(id).unwrap();
             if let Some(status) = client.progress_end(body) {
-                editor.set_status(status);
+                log::info!("{status}");
             }
         }
         Event::Capabilities(events::CapabilitiesBody { capabilities }) => {

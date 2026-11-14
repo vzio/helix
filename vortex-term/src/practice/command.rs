@@ -136,8 +136,7 @@ pub fn practice(
 }
 
 fn running(editor: &Editor) -> anyhow::Result<session::Attempt> {
-    session::live_attempt(editor)
-        .ok_or_else(|| anyhow::anyhow!("no exercise is open, start one with :practice"))
+    session::live_attempt(editor).ok_or_else(|| anyhow::anyhow!("no exercise is open"))
 }
 
 fn resume(editor: &mut Editor, chapter: Option<&str>) -> anyhow::Result<()> {
