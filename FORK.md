@@ -370,9 +370,11 @@ rows; [debug mode](#debug-mode) uses three.
 
 **Layout.** A mode supplies rows of segments, each placed left, middle or right; the bar draws
 them, a column of padding on each side, the middle centered (moved aside when it would touch the
-others). A segment is the mode's **state**, **information**, or a **key badge**. When a row is too
-narrow, the keys collapse first (all their labels go, leaving the keys, then the last badges go),
-then the information is cut with `…` (the widest first), then the state. The bar takes its place
+others). A segment is the mode's **state**, **information**, a passing **note** (what the last key
+did: debug mode's), or a **key badge**; a row can also be a **line** of cells as wide as the bar
+(debug mode's lineline). When a row is too narrow, a note goes first (cut with `…`, then gone), then
+the keys collapse (all their labels go, leaving the keys, then the last badges go), then the
+information is cut with `…` (the widest first), then the state. The bar takes its place
 under the splits and the panels (the terminal and debug panels stay above it), and the infobox
 moves up over it.
 
@@ -454,7 +456,8 @@ listing their keys, in groups; any key closes it: the commit log and line histor
 changes (of commits, the uncommitted changes, watch mode's changes), the worktrees, the bookmarks,
 the file tree, the side by side diff, the hex view, the debug panel and [debug mode](#debug-mode)
 (its groups: playback, stepping, threads, view and breakpoints, session, inspect, panel, mode; the box is
-built from the keymap, so a remapped key shows as remapped). Where `?` is typed text
+built from the keymap, so a remapped key shows as remapped). A box taller than the screen (debug
+mode's, on a small terminal) is laid out in two columns, split between groups. Where `?` is typed text
 (a picker's filter mode, after `s`), it stays text. Their keys are no longer printed to the status
 line, nor in the diff's footer. The hex view's `?` was a backward search: `/` and then `N` searches
 backward.
@@ -1764,14 +1767,15 @@ still in the command palette.
 Three rows, above the message area:
 
 ```text
- DEBUG ❚❚ paused · breakpoint   H |◀  h ◀◀  Space ▶  l ▶▶  L ▶|             2 lines/s · own
+ DEBUG ❚❚ paused · breakpoint   H |◀  h ◀◀  Space ▶  l ▶▶  L ▶|     j −  2 lines/s · own  k +
  ·░▒▓█▓▒░·░░▒▒▓███▒░  ✕  ┄full speed┄  ░▒▓█▓▒░░  ●  ░░▒▓▒·  ‖ ┃
-  v view   b breakpoint   e own   k faster   j slower   f to a change   main · src/main.rs:30
+  v view   b breakpoint   e own   f change   r cursor   > thread   S stop   main · src/main.rs:30
 ```
 
 **Row 1, the transport.** On the left the state, then the badges `|◀` (`H`), `◀◀` (`h`), `▶` or
 `❚❚` while playing (`Space`), `▶▶` (`l`) and `▶|` (`L`), in the middle; in rewind `p present` too.
-On the right the speed and what playback follows (`8 lines/s · own`).
+On the right the speed and what playback follows (`8 lines/s · own`), between the badges of its
+keys: `j −` slower, `k +` faster.
 
 | State | When |
 | --- | --- |
@@ -1787,11 +1791,12 @@ On the right the speed and what playback follows (`8 lines/s · own`).
 | `DEBUG ◜ ━━━─── installing breakpoints · 12/48 files` | the [engine](#engine)'s loading animation |
 
 **Row 3, the keys.** `s start` without a session; `v view` or `v follow`; `b breakpoint`; in view
-mode `B type`; with a session `e own`, `k faster`, `j slower`, `f to a change`, `r to cursor`,
-`> thread`, `S stop`; then `Tab panel`, `? keys`, `Esc leave`. Each is a badge: a click runs it. A
-narrow window drops the labels first, then the last badges. On the right of the row is the note, what
-the last key did or why it waited (`following: v looks around to move`), else the spectated
-thread and its place: `main · src/main.rs:30`.
+mode `B type`; with a session `e own` (what playback follows), `f change` (fast forward to a
+change), `r cursor` (run to the cursor), `> thread`, `S stop`; then `Tab panel`, `? keys`,
+`Esc leave`: every label fits a 120-column window. Each is a badge: a click runs it. On the right of
+the row is the note, what the last key did or why it waited (`following: v looks around to move`),
+else the spectated thread and its place: `main · src/main.rs:30`. The note gives way first (cut, then
+gone) so that it never hides a label; then a narrow window drops the labels, then the last badges.
 
 #### The lineline
 
@@ -2209,8 +2214,9 @@ program waits for all of them, as before. The program stops at the first line of
 runs, on whichever thread: that thread is spectated, playback paused (`Stopped at the first line of
 your code that ran`). Switching the follow mode (`e`) sends the whole set again for the
 new mode, and the restore after a full-speed run puts it back, both in the same order (the
-spectated thread's file first) and both letting playback go on once those are in. `L` waits
-until a set is complete (it says so). While breakpoints are installed, lifted or restored, the loading animation
+spectated thread's file first) and both letting playback go on once those are in. `L` while
+a set goes in (right after a stop, while the hidden breakpoints are put back) runs at full speed once
+it is complete (the note says so). While breakpoints are installed, lifted or restored, the loading animation
 shows in the bar's state (the panel's top row outside debug mode) (a spinner, a bar that fills as files are done with a glow running along
 it, `installing breakpoints · 12/48 files · 3,410 lines`) and the statusline `DBG … · ◜ 12/48`; the
 editor stays usable.
