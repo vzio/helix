@@ -10,7 +10,6 @@ fn names(session: &Session) -> Vec<String> {
         .iter()
         .map(|row| {
             row.trim_start_matches(" > ")
-                .trim_start()
                 .split_whitespace()
                 .next()
                 .unwrap_or("")
@@ -37,12 +36,9 @@ async fn recent_commands_come_first_most_recent_first() {
 
     session.keys("<space>?").await;
     let rows = names(&session);
-    let first: Vec<_> = rows.iter().filter(|name| !name.is_empty()).collect();
-    println!("{first:#?}");
-    let at = |name: &str| first.iter().position(|row| *row == name);
-    assert!(at("select_all").unwrap() < at(":echo").unwrap(), "{first:#?}");
-    assert!(at(":echo").unwrap() <= 3, "{first:#?}");
-    assert!(at("select_all").unwrap() <= 2, "{first:#?}");
+    // (after the column header)
+    let at = rows.iter().position(|name| name == "name").unwrap() + 1;
+    assert_eq!(rows[at..at + 2], ["select_all", ":echo"], "{rows:#?}");
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -64,4 +60,33 @@ async fn the_recent_commands_live_on_the_editor_only() {
     assert_eq!(first.app.editor.recent_commands, [":echo".to_string()]);
     let second = Session::new();
     assert!(second.app.editor.recent_commands.is_empty());
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_recent_command_wins_a_tie_and_without_it_the_matchers_order_is_kept() {
+    let rows_for = |session: &Session| -> Vec<String> {
+        names(session)
+            .into_iter()
+            .skip_while(|name| name != "name")
+            .skip(1)
+            .filter(|name| !name.is_empty())
+            .collect()
+    };
+
+    let mut session = Session::new();
+    session.keys("<space>?move_line_").await;
+    let rows = rows_for(&session);
+    let up = rows.iter().position(|n| n == "move_line_up").unwrap();
+    let down = rows.iter().position(|n| n == "move_line_down").unwrap();
+    assert!(up < down, "{rows:#?}");
+    session.keys("<esc>").await;
+
+    // run the one that comes second: it comes first among the tied now
+    session.keys("<space>?move_line_down<ret>").await;
+    assert_eq!(session.app.editor.recent_commands[0], "move_line_down");
+    session.keys("<space>?move_line_").await;
+    let rows = rows_for(&session);
+    let up = rows.iter().position(|n| n == "move_line_up").unwrap();
+    let down = rows.iter().position(|n| n == "move_line_down").unwrap();
+    assert!(down < up, "{rows:#?}");
 }

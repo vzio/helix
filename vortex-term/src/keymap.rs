@@ -119,7 +119,7 @@ impl KeyTrieNode {
             }
         }
         order.push(None);
-        let mut sections: Vec<(Option<&str>, Vec<(String, &str)>)> = Vec::new();
+        let mut sections: Vec<vortex_view::info::Section<String, &str>> = Vec::new();
         for group in order {
             let mut body: Vec<(BTreeSet<KeyEvent>, &str)> = Vec::new();
             for (&key, trie) in self.iter() {

@@ -30,8 +30,8 @@ mod test {
     mod hunks;
     mod inline_blame;
     mod line_history;
-    mod move_lines;
     mod menus;
+    mod move_lines;
     mod movement;
     mod palette;
     mod picker_modes;

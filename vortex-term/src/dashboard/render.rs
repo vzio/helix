@@ -1151,7 +1151,7 @@ fn menu_width(actions: &[Action]) -> (u16, u16) {
 /// fit, the same number on each when they take two (the last row may have one less).
 fn row_lines(actions: &[Action], width: u16) -> Vec<std::ops::Range<usize>> {
     if actions_row_width(actions) <= width || actions.is_empty() {
-        return vec![0..actions.len()];
+        return std::iter::once(0..actions.len()).collect();
     }
     for rows in 2..=actions.len() {
         let per_row = actions.len().div_ceil(rows);

@@ -13,14 +13,14 @@ const INFO: Color = Color::Rgb(0xaa, 0xbb, 0xcc);
 fn session_with(config: vortex_term::config::Config) -> Session {
     let mut session = Session::with_config(config);
     session.app.editor.theme = vortex_view::Theme::from(
-        toml::from_str::<toml::Value>(&format!(
+        toml::from_str::<toml::Value>(
             r##"
-"ui.text.inactive" = {{ fg = "#112233" }}
-"ui.text.info" = {{ fg = "#aabbcc" }}
-"ui.popup.info" = {{ bg = "#000000" }}
-"ui.selection" = {{ bg = "#333333" }}
-"##
-        ))
+"ui.text.inactive" = { fg = "#112233" }
+"ui.text.info" = { fg = "#aabbcc" }
+"ui.popup.info" = { bg = "#000000" }
+"ui.selection" = { bg = "#333333" }
+"##,
+        )
         .unwrap(),
     );
     session
@@ -64,10 +64,7 @@ fn assert_in_order(session: &Session, labels: &[&str]) {
 async fn space_shows_its_groups_under_separators_in_order() {
     let mut session = session();
     session.keys("<space>").await;
-    assert_in_order(
-        &session,
-        &["── files", "── git", "── commands"],
-    );
+    assert_in_order(&session, &["── files", "── git", "── commands"]);
     // the keys are under them
     assert!(on_screen(&session.rows(), "Open file picker"));
     let files = row_with(&session, "── files");
@@ -114,7 +111,7 @@ async fn a_remap_keeps_the_groups_and_a_new_key_comes_after_the_last_separator()
         .iter()
         .rposition(|row| row.contains("── "))
         .unwrap();
-    let new = row_with(&session, "Select all");
+    let new = row_with(&session, "Select whole document");
     assert!(new > last, "{:#?}", session.rows());
 
     // and it runs
@@ -139,7 +136,10 @@ async fn space_question_mark_is_the_command_palette() {
     );
     session.keys("file_picker").await;
     assert!(
-        session.frame().iter().any(|row| row.contains("file_picker")),
+        session
+            .frame()
+            .iter()
+            .any(|row| row.contains("file_picker")),
         "{:#?}",
         session.frame()
     );
@@ -151,5 +151,8 @@ async fn separators_are_dimmer_than_the_entries() {
     session.keys("<space>").await;
     assert_eq!(fg_of(&session, "── files"), INACTIVE);
     assert_eq!(fg_of(&session, "Open file picker"), INFO);
-    assert_ne!(fg_of(&session, "── git"), fg_of(&session, "Open file picker"));
+    assert_ne!(
+        fg_of(&session, "── git"),
+        fg_of(&session, "Open file picker")
+    );
 }

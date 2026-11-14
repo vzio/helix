@@ -18,10 +18,7 @@ const ALLOWED: &[(&str, &str)] = &[
         "(y/n)",
         "a confirmation question: the answer is typed right there, and it says which",
     ),
-    (
-        "Press <tab> to ",
-        "upstream's: the code action menu",
-    ),
+    ("Press <tab> to ", "upstream's: the code action menu"),
 ];
 
 /// What a key hint looks like: a key followed by what it does, a typed command and what it does,
@@ -79,6 +76,8 @@ fn no_key_hints_in_the_status_line() {
         .expect("git ls-files");
     assert!(files.status.success());
     let hints: Vec<Regex> = HINTS.iter().map(|hint| Regex::new(hint).unwrap()).collect();
+    let const_string =
+        Regex::new(r#"(?s)const ([A-Z_][A-Z0-9_]*): &str =\s*"((?:[^"\\]|\\.)*)""#).unwrap();
     let mut found = Vec::new();
     let mut messages = 0;
     for file in String::from_utf8(files.stdout).unwrap().lines() {
@@ -91,13 +90,10 @@ fn no_key_hints_in_the_status_line() {
         };
         let lines: Vec<&str> = source.lines().collect();
         // the `const NAME: &str = "..."` strings of the file, for `set_status(NAME)`
-        let consts: Vec<(String, String)> = Regex::new(
-            r#"(?s)const ([A-Z_][A-Z0-9_]*): &str =\s*"((?:[^"\\]|\\.)*)""#,
-        )
-        .unwrap()
-        .captures_iter(&source)
-        .map(|captures| (captures[1].to_string(), captures[2].to_string()))
-        .collect();
+        let consts: Vec<(String, String)> = const_string
+            .captures_iter(&source)
+            .map(|captures| (captures[1].to_string(), captures[2].to_string()))
+            .collect();
         for (number, line) in lines.iter().enumerate() {
             let Some(writer) = WRITERS.iter().find(|writer| line.contains(*writer)) else {
                 continue;
@@ -108,11 +104,7 @@ fn no_key_hints_in_the_status_line() {
             let call = call_text(&lines, number, writer);
             let named = consts
                 .iter()
-                .filter(|(name, _)| {
-                    Regex::new(&format!(r"\b{name}\b"))
-                        .unwrap()
-                        .is_match(&call)
-                })
+                .filter(|(name, _)| Regex::new(&format!(r"\b{name}\b")).unwrap().is_match(&call))
                 .map(|(_, text)| text.clone());
             for message in literals(&call).into_iter().chain(named) {
                 messages += 1;

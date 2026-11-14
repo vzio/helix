@@ -139,8 +139,8 @@ async fn a_key_that_edits_or_changes_the_mode_makes_it_vanish() {
 #[tokio::test(flavor = "multi_thread")]
 async fn a_key_of_the_keymap_that_changes_nothing_keeps_it() {
     let mut session = session().await;
-    // (`l` is the commit log when the directory is in a repository)
-    session.keys("hjkwb").await;
+    // (`l` is the commit log and `w` watch mode when the directory is in a repository)
+    session.keys("hjkb").await;
     assert!(up(&session));
     // nor does a command line over it, until it is run
     session.keys(":").await;
@@ -874,4 +874,108 @@ mod worktree_rows {
         let listed_dirty = format!("{} dirty", shown(&parent));
         assert!(!text.contains(&listed_dirty), "{text:?}");
     }
+}
+
+const WATCH_BADGE: &str = "Watch mode";
+
+#[tokio::test(flavor = "multi_thread")]
+async fn in_a_repository_the_w_badge_shows_and_w_starts_watch_mode() {
+    let Some(_) = Repo::enter_in(
+        module_path!(),
+        "in_a_repository_the_w_badge_shows_and_w_starts_watch_mode",
+    ) else {
+        return;
+    };
+    let mut session = session().await;
+    session
+        .wait_for_screen("the watch action", |rows| on_screen(rows, WATCH_BADGE))
+        .await;
+    assert!(!session.app.editor.watch.is_active());
+
+    session.keys("w").await;
+    assert!(session.app.editor.watch.is_active());
+    assert!(!up(&session), "{:#?}", session.rows());
+    session
+        .wait_for_screen("the mode bar", |rows| on_screen(rows, "WATCH ● following"))
+        .await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn outside_of_a_repository_w_is_not_a_dashboard_key() {
+    let Some(_) = Repo::enter_with(
+        module_path!(),
+        "outside_of_a_repository_w_is_not_a_dashboard_key",
+        plain_directory,
+    ) else {
+        return;
+    };
+    let mut session = session().await;
+    assert!(up(&session));
+    assert!(!on_screen(&session.rows(), WATCH_BADGE));
+    session.keys("w").await;
+    assert!(!session.app.editor.watch.is_active());
+    assert!(!on_screen(&session.rows(), "WATCH"));
+    assert!(up(&session));
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn the_command_then_ga_returns_to_the_buffer_and_the_cursor() {
+    let file = temp_file_with_contents("one\ntwo\nthree\nfour\n").unwrap();
+    let mut session = session().await;
+    session
+        .keys(&format!(":open {}<ret>3jl", file.path().display()))
+        .await;
+    let (id, cursor) = {
+        let (view, doc) = vortex_view::current_ref!(session.app.editor);
+        (doc.id(), doc.selection(view.id).primary())
+    };
+    assert_eq!(
+        doc!(session.app.editor).text().line(3).to_string(),
+        "four\n"
+    );
+
+    session.keys(":dashboard<ret>").await;
+    session
+        .wait_for_screen("the dashboard", |rows| on_screen(rows, MENU))
+        .await;
+    assert_ne!(doc!(session.app.editor).id(), id);
+
+    session.keys("ga").await;
+    assert!(!up(&session), "{:#?}", session.rows());
+    let (view, doc) = vortex_view::current_ref!(session.app.editor);
+    assert_eq!(doc.id(), id);
+    assert_eq!(doc.selection(view.id).primary(), cursor);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn always_shows_it_at_startup_and_never_does_not() {
+    use vortex_view::editor::DashboardStartup;
+    for (startup, shown) in [
+        (DashboardStartup::Always, true),
+        (DashboardStartup::Never, false),
+    ] {
+        let mut config = config(true);
+        config.editor.dashboard = startup;
+        let mut session = Session::with_app(application(&[], config));
+        session.first_frame().await;
+        assert_eq!(up(&session), shown, "{startup:?}");
+    }
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn plain_beats_always() {
+    let args = Args {
+        plain: true,
+        ..Args::default()
+    };
+    let app = Application::new(
+        args,
+        config(true),
+        test_syntax_loader(None),
+        WorkspaceTrust::fully_trusted(),
+    )
+    .unwrap();
+    let mut session = Session::with_app(app);
+    session.first_frame().await;
+    assert!(!up(&session), "{:#?}", session.rows());
 }

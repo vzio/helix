@@ -111,7 +111,18 @@ impl EditorView {
         if let Some(command) = drawn.command_at(event.column, event.row).cloned() {
             command.execute(cx);
         }
-        Some(EventResult::Consumed(None))
+        // the command may open something (the changes picker) through a callback
+        let callbacks = take(&mut cx.callback);
+        let callback: Option<crate::compositor::Callback> = (!callbacks.is_empty()).then(|| {
+            Box::new(
+                move |compositor: &mut crate::compositor::Compositor, cx: &mut Context| {
+                    for callback in callbacks {
+                        callback(compositor, cx)
+                    }
+                },
+            ) as crate::compositor::Callback
+        });
+        Some(EventResult::Consumed(callback))
     }
 
     /// The key of the layer of the fork's mode that is on (watch mode), run before the keymap:

@@ -355,14 +355,17 @@ pub struct Picker<T: 'static + Send + Sync, D: 'static> {
     info: Option<String>,
     /// The title and the picker's own keys in the key help overlay, `?` in normal mode (this
     /// fork, see [`Picker::with_help`]).
-    help: Option<(
-        String,
-        Vec<(&'static str, Vec<(&'static str, &'static str)>)>,
-    )>,
+    help: Option<(String, Vec<HelpGroup>)>,
     /// Breaks ties between matches of the same score: the lower rank first (this fork: recent
     /// commands in the palette), see [`Picker::with_tie_rank`].
-    tie_rank: Option<Box<dyn Fn(&T) -> u32>>,
+    tie_rank: Option<TieRank<T>>,
 }
+
+/// The rank of an item among matches of the same score, see [`Picker::with_tie_rank`].
+type TieRank<T> = Box<dyn Fn(&T) -> u32>;
+
+/// A group of keys in a picker's key help: its label, and the keys with what they do.
+pub type HelpGroup = (&'static str, crate::ui::keyhelp::Keys);
 
 /// Items listed first for some queries (this fork): the commits whose hash starts with a
 /// hash-looking query, in the commit log.
@@ -587,11 +590,7 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
 
     /// The picker's own keys for the key help overlay (`?` in normal mode, see
     /// [`Picker::with_modes`]), in groups, before the keys every list has.
-    pub fn with_help(
-        mut self,
-        title: impl Into<String>,
-        groups: Vec<(&'static str, Vec<(&'static str, &'static str)>)>,
-    ) -> Self {
+    pub fn with_help(mut self, title: impl Into<String>, groups: Vec<HelpGroup>) -> Self {
         self.help = Some((title.into(), groups));
         self
     }
