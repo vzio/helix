@@ -170,8 +170,8 @@ impl Dashboard {
                 .is_some_and(|doc| doc.version() == self.version && !doc.is_modified())
     }
 
-    /// Handles `key`, one of its own (`i`, `Esc`, `f`, `e`, `l` in a git repository, `t` with other
-    /// worktrees, `q`).
+    /// Handles `key`, one of its own (`i`, `Esc`, `f`, `e`, `l` and `w` in a git repository, `t`
+    /// with other worktrees, `q`).
     pub fn handle_key(&self, key: KeyEvent, cx: &mut commands::Context) -> KeyResult {
         if !key.modifiers.is_empty() {
             return KeyResult::Ignored;
@@ -185,6 +185,13 @@ impl Dashboard {
             KeyCode::Char('f') => MappableCommand::file_picker,
             KeyCode::Char('e') => MappableCommand::toggle_explorer_root,
             KeyCode::Char('l') if self.stats.shows_git() => MappableCommand::commit_picker,
+            // watch mode, on the editor: the dashboard closes
+            KeyCode::Char('w') if self.stats.shows_git() => {
+                if let Ok(watch) = ":watch".parse::<MappableCommand>() {
+                    watch.execute(cx);
+                }
+                return KeyResult::Close;
+            }
             KeyCode::Char('t') if self.stats.shows_worktrees() => {
                 match ":worktrees".parse::<MappableCommand>() {
                     Ok(worktrees) => worktrees,
@@ -260,6 +267,7 @@ pub fn hints(keymaps: &Keymaps) -> Hints {
         tree: keys("toggle_explorer_root"),
         history: keys("commit_picker"),
         worktrees: keys("worktrees").or_else(|| Some(":wt".to_string())),
+        watch: keys("watch").or_else(|| Some(":watch".to_string())),
         quit: Some(":q".to_string()),
     }
 }

@@ -238,8 +238,7 @@ fn map_value(value: &Value, params: &[String], workspace: &std::path::Path) -> V
 
 pub fn dap_launch(cx: &mut Context) {
     if cx.editor.debug_adapters.iter().next().is_some() {
-        cx.editor
-            .set_error("A debug session is already running: Space G t ends it");
+        cx.editor.set_error("A debug session is already running");
         return;
     }
 
@@ -410,8 +409,7 @@ pub fn dap_continue(cx: &mut Context) {
     }
     let debugger = debugger!(cx.editor);
     let Some(thread) = debugger.thread_id else {
-        cx.editor
-            .set_error("The current thread is not stopped: switch the thread (Space G s t)");
+        cx.editor.set_error("The current thread is not stopped");
         return;
     };
     let key = debug::spectator_key(debugger.id(), thread);
@@ -555,11 +553,14 @@ pub fn dap_terminate(cx: &mut Context) {
             .caps
             .as_ref()
             .is_some_and(|c| c.supports_terminate_request.unwrap_or_default());
-    cx.editor.set_status(if attached {
-        "Detaching from the program..."
-    } else {
-        "Ending the debug session..."
-    });
+    log::info!(
+        "{}",
+        if attached {
+            "detaching from the program"
+        } else {
+            "ending the debug session"
+        }
+    );
     tokio::spawn(async move {
         let terminated = terminate
             && requester
@@ -661,8 +662,7 @@ fn edit_breakpoint_prompt(
         .get(&path)
         .and_then(|list| list.iter().find(|b| b.line == line))
     else {
-        cx.editor
-            .set_error("No breakpoint on this line: Space G b sets one");
+        cx.editor.set_error("No breakpoint on this line");
         return;
     };
     let current = get(breakpoint).unwrap_or_default();

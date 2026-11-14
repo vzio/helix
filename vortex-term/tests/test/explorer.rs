@@ -206,11 +206,8 @@ async fn space_e_opens_the_tree_at_the_root_with_nothing_expanded() -> anyhow::R
         cargo.contains("   Cargo.toml") && !cargo.contains("- Cargo") && !cargo.contains("+ Cargo"),
         "{cargo}"
     );
-    assert!(
-        session.status().contains("s filter"),
-        "{}",
-        session.status()
-    );
+    // the keys are not in the status line: that is for results
+    assert_eq!(session.status(), "");
     // The buffer is as it was.
     assert_eq!(current_path(&session.app), canonical(&x));
     session.close().await;
@@ -825,4 +822,38 @@ async fn the_cursor_is_in_the_prompt_in_filter_mode_only() -> anyhow::Result<()>
     assert_eq!(session.app.cursor_kind(), CursorKind::Hidden);
     session.close().await;
     Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn question_mark_opens_the_key_help_and_any_key_closes_it() -> anyhow::Result<()> {
+    let (_dir, x, _y) = fixture()?;
+    let mut session = Session::on(&x);
+
+    session.keys("<space>e").await;
+    assert_eq!(session.status(), "");
+    assert!(!anywhere(&session.rows(), "any key closes"));
+    session.keys("?").await;
+    let rows = session.rows();
+    assert!(anywhere(&rows, "File tree"), "{rows:#?}");
+    assert!(anywhere(&rows, "any key closes"), "{rows:#?}");
+    assert!(anywhere(&rows, "H"), "{rows:#?}");
+    assert!(anywhere(&rows, "show/hide git-ignored"), "{rows:#?}");
+    // any key closes it, and is not the tree's: the tree is still open and nothing was cut
+    session.keys("x").await;
+    assert!(!anywhere(&session.rows(), "any key closes"));
+    assert!(session.tree_is_open());
+    assert_eq!(session.status(), "");
+
+    // in filter mode `?` is typed into the query
+    session.keys("s?").await;
+    let rows = session.rows();
+    assert!(!anywhere(&rows, "any key closes"), "{rows:#?}");
+    assert!(rows[1].contains('?'), "{rows:#?}");
+    session.close().await;
+    Ok(())
+}
+
+/// Whether `text` is anywhere on the screen (the overlays of the tree are not its own).
+fn anywhere(rows: &[String], text: &str) -> bool {
+    rows.iter().any(|row| row.contains(text))
 }

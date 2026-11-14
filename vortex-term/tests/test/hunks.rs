@@ -79,7 +79,7 @@ impl Session {
     /// From the log: opens the list of hunks, then the diff of the hunk of the row `index` (from 0).
     pub(super) async fn open_diff(&mut self, index: usize) {
         self.keys("<ret>").await;
-        self.wait_for_screen("the hunks", |rows| on_screen(rows, "marks"))
+        self.wait_for_screen("the hunks", super::uncommitted::uncommitted_list_is_open)
             .await;
         if index > 0 {
             self.keys(&"<down>".repeat(index)).await;
@@ -89,29 +89,25 @@ impl Session {
             .await;
     }
 
-    /// The first line of the footer without the keys: `hunk 2/5 staged · file 1/3`.
+    /// The footer of the diff: `hunk 2/5 staged · file 1/3`. It is the last row of the screen
+    /// but one, and has no keys.
     pub(super) fn footer(&self) -> String {
         let rows = self.rows();
-        let row = rows
-            .iter()
-            .find(|row| {
-                row.contains("hunk ")
-                    && ["n/N", "s/u/r", "r revert"]
-                        .iter()
-                        .any(|keys| row.contains(keys))
-            })
-            .unwrap_or_else(|| panic!("no footer: {rows:#?}"));
-        let end = [" · s/u/r", " · r revert", " · n/N"]
-            .iter()
-            .filter_map(|keys| row.find(keys))
-            .min()
-            .unwrap();
-        row[..end].trim().to_string()
+        footer_of(&rows).unwrap_or_else(|| panic!("no footer: {rows:#?}"))
     }
 
+    /// Waits for the footer of the diff to be `footer`, or to start with it (`hunk 1/2` for
+    /// `hunk 1/2 · file 1/1`).
     pub(super) async fn wait_for_footer(&mut self, footer: &str) {
-        self.wait_for_screen(footer, |rows| on_screen(rows, &format!("{footer} ·")))
-            .await;
+        self.wait_for_screen(footer, |rows| {
+            footer_of(rows).is_some_and(|row| {
+                row == footer
+                    || row
+                        .strip_prefix(footer)
+                        .is_some_and(|r| r.starts_with(" ·"))
+            })
+        })
+        .await;
     }
 
     /// Asserts the file and the footer of the diff on the screen.
@@ -123,6 +119,15 @@ impl Session {
         );
         assert_eq!(self.footer(), footer, "{rows:#?}");
     }
+}
+
+/// The footer of the diff on the screen, `hunk 2/5 staged · file 1/3`: the row that starts with
+/// the hunk (the diff covers the screen).
+pub(super) fn footer_of(rows: &[String]) -> Option<String> {
+    rows.iter()
+        .map(|row| row.trim())
+        .find(|row| row.starts_with("hunk ") || row.starts_with("no changes"))
+        .map(str::to_string)
 }
 
 /// A file of 20 lines, committed, with its lines 3 and 15 changed in the working tree: two hunks.
@@ -284,18 +289,12 @@ async fn a_fully_staged_hunk_cannot_be_reverted() {
     session.keys("s").await;
     session.wait_for_footer("hunk 1/2 staged · file 1/1").await;
     session.keys("r").await;
-    assert_eq!(
-        status(&session.app),
-        "The hunk is staged: u unstages it, then r reverts it"
-    );
+    assert_eq!(status(&session.app), "The hunk is staged: unstage it first");
     assert_eq!(read("a.txt"), edited);
     // and R on a file that is staged as a whole
     session.keys("S").await;
     session.keys("R").await;
-    assert_eq!(
-        status(&session.app),
-        "a.txt is staged: U unstages it, then R reverts it"
-    );
+    assert_eq!(status(&session.app), "a.txt is staged: unstage it first");
     assert_eq!(read("a.txt"), edited);
 }
 
@@ -317,7 +316,7 @@ async fn reverting_an_untracked_file_asks_before_deleting_it() {
         status(&session.app)
     );
     assert!(
-        on_screen(&session.rows(), "y deletes it, any other key keeps it"),
+        on_screen(&session.rows(), "Delete untracked new.txt? (y/n)"),
         "{:#?}",
         session.rows()
     );
@@ -374,15 +373,15 @@ async fn n_and_n_visit_the_hunks_of_all_the_files_and_wrap_around() {
         session.keys("n").await;
         session.assert_at(file, footer);
     }
-    assert!(!status(&session.app).contains("Wrapped"));
+    assert_eq!(status(&session.app), "");
     session.keys("n").await;
     session.assert_at("a.txt", "hunk 1/1 · file 1/3");
-    assert_eq!(status(&session.app), "Wrapped around to the first file");
+    assert_eq!(status(&session.app), "");
 
     // backwards from the first file: around to the last one, at its last hunk
     session.keys("N").await;
     session.assert_at("c.txt", "hunk 1/1 · file 3/3");
-    assert_eq!(status(&session.app), "Wrapped around to the last file");
+    assert_eq!(status(&session.app), "");
     for (file, footer) in forward.iter().rev().skip(1) {
         session.keys("N").await;
         session.assert_at(file, footer);
@@ -433,10 +432,10 @@ async fn walk_two_files(session: &mut Session) {
     }
     session.keys("n").await;
     session.assert_at("a.txt", "hunk 1/1 · file 1/2");
-    assert_eq!(status(&session.app), "Wrapped around to the first file");
+    assert_eq!(status(&session.app), "");
     session.keys("N").await;
     session.assert_at("b.txt", "hunk 2/2 · file 2/2");
-    assert_eq!(status(&session.app), "Wrapped around to the last file");
+    assert_eq!(status(&session.app), "");
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -519,8 +518,45 @@ async fn the_revert_message_stays_on_the_statusline() {
     session.open_diff(0).await;
     session.keys("r").await;
     session.run_for(std::time::Duration::from_millis(500)).await;
-    assert_eq!(
-        status(&session.app),
-        "Reverted the hunk and wrote a.txt: u in its buffer brings it back"
+    assert_eq!(status(&session.app), "Reverted the hunk and wrote a.txt");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn the_diff_has_no_keys_in_its_footer_and_question_mark_shows_them() {
+    let Some(_) = enter("the_diff_has_no_keys_in_its_footer_and_question_mark_shows_them") else {
+        return;
+    };
+    let (_, edited) = two_hunks("a.txt");
+    commit_all("Add a.txt");
+    write("a.txt", &edited);
+
+    let mut session = Session::open_uncommitted(1).await;
+    session.open_diff(0).await;
+    // the footer has the position and nothing else
+    assert_eq!(session.footer(), "hunk 1/2 · file 1/1");
+    let rows = session.rows();
+    assert!(!on_screen(&rows, "n/N"), "{rows:#?}");
+    assert!(!on_screen(&rows, "s/u/r"), "{rows:#?}");
+    assert!(!on_screen(&rows, "any key closes"), "{rows:#?}");
+
+    session.keys("?").await;
+    let rows = session.rows();
+    assert!(on_screen(&rows, "Diff"), "{rows:#?}");
+    assert!(on_screen(&rows, "any key closes"), "{rows:#?}");
+    assert!(
+        on_screen(&rows, "stage, unstage, revert the hunk"),
+        "{rows:#?}"
     );
+    // any key closes it, and is only that: the hunk didn't change, nothing was staged
+    session.keys("n").await;
+    assert!(!on_screen(&session.rows(), "any key closes"));
+    assert_eq!(session.footer(), "hunk 1/2 · file 1/1");
+    assert_eq!(cached(), "");
+
+    // going on to the last hunk, and around to the first, says nothing
+    session.keys("n").await;
+    assert_eq!(session.footer(), "hunk 2/2 · file 1/1");
+    session.keys("n").await;
+    assert_eq!(session.footer(), "hunk 1/2 · file 1/1");
+    assert_eq!(status(&session.app), "");
 }

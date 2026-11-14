@@ -839,11 +839,6 @@ impl DiffView {
         // no other file with changes: around the ends of this one
         if !self.hunks.is_empty() {
             self.go_to_hunk(if forward { 0 } else { last });
-            editor.set_status(if forward {
-                "Wrapped around to the first hunk"
-            } else {
-                "Wrapped around to the last hunk"
-            });
         }
         EventResult::Consumed(None)
     }
@@ -892,13 +887,6 @@ impl DiffView {
                 (self.height, self.visible, self.text_widths);
             view.go_to_hunk(if forward { 0 } else { usize::MAX });
             *self = view;
-            if raw < 0 || raw >= len {
-                editor.set_status(if forward {
-                    "Wrapped around to the first file"
-                } else {
-                    "Wrapped around to the last file"
-                });
-            }
             let change = change.clone();
             return Some(EventResult::Consumed(Some(Box::new(
                 move |compositor: &mut Compositor, _: &mut Context| select(compositor, &change),
@@ -937,10 +925,7 @@ impl DiffView {
         ) {
             Ok(hunks::Outcome::Done(message)) => editor.set_status(message),
             Ok(hunks::Outcome::ConfirmDelete(path)) => {
-                editor.set_warning(format!(
-                    "Delete untracked {}? git can't bring it back. y deletes it, any other key keeps it",
-                    relative(&path)
-                ));
+                editor.set_warning(format!("Delete untracked {}? (y/n)", relative(&path)));
                 self.confirm = Some(Confirm::Delete(path));
             }
             Err(err) => editor.set_error(err.to_string()),
@@ -1088,6 +1073,7 @@ impl DiffView {
         let ctrl = key.modifiers.contains(KeyModifiers::CONTROL);
         match key.code {
             KeyCode::Char('q') | KeyCode::Esc => return self.close(),
+            KeyCode::Char('?') => return EventResult::Consumed(Some(key_help().push())),
             KeyCode::Char('c') if ctrl => return self.close(),
             KeyCode::Enter => return self.open_file(),
             KeyCode::Char('d') if ctrl => self.scroll_by(half_page),
@@ -1362,8 +1348,7 @@ impl Component for DiffView {
             return;
         }
 
-        // the keys of the hunk actions get a line of their own
-        let footer_height = if self.actions.is_some() { 2 } else { 1 };
+        let footer_height = 1;
         if area.height < 2 + footer_height {
             return;
         }
@@ -1478,7 +1463,7 @@ impl Component for DiffView {
             surface.set_stringn(separator_x, y, "│", 1, palette.separator);
         }
 
-        // footer with the position and the keys
+        // footer with the position
         let footer_y = area.bottom() - footer_height;
         surface.set_style(
             Rect::new(area.x, footer_y, area.width, footer_height),
@@ -1496,31 +1481,13 @@ impl Component for DiffView {
         if let Some((file, files)) = self.file_position() {
             position.push_str(&format!(" · file {file}/{files}"));
         }
-        let navigation =
-            "n/N next/prev hunk · j/k scroll · h/l pan · w wrap · enter open at hunk · q close";
-        let lines = match &self.actions {
-            None => vec![(format!(" {position} · {navigation}"), palette.hint)],
-            Some(actions) => {
-                let first = match &self.confirm {
-                    Some(Confirm::Delete(path)) => (
-                        format!(
-                            " Delete untracked {}? y deletes it, any other key keeps it",
-                            relative(path)
-                        ),
-                        palette.hint.patch(palette.warning),
-                    ),
-                    None if actions.staging.is_some() => (
-                        format!(" {position} · s/u/r stage/unstage/revert hunk · S/U/R the file"),
-                        palette.hint,
-                    ),
-                    None => (
-                        format!(" {position} · r revert hunk · R the file"),
-                        palette.hint,
-                    ),
-                };
-                vec![first, (format!(" {navigation}"), palette.hint)]
-            }
-        };
+        let lines = [match &self.confirm {
+            Some(Confirm::Delete(path)) => (
+                format!(" Delete untracked {}? (y/n)", relative(path)),
+                palette.hint.patch(palette.warning),
+            ),
+            None => (format!(" {position}"), palette.hint),
+        }];
         for (i, (line, style)) in lines.iter().enumerate() {
             surface.set_stringn(
                 area.x,
@@ -1539,6 +1506,35 @@ impl Component for DiffView {
     fn id(&self) -> Option<&'static str> {
         Some(ID)
     }
+}
+
+/// The keys of the diff, for the key help overlay (`?`).
+fn key_help() -> crate::ui::keyhelp::KeyHelp {
+    crate::ui::keyhelp::KeyHelp::new(
+        "Diff",
+        &[
+            (
+                "hunks",
+                vec![
+                    ("n N, ]c [c", "next, previous hunk (or file)"),
+                    ("s u r", "stage, unstage, revert the hunk"),
+                    ("S U R", "stage, unstage, revert the file"),
+                    ("Enter", "open the file at the hunk"),
+                ],
+            ),
+            (
+                "scroll",
+                vec![
+                    ("j k, C-d C-u, C-f C-b", "scroll"),
+                    ("gg ge, G", "top, bottom"),
+                    ("h l, 0", "sideways, back to the start"),
+                    ("gh gl", "all the way to the start, end"),
+                    ("w", "wrap long lines"),
+                ],
+            ),
+            ("view", vec![("q Esc", "close"), ("?", "these keys")]),
+        ],
+    )
 }
 
 #[cfg(test)]

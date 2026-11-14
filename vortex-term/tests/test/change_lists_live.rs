@@ -23,14 +23,15 @@ fn change(text: &str, n: usize, new: &str) -> String {
 }
 
 impl Session {
-    /// Runs until the status line says `expected`.
-    async fn wait_for_status(&mut self, expected: &str) {
+    /// Runs until the prompt row of the list on top says `expected`.
+    async fn wait_for_info(&mut self, expected: &str) {
+        self.widen().await;
         let deadline = Instant::now() + Duration::from_secs(20);
-        while status(&self.app) != expected {
+        while !self.info_is(expected) {
             assert!(
                 Instant::now() < deadline,
-                "timed out waiting for the status {expected:?}, it is {:?}",
-                status(&self.app)
+                "timed out waiting for the info {expected:?}, it is {:?}",
+                self.info()
             );
             self.run_for(Duration::from_millis(50)).await;
         }
@@ -38,14 +39,14 @@ impl Session {
 
     /// Whether the picker on top is the commit log.
     fn log_is_on_top(&self) -> bool {
-        self.rows()
-            .iter()
-            .position(|row| row.starts_with('┌'))
-            .is_some_and(|top| self.rows()[top + 3].contains("commit"))
+        // the commits have authors, the lists of changes don't
+        self.rows().iter().any(|row| row.contains("Jane Doe"))
     }
 
     fn picker_is_open(&self) -> bool {
-        self.rows().iter().any(|row| row.starts_with('┌'))
+        self.rows()
+            .iter()
+            .any(|row| row.trim_start().starts_with('┌'))
     }
 }
 
@@ -68,25 +69,24 @@ async fn the_totals_follow_the_working_tree() {
     let mut session = Session::open_log_on_uncommitted().await;
     session.wait_for_uncommitted("(1 file)").await;
     session.open_uncommitted_files().await;
-    assert_eq!(
-        status(&session.app),
-        "Uncommitted changes: 1 change in 1 file, +1 -1"
-    );
+    session
+        .assert_info("Uncommitted changes: 1 change in 1 file, +1 -1")
+        .await;
 
     // another program: a second hunk
     write("a.txt", &change(&one, 15, "fifteen"));
     session
-        .wait_for_status("Uncommitted changes: 2 changes in 1 file, +2 -2")
+        .wait_for_info("Uncommitted changes: 2 changes in 1 file, +2 -2")
         .await;
     // an untracked file (a change of its own, with all its lines added)
     write("new.txt", &lines("new ", 3));
     session
-        .wait_for_status("Uncommitted changes: 3 changes in 2 files, +5 -2")
+        .wait_for_info("Uncommitted changes: 3 changes in 2 files, +5 -2")
         .await;
     // a file that goes away
     git(&cwd(), "", &["checkout", "--", "a.txt"]);
     session
-        .wait_for_status("Uncommitted changes: 1 change in 1 file, +3")
+        .wait_for_info("Uncommitted changes: 1 change in 1 file, +3")
         .await;
     // a change that is staged: the same totals, the list has its marks
     git(&cwd(), "", &["add", "new.txt"]);
@@ -96,13 +96,12 @@ async fn the_totals_follow_the_working_tree() {
             "S   ++ new.txt:1-3",
         ])
         .await;
-    assert_eq!(
-        status(&session.app),
-        "Uncommitted changes: 1 change in 1 file, +3"
-    );
+    session
+        .assert_info("Uncommitted changes: 1 change in 1 file, +3")
+        .await;
     // and nothing left
     git(&cwd(), "", &["rm", "-q", "-f", "new.txt"]);
-    session.wait_for_status("No uncommitted changes").await;
+    session.wait_for_info("No uncommitted changes").await;
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -117,25 +116,24 @@ async fn the_totals_count_the_unsaved_edits_of_the_buffers() {
     let mut session = Session::open_log_with(session).await;
     session.wait_for_uncommitted("(1 file)").await;
     session.open_uncommitted_files().await;
-    assert_eq!(
-        status(&session.app),
-        "Uncommitted changes: 1 change in 1 file, +1 -1"
-    );
+    session
+        .assert_info("Uncommitted changes: 1 change in 1 file, +1 -1")
+        .await;
 
     // an edit far from the hunk: a change of its own
     session.edit_buffer("a.txt", 10, "ZZ");
     session
-        .wait_for_status("Uncommitted changes: 2 changes in 1 file, +2 -2, 1 unsaved")
+        .wait_for_info("Uncommitted changes: 2 changes in 1 file, +2 -2, 1 unsaved")
         .await;
     // an edit in the hunk: the same changes, the hunk is unsaved too
     session.edit_buffer("a.txt", 2, "YY");
     session
-        .wait_for_status("Uncommitted changes: 2 changes in 1 file, +2 -2, 2 unsaved")
+        .wait_for_info("Uncommitted changes: 2 changes in 1 file, +2 -2, 2 unsaved")
         .await;
     // the files change too, while the buffer has unsaved edits
     write("new.txt", &lines("new ", 2));
     session
-        .wait_for_status("Uncommitted changes: 3 changes in 2 files, +4 -2, 2 unsaved")
+        .wait_for_info("Uncommitted changes: 3 changes in 2 files, +4 -2, 2 unsaved")
         .await;
 }
 
@@ -165,7 +163,7 @@ async fn a_hunk_action_message_stays_until_the_diff_is_closed() {
     // closing the diff: the list says its totals, new file included
     session.keys("q").await;
     session
-        .wait_for_status("Uncommitted changes: 3 changes in 2 files, +4 -2")
+        .wait_for_info("Uncommitted changes: 3 changes in 2 files, +4 -2")
         .await;
     session
         .wait_for_list(&[
@@ -193,13 +191,9 @@ async fn a_revert_message_stays_while_the_list_changes_and_the_totals_come_back_
 
     let mut session = Session::open_uncommitted(1).await;
     session.open_diff(0).await;
-    assert_eq!(
-        status(&session.app),
-        "Uncommitted changes: 2 changes in 1 file, +2 -2"
-    );
     session.keys("r").await;
     session.wait_for_footer("hunk 1/1 · file 1/1").await;
-    let message = "Reverted the hunk and wrote a.txt: u in its buffer brings it back";
+    let message = "Reverted the hunk and wrote a.txt";
     assert_eq!(status(&session.app), message);
 
     // the file changed (by the revert, and by another program): the list refreshes, the
@@ -210,7 +204,7 @@ async fn a_revert_message_stays_while_the_list_changes_and_the_totals_come_back_
 
     session.keys("q").await;
     session
-        .wait_for_status("Uncommitted changes: 2 changes in 2 files, +3 -1")
+        .wait_for_info("Uncommitted changes: 2 changes in 2 files, +3 -1")
         .await;
     session
         .wait_for_list(&[
@@ -340,7 +334,8 @@ async fn a_big_commit_opens_in_the_background_and_lists_all_its_changes() {
     session
         .wait_for_screen("the list", |rows| on_screen(rows, "dir00/f00.txt"))
         .await;
-    assert_eq!(status(&session.app), big_totals());
+    session.assert_info(&big_totals()).await;
+    assert_eq!(status(&session.app), "");
     let frame = session.frame();
     assert!(
         frame[0].contains(&format!("{FILES}/{FILES} ")),
@@ -368,20 +363,17 @@ async fn a_long_range_opens_with_its_totals() {
     session.keys(&"<down>".repeat(SMALL_COMMITS)).await;
     assert_eq!(session.cursor(), BIG);
     let label = range(BIG, &format!("Small {SMALL_COMMITS}"), SMALL_COMMITS + 1);
-    assert!(
-        status(&session.app).contains(&label),
-        "{}",
-        status(&session.app)
-    );
+    assert!(session.info().contains(&label), "{}", session.info());
     session.keys("<ret>").await;
     session
         .wait_for_screen("the list", |rows| on_screen(rows, "dir00/f00.txt"))
         .await;
     let total = FILES + SMALL_COMMITS;
-    assert_eq!(
-        status(&session.app),
-        format!("{label}: {total} changes in {total} files, +{total} -{FILES}")
-    );
+    session
+        .assert_info(&format!(
+            "{label}: {total} changes in {total} files, +{total} -{FILES}"
+        ))
+        .await;
     // (the files of the small commits come after the directories)
     session.keys("<end>").await;
     assert!(
@@ -403,10 +395,10 @@ async fn the_commit_asked_for_last_is_the_one_that_opens() {
         .wait_for_screen("the small commit", |rows| on_screen(rows, "s1.txt"))
         .await;
     let small = format!("{}: 1 change in 1 file, +1 · Small 1", id("Small 1"));
-    assert_eq!(status(&session.app), small);
+    session.assert_info(&small).await;
     // time for the big one to finish, if it were to
     session.run_for(Duration::from_millis(3000)).await;
-    assert_eq!(status(&session.app), small);
+    session.assert_info(&small).await;
     assert_eq!(
         session.list(),
         ["── s1.txt (new)  1 hunk  +1", "++ s1.txt:1"]
@@ -427,17 +419,16 @@ async fn the_uncommitted_row_cancels_a_commit_still_loading() {
     session.keys("<ret><home><ret>").await;
     session.wait_for_uncommitted_list().await;
     session.run_for(Duration::from_millis(3000)).await;
-    assert_eq!(
-        status(&session.app),
-        "Uncommitted changes: 1 change in 1 file, +1"
-    );
+    session
+        .assert_info("Uncommitted changes: 1 change in 1 file, +1")
+        .await;
     session.keys("<esc>").await;
     assert!(session.log_is_on_top(), "{:#?}", session.rows());
 }
 
 impl Session {
     async fn wait_for_uncommitted_list(&mut self) {
-        self.wait_for_screen("the hunks", |rows| on_screen(rows, "marks"))
+        self.wait_for_screen("the hunks", super::uncommitted::uncommitted_list_is_open)
             .await;
     }
 }
@@ -453,10 +444,6 @@ async fn closing_the_log_drops_the_commit_still_loading() {
     // long enough for the reading to be done, and for the message to be due
     session.run_for(Duration::from_millis(4000)).await;
     assert!(!session.picker_is_open(), "{:#?}", session.rows());
-    assert!(
-        !status(&session.app).starts_with("Loading changes of"),
-        "{}",
-        status(&session.app)
-    );
-    assert_ne!(status(&session.app), big_totals());
+    // nothing says "loading", or the totals of the list that was dropped
+    assert_eq!(status(&session.app), "");
 }

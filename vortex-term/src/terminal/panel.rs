@@ -253,7 +253,6 @@ fn handle_shim_request(editor: &mut Editor, request: shim::Request, reply: shim:
             }),
         });
     }
-    editor.set_status("Close the buffer (:q or :wq) to go back to the terminal");
 }
 
 /// The screen of the panel in the area left below the splits, when the panel is shown: the

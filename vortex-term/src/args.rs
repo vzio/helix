@@ -22,6 +22,8 @@ pub struct Args {
     pub working_directory: Option<PathBuf>,
     /// `--watch [folder]`: start in watch mode (fork feature).
     pub watch: bool,
+    /// `--plain`, `-p`: start without the dashboard, whatever the config says (fork feature).
+    pub plain: bool,
 }
 
 impl Args {
@@ -112,6 +114,7 @@ impl Args {
                 // The terminal panel's `$EDITOR` is `vx --wait`, which waits there until the
                 // buffer is closed; outside the panel an editor always waits for itself.
                 "--wait" => {}
+                "--plain" => args.plain = true,
                 // `--watch [folder]`: watch mode, in the folder when one follows
                 "--watch" => {
                     args.watch = true;
@@ -131,6 +134,7 @@ impl Args {
                             'v' => args.verbosity += 1,
                             'V' => args.display_version = true,
                             'h' => args.display_help = true,
+                            'p' => args.plain = true,
                             _ => anyhow::bail!("unexpected short arg {}", chr),
                         }
                     }
@@ -249,6 +253,15 @@ mod tests {
     fn parse(argv: &[&str]) -> Args {
         let argv = std::iter::once("vx".to_string()).chain(argv.iter().map(|arg| arg.to_string()));
         Args::parse_from(argv).unwrap()
+    }
+
+    #[test]
+    fn plain_in_long_and_short_forms() {
+        assert!(parse(&["--plain"]).plain);
+        assert!(parse(&["-p"]).plain);
+        assert!(parse(&["-vp", "file.txt"]).plain);
+        assert!(!parse(&[]).plain);
+        assert!(!parse(&["file.txt"]).plain);
     }
 
     #[test]

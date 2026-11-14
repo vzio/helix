@@ -818,6 +818,17 @@ pub(crate) fn picker(
         .with_section_keys()
         .with_drawn_preview(draw_preview)
         .with_modes()
+        .without_header()
+        .with_help(
+            "Changes",
+            vec![(
+                "changes",
+                vec![
+                    ("Enter C-g", "the diff, at the hunk"),
+                    ("C-s C-v", "open the file in a split"),
+                ],
+            )],
+        )
         .with_stacked_key_handler(key!(Enter), enter.clone())
         .with_stacked_key_handler(ctrl!('g'), enter)
 }

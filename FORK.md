@@ -76,6 +76,10 @@ git blame FILE
 
 ## Contents
 
+- [The status line](#the-status-line)
+- [The mode bar](#the-mode-bar)
+- [Menus and key help](#menus-and-key-help)
+- [The command palette](#the-command-palette)
 - [Side by side git diff](#side-by-side-git-diff)
 - [Git commit log](#git-commit-log)
 - [Line history](#line-history)
@@ -107,6 +111,10 @@ Each feature lives in its own modules, to keep rebasing on upstream cheap:
 
 | Feature | Modules |
 | --- | --- |
+| The status line rule | `vortex-term/tests/status_line_guard.rs` (the test that keeps key hints out of it) |
+| The mode bar | `vortex-term/src/ui/modebar.rs` (segments, the layout and its truncation, badges, the mouse), `Layer`, `Keymaps::layer_get` and `layer_reverse_map` in `vortex-term/src/keymap.rs`, `layers()` in `vortex-term/src/keymap/default.rs`, `RawKeys` in `vortex-term/src/config.rs` (`[keys.watch]`) |
+| Menus and key help | the `["group"]` form of `keymap!` in `vortex-term/src/keymap/macros.rs`, `KeyTrieNode::groups` and `grouped_infobox` in `vortex-term/src/keymap.rs`, `Info::grouped` in `vortex-view/src/info.rs`, `vortex-term/src/ui/keyhelp.rs` (the `?` overlay), `with_help`, `key_help`, `without_header` and `with_info` in `vortex-term/src/ui/picker.rs`, `vortex-term/tests/test/menus.rs` |
+| The command palette's recent commands | `Editor::recent_commands` and `remember_command` in `vortex-view/src/editor.rs`, `with_tie_rank` in `vortex-term/src/ui/picker.rs`, `palette_key` and `command_palette` in `vortex-term/src/commands.rs`, `vortex-term/tests/test/palette.rs` |
 | Diff view | `vortex-term/src/ui/diff_view.rs`, `vortex-term/src/commands/diff_view.rs` |
 | Hunk actions, `n`/`N` across files | `vortex-term/src/commands/hunks.rs` (stage, unstage, revert), `vortex-vcs/src/staging.rs` (the texts of the index and of the working tree after an action), `vortex-vcs/src/git/stage.rs` (reading and writing one entry of the index), the `Actions` and `FileNav` of the diff view, `base` of `:practice` exercises, `vortex-term/tests/test/hunks.rs` |
 | Commit log | `vortex-term/src/commands/git_log.rs` (also the background reading of a commit's changes), `vortex-vcs/src/commit.rs`, `vortex-vcs/src/git/log.rs`, `range_changes` and `for_each_range_file` in `vortex-vcs/src/git.rs` (the files of a commit or range, read with one repository open) |
@@ -124,7 +132,7 @@ Each feature lives in its own modules, to keep rebasing on upstream cheap:
 | Hex view | `vortex-view/src/hex/mod.rs` (the bytes: windowed reads, the overwritten bytes, undo, cursors, search, the row layout), `vortex-view/src/hex/memory.rs` (a debugged program's memory as the bytes: the page cache, what each byte is as drawn), `vortex-term/src/ui/hex_view.rs` (drawing, the statusline texts), `vortex-term/src/commands/hex.rs` (keys, mouse, prompts, `:hex`), `vortex-term/tests/test/hex_view.rs` |
 | Dashboard | `vortex-term/src/dashboard.rs` (when it is up, its keys), `vortex-term/src/dashboard/` (`stats.rs` the background reading, `languages.rs` the line counts, `render.rs` the layout and the panels, `timeline.rs` when things move, `title.rs` the title, `vortex.rs` the vortex, `charset.rs` blocks or ASCII, `wrap.rs` long values on two rows, `snapshots/` the drawings the tests compare with), `vortex-vcs/src/git/summary.rs` (the git summary), `vortex-term/tests/test/dashboard.rs` |
 | Worktrees | `vortex-term/src/commands/worktrees.rs` (the `:worktrees` picker: its rows, columns, background jobs and `Enter`), `vortex-vcs/src/git/summary.rs` (the worktrees, missing ones flagged; `Repo::status`, the last modified time; `Repo::dated_worktrees`; `Worktree::details`), `vortex-stdx/src/time.rs` (`format_ago`), the dashboard's worktree rows and `t` in `vortex-term/src/dashboard/`, `vortex-term/tests/test/worktrees.rs` |
-| Watch mode | `vortex-view/src/watch.rs` (the session: the baseline, the files and hunks numbered in the order they changed, following, `n`/`N`, the new count), `vortex-term/src/watch.rs` (`:watch` and the other commands, reading the changed files on the watcher's thread, following, the flash, which commands pause or end it, the statusline element, the `:watch-changes` picker), `RepoWatch::start_tapped` in `vortex-term/src/live.rs`, the session's gutter markers in `vortex-view/src/gutter.rs`, `vortex-term/tests/test/watch.rs` |
+| Watch mode | `vortex-view/src/watch.rs` (the session: the baseline, the files and hunks numbered in the order they changed, following, `n`/`N`, the new count), `vortex-term/src/watch.rs` (`:watch` and the other commands, the keys of the mode, reading the changed files on the watcher's thread, following, the flash, which commands are held, the mode bar's rows, the statusline element, the `:watch-changes` picker), `RepoWatch::start_tapped` in `vortex-term/src/live.rs`, the session's gutter markers in `vortex-view/src/gutter.rs`, `vortex-term/tests/test/watch.rs` |
 | History and bookmarks | `vortex-view/src/history.rs` (what records a jump, `Editor::record_jump`, the places of a view, walking), `vortex-view/src/bookmarks.rs` (the bookmarks of a buffer, mapped through its changes; the closed files' bookmarks; the ring), `vortex-term/src/history.rs` (`ga`, `gA` and its sticky state, showing a screen again, the bookmark commands and picker), the `bookmarks` gutter in `vortex-view/src/gutter.rs`, `vortex-term/tests/test/history.rs` |
 | The vortex theme | `theme.toml` (the theme), `helix_theme.toml` (upstream's default theme), the built-in themes in `vortex-view/src/theme.rs` |
 | Theme effects | `vortex-view/src/effects.rs` (the `[effects]` table: parsing, validation, inheritance), `vortex-term/src/ui/glitch.rs` (the glitch and its wake-ups), `vortex-term/src/dashboard/charset.rs` (blocks or the measured ASCII ramp), `vortex-term/src/terminal/phosphor.rs` (the phosphor filter), the glitch over error diagnostics in `vortex-term/src/ui/text_decorations/diagnostics.rs` (where the ghost text of errors is) and `glitch_diagnostics` in `vortex-term/src/ui/editor.rs` |
@@ -241,12 +249,14 @@ Worktrees change core files: `:worktrees` (`:wt`) in `typed.rs`, where `apply_di
 changes.
 
 Watch mode changes core files: the `watch` field of `Editor` and the `watch` statusline element
-(in the default `left` list, after `mode`) in `vortex-view/src/editor.rs`; the session's diff of
+(no longer in the default statusline: the mode bar shows watch mode) in `vortex-view/src/editor.rs`; the session's diff of
 `Document` (`watch_diff`, `set_watch_base`, kept up to date on every edit like git's) in
 `vortex-view/src/document.rs`; the `diff` gutter in `vortex-view/src/gutter.rs`, which draws the
 session's hunks over git's; `MappableCommand::execute` in `commands.rs` and `execute_command` in
 `typed.rs`, which tell watch mode which command runs; `search_next_or_prev_impl` in `commands.rs`
-(`n`/`N`); the mouse (pauses following) and the flash in `ui/editor.rs`; `RepoWatch` in `live.rs`
+(`n`/`N`); the mouse (looks around), the flash, the select cursor while looking around and the
+keys of `[keys.watch]` first (`EditorView::layer_key`) in `ui/editor.rs`; `MappableCommand::execute`
+not running a command watch mode holds, and the `watch_*` static commands, in `commands.rs`; `RepoWatch` in `live.rs`
 (a tap that sees each batch of paths on the watcher's thread); `--watch` in `args.rs` and
 `Application::new`; `Diff` exported by `vortex-vcs`; `blend` of `ui/diff_view.rs`, now
 `pub(crate)`.
@@ -283,7 +293,157 @@ diff (`commands/diff_view.rs`); the keys in `keymap/default.rs`; `ui.gutter.book
 themes. With watch mode: its command lists (`vortex-term/src/watch.rs`) know the new commands, and
 its following and `n`/`N` run without recording.
 
+The mode bar changes core files: `EditorView::render` takes its rows from the bottom of the editor's
+area, above the message line, and keeps where its badges were drawn for a click
+(`EditorView::click_modebar`), and `handle_event` runs the keys of the layer of the mode that is on
+first (`EditorView::layer_key`), in `ui/editor.rs`; `Keymaps` has the layers (`with_layers`, given
+`Config::layers` by `Application::new`); `Config` reads `[keys.watch]` beside the modes' tables
+(`RawKeys`); the infobox moves up over the bar (`ui/info.rs`).
+
+Menus and key help change core files: `KeyTrieNode` has the groups of its keys and
+`KeyTrieNode::infobox` draws them; `Info` has `separators`, drawn dim by `ui/info.rs`;
+`keymap/default.rs` groups the menus; `Picker` (`ui/picker.rs`) has `header`, `info`, `help` and
+`tie_rank`, and opens the key help on `?` in normal mode; `Picker::render_picker` draws the info
+before the count.
+
+The status line rule changes the fork's messages in the files that print them (the commit log,
+line history, the lists of changes, hunks, the diff view, the file tree, the hex view, the
+worktrees, bookmarks, files changed on disk, the debugger, practice); `:watch-stop` and `:watch`
+ending watch mode print `Watch ended: N changes`.
+
+The dashboard's startup changes core files: `dashboard` is a `DashboardStartup` (`"auto"`, `true`,
+`false`) in `vortex-view/src/editor.rs`, read by `Application::new` with `Args::plain` (`--plain`,
+`-p`, in `args.rs` and the help text of `main.rs`).
+
+The command palette's recent commands change core files: `Editor::recent_commands` and
+`remember_command` (`vortex-view/src/editor.rs`), called by `command_palette` (`commands.rs`) and
+`execute_command` (`typed.rs`).
+
 To build: `cargo install --path vortex-term --locked`.
+
+## The status line
+
+The message area at the bottom, under the statuslines, is for errors (an LSP, I/O or git failure,
+a command that failed) and the short result of a command you ran (`:w`, `:cd`, `:reload`, a staged
+hunk, `Watch ended: 12 changes`). It is never for key hints, "how to use this" text, progress
+chatter or notes from the fork's features: those are in the UI they belong to:
+
+- a mode's state and keys on the [mode bar](#the-mode-bar) (watch mode);
+- a modal picker's or view's keys in its `?` help ([below](#menus-and-key-help));
+- a list's totals, a range, what is loading, on the picker's prompt row, before the count
+  (`ui.picker.info`, falling back to `ui.text.inactive`);
+- the rest in the panel the feature already has, or nowhere.
+
+A confirmation question that waits for its answer (`Delete src/old.rs? (y/n)`) stays there: the
+answer is typed right there. The test `vortex-term/tests/status_line_guard.rs` reads every message
+the sources write there (`set_status`, `set_error`, `set_warning`, `save_messages`) and fails on
+text that names a key and what it does (`n/N go through...`, `press p...`, `:reload to load it`,
+`s filter, enter cd`); its allowlist explains the exceptions. A message built elsewhere and passed
+in isn't seen by it: the rule in [CLAUDE.md](CLAUDE.md) covers those.
+
+## The mode bar
+
+A bar of one to three rows above the message area, shown only while a mode that uses it is on, and
+costing nothing otherwise: no row is taken, nothing is laid out. [Watch mode](#watch-mode) uses two
+rows; debug mode (the debug plan's next step) will use three.
+
+```text
+ WATCH ● following      src/main.rs · 3/12 changes · 2 files      followed src/main.rs:30
+  v  look   n  next   N  previous   c  changes   Esc  leave
+```
+
+**Layout.** A mode supplies rows of segments, each placed left, middle or right; the bar draws
+them, a column of padding on each side, the middle centered (moved aside when it would touch the
+others). A segment is the mode's **state**, **information**, or a **key badge**. When a row is too
+narrow, the keys collapse first (all their labels go, leaving the keys, then the last badges go),
+then the information is cut with `…` (the widest first), then the state. The bar takes its place
+under the splits and the panels (the terminal and debug panels stay above it), and the infobox
+moves up over it.
+
+**Key badges** are drawn like the dashboard's, the key then its label (` v  look`). A badge names a
+command, not a key: it shows the key the mode's keymap has for that command, so a remapped key
+shows as remapped and a command without a key has no badge. A click on a badge (on its key or its
+label) runs the command. A label may be a glyph (`▶`) rather than a word.
+
+**Theme.**
+
+| Scope | What | Falls back to |
+| --- | --- | --- |
+| `ui.modebar` | the bar's background | `ui.statusline` |
+| `ui.modebar.state` | the state (a mode adds its own, like `ui.modebar.state.following`) | `ui.statusline.normal` |
+| `ui.modebar.info` | the information | `ui.statusline` |
+| `ui.modebar.key` | a badge's key | `ui.dashboard.key` |
+| `ui.modebar.label` | a badge's label | `ui.dashboard.action` |
+
+**How debug mode plugs in.** Debug mode (PR 2 of the debug plan) will be one more mode of the bar,
+the same way as watch mode:
+
+1. a layer `Layer::Debug` in `vortex-term/src/keymap.rs` with its default keys in `layers()`
+   (`[keys.debug]` in a config), looked up before the normal mode's while debug mode is on (one
+   line in `EditorView::layer_key`);
+2. a `bar(editor, &keys) -> Option<modebar::Bar>` in the debugger's modules, returning three rows:
+   the transport bar, the lineline, the keys; `modebar::current` and `modebar::height` call it
+   while debug mode is on;
+3. the transport bar is a row of badges whose labels are the plain glyphs `|◀ ◀◀ ▶ ❚❚ ▶▶ ▶|`
+   (never emoji: no variation selector), each naming its command (`dap_restart`,
+   `dap_rewind_back`, `dap_play`, `dap_pause`, `dap_fast_forward`, `dap_live`...), so each shows its
+   key and a click runs it; the state (`DEBUG ▶ playing`) on the left and the speed on the right;
+   the lineline a row of information; the third row the other keys. The test
+   `three_rows_like_debug_mode` in `vortex-term/src/ui/modebar.rs` lays out exactly that with a fake
+   mode.
+
+## Menus and key help
+
+**Categories.** The `space` menu, the `g` menu, `[` and `]`, `z` and `Z`, `C-w` (`space w`) and the
+debugger's `space G` group their entries under short labels, drawn in the infobox as dim
+separator lines (`ui.infobox.separator`, falling back to `ui.text.inactive`):
+
+```text
+┌Space──────────────────────────────────────┐
+│── files ──────────────────────────────────│
+│f  Open file picker                        │
+│F  Open file picker at current working dir │
+│...                                        │
+│── git ────────────────────────────────────│
+│g  Open changed file picker                │
+│...                                        │
+│── commands ───────────────────────────────│
+│?  Open command palette                    │
+└───────────────────────────────────────────┘
+```
+
+| Menu | Groups |
+| --- | --- |
+| `space` | files, search, git, LSP, clipboard, comments, windows and debug, commands |
+| `g` | in the file, on the screen, LSP, files, history |
+| `[`, `]` | diagnostics and changes, syntax, lines |
+| `z`, `Z` | align, scroll, search |
+| `C-w`, `space w` | splits, focus, move |
+| `space G` | session, breakpoints, stepping, inspect, playback, threads |
+
+The groups are part of the default keymap: in `keymap!`, a `["label"]` before keys puts them under
+that label (`keymap/default.rs`); a menu without labels looks as before. A key a config adds to a
+menu has no group: it comes last, under a separator without a label. A key a config remaps keeps its
+place. The `space` and `g` menus have no `?` and no expanded help: only the separators.
+
+**`?` help.** In the fork's modal pickers and views, `?` in their normal mode opens a box over them
+listing their keys, in groups; any key closes it: the commit log and line history, the lists of
+changes (of commits, the uncommitted changes, watch mode's changes), the worktrees, the bookmarks,
+the file tree, the side by side diff, the hex view and the debug panel. Where `?` is typed text
+(a picker's filter mode, after `s`), it stays text. Their keys are no longer printed to the status
+line, nor in the diff's footer. The hex view's `?` was a backward search: `/` and then `N` searches
+backward.
+
+**No table headers.** The fork's pickers and lists (the commit log, line history, the lists of
+changes, the worktrees, the bookmarks) have no header row with the names of their columns: what
+each column shows is clear from it. Upstream's pickers keep theirs.
+
+## The command palette
+
+The command palette (`space ?`) lists the commands you ran this session first, the most recent
+first, then the rest as before. A command counts when you run it from the palette or the command
+line (`:`), not from its key. With a query, matches are ranked as before and a recent command wins
+a tie (same score). The list lives in memory only: nothing is saved, it is gone when `vx` quits.
 
 ## Side by side git diff
 
@@ -314,7 +474,7 @@ Inside the diff:
 | `q`, `Esc` | Close |
 
 The footer shows the current hunk (e.g. `hunk 2/5`), whether it is staged, the number of the file
-in a diff opened from a list of files (`file 1/3`) and the keys; the line numbers of the current
+in a diff opened from a list of files (`file 1/3`); `?` lists the keys. The line numbers of the current
 hunk are bold. The last line of the screen stays the editor's, for its messages. New files
 (untracked or staged) only have a right side, and deleted files only have a left side. Renamed files
 are compared with their old path in HEAD.
@@ -388,10 +548,10 @@ theme scope `ui.picker.divider` if the theme has it, else `ui.text.inactive`, el
 
 | Keys | Action |
 | --- | --- |
-| `space l`, `:git-log` | Open the commit picker, in normal mode, with the cursor on its first row, the [uncommitted changes](#uncommitted-changes-live). The status line shows `s filter, v extend, w/b section, enter files`. |
+| `space l`, `:git-log` | Open the commit picker, in normal mode, with the cursor on its first row, the [uncommitted changes](#uncommitted-changes-live). `?` lists its keys. |
 | `s` | Filter mode: typing filters by summary, and by hash: a query of 4 hex digits or more (`a1b2c3`) lists the commits whose hash starts with it first, then the commits whose summary matches it. `%commit`, `%author`, `%date` filter by the other columns. `Esc` goes back to normal mode and keeps the query. |
 | `j`/`k`, `Down`/`Up`, `C-n`/`C-p`, `Tab`/`S-Tab`, `C-d`/`C-u`/`PageDown`/`PageUp`, `gg`/`ge`/`G`, `Home`/`End` | Move. The keys that aren't letters work in filter mode too. |
-| `Enter` in the commit picker | List the changes of the commit, or of the selected commits, or the uncommitted changes, on top of the commit picker: one row per hunk, under a divider per file ([Lists of changes](#lists-of-changes)). The status line shows the commit or the range and the totals: `a1b2c3d: 12 changes in 4 files, +80 -31 · Fix the parser`. The changes of a commit or range are read in the background: the log stays usable meanwhile, and the status line says `Loading changes of a1b2c3d…` if it takes more than a tenth of a second. Moving on and pressing `Enter` on another row, or closing the log, drops the list being read. |
+| `Enter` in the commit picker | List the changes of the commit, or of the selected commits, or the uncommitted changes, on top of the commit picker: one row per hunk, under a divider per file ([Lists of changes](#lists-of-changes)). Its prompt row shows the commit or the range and the totals: `a1b2c3d: 12 changes in 4 files, +80 -31 · Fix the parser`. The changes of a commit or range are read in the background: the log stays usable meanwhile, and its prompt row says `Loading changes of a1b2c3d…` if it takes more than a tenth of a second. Moving on and pressing `Enter` on another row, or closing the log, drops the list being read. |
 | `v`, `A-v` | Toggle extend mode: while it's on, every movement extends the selection from the commit where it started to the commit under the cursor. `A-v` works in filter mode too. |
 | `w`, `e` | Extend the selection down (older) to the oldest commit of the section the cursor is in, and put the cursor on it. Pressed again they do nothing, they never go past the divider. |
 | `b` | Extend the selection up (newer) to the newest commit of the section the cursor is in, and put the cursor on it. |
@@ -418,7 +578,7 @@ and the selection has every commit between (see below).
 ### Ranges
 
 The selected commits are shown in the rows with the style of `ui.selection` (the commit under the
-cursor keeps the style of the cursor), and in the status line, oldest to newest, with `[extend]`
+cursor keeps the style of the cursor), and on the prompt row, oldest to newest, with `[extend]`
 in front when extend mode is on:
 
 ```
@@ -553,16 +713,15 @@ the commit log: the same columns, branch sections and dividers, modal keys and s
   base branch, with the same rules); the last one, which added the lines, is marked `(added)`.
   The first row is the uncommitted changes when any of the lines has uncommitted changes, staged
   or not, saved or not.
-- **Status line**: what's followed and the count, then the keys:
-  `src/main.rs:12-14 · 7 commits · s filter, v extend, w/b section, enter diff, o commit`. While
-  it searches it says how far it is: `searching… 1,240 commits` (the commits looked at). Several
-  ranges read `src/main.rs:3,12-14`.
+- **Prompt row**: what's followed and the count: `src/main.rs:12-14 · 7 commits`. While it
+  searches it says how far it is: `searching… 1,240 commits` (the commits looked at). Several
+  ranges read `src/main.rs:3,12-14`. `?` lists the keys.
 - **Preview**: the hunks of the commit that touched the lines, each under its place and counts
   (`src/main.rs:12-14 · +3 -1`) with a few lines of context, as the lists of changes preview
   hunks.
 - **No picker**, but a message, for a buffer without a file, a file outside a git repository, or
   one git doesn't track (or that has no commit yet). When none of the lines is committed (they were
-  all added since HEAD), the status line says `these lines aren't committed yet` and the only row
+  all added since HEAD), the prompt row says `these lines aren't committed yet` and the only row
   is the uncommitted changes.
 
 ### From the buffer to HEAD
@@ -606,7 +765,7 @@ log does.
 with gix, which lists commits as it finds them:
 
 - **The picker opens at once**, with the uncommitted changes when they're there, and fills as
-  commits are found, newest first. The walk runs on a thread of its own; the status line shows
+  commits are found, newest first. The walk runs on a thread of its own; the prompt row shows
   its progress.
 - **A commit costs a lookup of the file in its tree**: when the file is the same blob as in the
   parent, the lines pass on without reading anything. Only the commits that changed the file are
@@ -687,10 +846,8 @@ context. Rows are sorted by path, then by line, with lockfiles last.
   instead, closing the log.
 - `C-s`, `C-v` and the like open the file at the change, closing the log.
 
-The status line says how much there is: `Uncommitted changes: 6 changes in 5 files, +80 -31, 2
-unsaved` (a file without hunk rows is one change). The totals follow the list as it changes, but
-never hide another message: while the status line shows something else (a hunk action's message
-in a diff, an error), they wait until the diff is closed and the list is shown again.
+The prompt row says how much there is: `Uncommitted changes: 6 changes in 5 files, +80 -31, 2
+unsaved` (a file without hunk rows is one change). The totals follow the list as it changes.
 
 While the commit log, or anything opened from it, is open, the working tree is watched, and what
 is on screen follows it:
@@ -698,7 +855,7 @@ is on screen follows it:
 - the count of the first row;
 - the list of uncommitted changes, also while buffers are edited: the cursor stays on the same
   hunk (the same file and line), or on the first change of the same file, or at the same place
-  when the file is gone; and its totals in the status line;
+  when the file is gone; and its totals on the prompt row;
 - the diff of an uncommitted file: the line at the top of the screen stays there, and so does the
   horizontal scroll. A diff with no changes left stays open, empty, with `no changes` in the
   footer;
@@ -757,9 +914,6 @@ A binary lockfile (`bun.lockb`) shows `(binary)` instead of counts.
   a range of tens of thousands a few seconds, during which the log stays usable. They don't
   stream in as they are read. The uncommitted changes are still read on the main thread when
   their list opens (they are refreshed in the background).
-- The totals of the uncommitted changes wait while the status line shows another message: when
-  something else clears it (a hunk action's message is replaced by nothing), they come back at
-  the next change of the list or when a diff opened from it is closed.
 - The cursor never rests on the divider of a file that has hunk rows, as in the commit log: the
   file's first hunk is where `w`/`b` go, and Enter there opens the diff at it.
 - A buffer with unsaved edits is listed by its path: a buffer without a file (a scratch buffer)
@@ -787,7 +941,7 @@ unstaged and reverted:
 | `u`, `U` | Unstage the hunk, the file (back to its version in HEAD; a new file becomes untracked) |
 | `r`, `R` | Revert the hunk, the file, to its version in the index |
 
-The footer shows them, and the state of the current hunk: `hunk 2/5 staged`. On the separator
+The footer shows the state of the current hunk, `hunk 2/5 staged`, and `?` lists the keys. On the separator
 between the two sides, a staged hunk is marked `┃` and a partly staged one `╏` (the colors of
 `diff.plus` and `diff.delta`), and the background of a staged hunk is quieter.
 
@@ -800,9 +954,10 @@ between the two sides, a staged hunk is marked `┃` and a partly staged one `�
 - **Reverting** is an edit: the file's buffer (opened in the background if it isn't open) gets one
   transaction, and is written. `u` in that buffer undoes it, and a whole file is one undo step.
   It goes back to the index, like `git restore`: what is staged is kept, so a staged hunk has
-  nothing to revert (`u` unstages it first).
+  nothing to revert (`The hunk is staged: unstage it first`).
 - An **untracked file** has no version to go back to: reverting it deletes it, after asking
-  (`y` deletes it, any other key keeps it), since git can't bring it back.
+  (`Delete untracked x.rs? (y/n)`: `y` deletes it, any other key keeps it), since git can't bring
+  it back.
 - A buffer with unsaved changes can't be staged or reverted (write it first): the diff shows the
   buffer, which is not what is on disk.
 - After an action the diff is built again at once; in the commit log it also follows changes made
@@ -811,8 +966,7 @@ between the two sides, a staged hunk is marked `┃` and a partly staged one `�
 `n`/`N` go through the hunks of every file of the entry the diff was opened from: the uncommitted
 changes, a commit, or a range of commits. Past the last hunk of a file, `n` opens the diff of the
 next file at its first hunk (`N`: the previous file at its last hunk), and the cursor of the list of
-files follows. At the end of the list they go around to the first (last) file, with `Wrapped
-around to the first file` in the statusline. Lockfiles and files that can't be shown (binary) are
+files follows. At the end of the list they go around to the first (last) file. Lockfiles and files that can't be shown (binary) are
 skipped.
 
 ### Limitations
@@ -842,7 +996,7 @@ depends on the buffer:
 | The buffer | What happens |
 | --- | --- |
 | has no unsaved changes | It is reloaded silently, as one undoable step (`u` brings the old text back). Cursors and selections are mapped through the change, so they stay on the same text when it is still there |
-| has unsaved changes | The statusline warns once, `<file> changed on disk: :reload to load it, or :write! to overwrite it`. `:write` (and `:wq`, `:wa`...) refuses with the same message until `:reload` (the disk wins, undoable) or `:write!` (the buffer wins) |
+| has unsaved changes | The statusline warns once, `<file> changed on disk`. `:write` (and `:wq`, `:wa`...) refuses with the same message until `:reload` (the disk wins, undoable) or `:write!` (the buffer wins) |
 
 A change is a change of content: the modification time and size are compared first, and when they
 differ the file is read and hashed, so `touch` or a checkout that rewrites the same bytes changes
@@ -996,7 +1150,7 @@ other letters do nothing; `s` enters filter mode, where the keys go to the promp
 | `d`, then `y` | Delete the selected file or directory (directories are deleted recursively). Any other key cancels. |
 | `R` | Read the whole tree from disk again. |
 | `H` | Show/hide git ignored files for this session. |
-| `?` | Show the keys in the status line. |
+| `?` | List the keys in a box over the tree; any key closes it. |
 | `Esc` | Clear the filter if there is one, otherwise close the tree. |
 | `q`, `C-c` | Close the tree. |
 
@@ -1635,8 +1789,8 @@ until that line.
 **Threads.** Playback follows one thread, `◉ spectating` in the call stack (where every thread of
 every session is, under its session's name when there are several: js-debug runs each worker in a
 session of its own) and `T2 name` in the statusline. `<` and `>` cut to the previous and next
-thread; `Enter` on a thread spectates it. A thread starting or exiting says so in the status line
-(`Thread 4 joined · < / > to spectate`). To force a suspected race by hand, schedule the threads
+thread; `Enter` on a thread spectates it. A thread starting or exiting shows in the call stack
+(and the log), not in the status line. To force a suspected race by hand, schedule the threads
 yourself: `z` freezes a thread (`❄ frozen`: it never runs during steps, continues or playback
 until thawed, and a running thread is paused as it freezes), `o` makes steps and continues run only
 the spectated thread, and `p` continues or pauses the thread under the cursor. For example: step
@@ -1813,7 +1967,7 @@ as without the engine). When the last file is in, the lineline gets a `covered` 
 coverage was partial. When none of the files is one of those (nothing open, no breakpoint), the
 program waits for all of them, as before. The program stops at the first line of your code that
 runs, on whichever thread: that thread is spectated, playback paused (`Stopped at the first line of
-your code that ran: Space plays`). Switching the follow mode (`e`) sends the whole set again for the
+your code that ran`). Switching the follow mode (`e`) sends the whole set again for the
 new mode, and the restore after a full-speed run puts it back, both in the same order (the
 spectated thread's file first) and both letting playback go on once those are in. `space G c` waits
 until a set is complete (it says so). While breakpoints are installed, lifted or restored, the panel's last row
@@ -2149,7 +2303,7 @@ deletes a byte, and it never loads the file: a file of several GB opens at once.
 
 `:`, `space` and the keys with `Ctrl` or `Alt` the view doesn't use go to the keymap as in any
 buffer: `:q`, `:w`, the pickers, the windows (`Ctrl-w`), the bookmarks (`Ctrl-o`/`Ctrl-i`)... Any
-other character is refused in read-only mode with `read-only, i to overwrite`.
+other character is refused in read-only mode with `read-only` (`?` lists the keys: `i` overwrites).
 
 ### Overwrite mode
 
@@ -2272,6 +2426,7 @@ the dashboard.
 | `e` | The file tree (`space e`) |
 | `l` | The commit log (`space l`), in a git repository |
 | `t` | The [worktrees](#worktrees) (`:wt`), when the repository has other worktrees |
+| `w` | [Watch mode](#watch-mode) (`:watch`), in a git repository: the dashboard closes and the mode bar opens |
 | `q` | Quit (`:q`) |
 | `:dashboard` | Show the dashboard again, over a new empty buffer (or over the current one when it is an empty scratch buffer), its animations from the start |
 | `:vortex` | Only the vortex and the logo on its panel, centered (no credit line, no stats, no actions; no logo with `dashboard-title = false`), moving as `dashboard-background` says (`off` shows it still); it goes like the dashboard. Handy for a screenshot |
@@ -2292,6 +2447,7 @@ new folder, its animations from the start.
 ```toml
 [editor]
 dashboard = false               # start as before: an empty buffer, or the file picker for vx <folder>
+                                # (true: always; "auto", the default: where it fits, below)
 dashboard-background = "grow-on" # "grow-on", "grow", "drain", "settle", "on", "static" or "off"
 dashboard-title = false         # no title and no credit line: the stats and the actions only
 ```
@@ -2313,6 +2469,22 @@ second, with fast stats both are the same instant. Growing and draining take 1.6
 the corners or back (`REACH` in `timeline.rs`, the one constant for both), in any window.
 
 `:dashboard` works with `dashboard = false` too.
+
+**Where it fits.** `dashboard = "auto"`, the default, decides by the situation, never by a list of
+terminal names: the dashboard opens in a local terminal, and not under SSH (any of
+`SSH_CONNECTION`, `SSH_TTY` or `SSH_CLIENT` set: its frames would cross the network) nor on the
+Linux console (`TERM=linux`: few colors, no block shades). An explicit `dashboard = true` or
+`false` always wins. `vx --plain` (`vx -p`) starts without the dashboard for that run, whatever the
+config says.
+
+The gap: a tmux (or screen) server started over SSH keeps the SSH variables, so a `vx` started in
+it after attaching locally still counts as remote. It fails safe: no dashboard (`:dashboard`
+shows it). The other way round, a shell opened in a local tmux server before an SSH client
+attached has no SSH variables, so a `vx` started from it shows the dashboard over SSH (tmux's
+`update-environment` gives the variables to the windows opened after the attach, not before).
+
+**Narrow windows.** The actions take one row in a narrow window, and two when one is too narrow
+for them, before the stats are dropped.
 
 ### The title
 
@@ -2585,27 +2757,36 @@ or that git lost track of (its `gitdir` file is gone, shown by its directory in 
 
 Watch mode follows the changes made to the working tree as they happen, by an agent at work, a
 formatter, a script or another editor: each change is opened, jumped to and flashed, its lines are
-marked in the gutter, and `n`/`N` go through all of them in the order they happened.
+marked in the gutter, and `n`/`N` go through all of them in the order they happened. It is a mode:
+while it is on, its keys come first, and its state and keys are on the [mode bar](#the-mode-bar).
 
 ```text
    28  line 28 of main
    29  line 29 of main
    30 ┃line 30 CHANGED by the agent        <- jumped to, centered, flashed
    31  line 31 of main
- NOR  WATCH following   src/main.rs                                  1 sel  30:1
+ NOR   src/main.rs                                                   1 sel  30:1
+ WATCH ● following      src/main.rs · 3/12 changes · 2 files      followed src/main.rs:30
+  v  look   n  next   N  previous   c  changes   Esc  leave
 ```
 
 ### Usage
 
 | Key or command | What it does |
 | --- | --- |
-| `:watch`, `vx --watch [folder]` | Start watch mode in the repository of the working directory (with a folder, in it). `:watch` again ends it. `:watch` is in the command palette (`space ?`) |
+| `:watch`, `vx --watch [folder]` | Start watch mode in the repository of the working directory (with a folder, in it). `:watch` again ends it. `:watch` is in the command palette (`space ?`), and `w` on the [dashboard](#dashboard) starts it |
 | `:watch-stop` | End watch mode. The session's changes stay: their markers, `n`/`N`, `:watch-changes` |
 | `:watch-clear` | Forget the session: the markers go, `n`/`N` search again |
 | `:watch-changes` | The picker of the session's changes (below) |
-| any movement | Keeps watch mode but pauses following: new changes are only counted, `WATCH 3 new` |
-| `n`, `N` | The next, previous change of the session, across files, in the order they happened (newest last), around at the ends. Reaching the newest follows again; going to an older one pauses |
-| anything else | Ends watch mode, keeping its changes (see below) |
+
+While watch mode is on, these keys come first (`[keys.watch]`, below):
+
+| Key | What it does |
+| --- | --- |
+| `v` | Look around: your own cursor, drawn as in select mode (`ui.cursor.select`), moves and searches freely while new changes are only counted. `v` again follows again, from the newest change |
+| `n`, `N` | The next, previous change of the session, across files, in the order they happened (newest last), around at the ends. Reaching the newest with `n` follows again; going to an older one looks around |
+| `c` | The picker of the session's changes (`:watch-changes`) |
+| `Esc` | Leave watch mode, to edit where you are. The changes stay |
 
 **Following.** When a file changes on disk (changes are merged until 200ms pass without one, at
 most a second, like the [live views](#uncommitted-changes-live)), its buffer is opened, or shown:
@@ -2614,19 +2795,21 @@ hunk of the file, which is centered and flashed (`ui.highlight.watch`, fading ou
 second). When a batch touches several files, the most recently modified is followed; the others
 are only marked.
 
-**Moving pauses following**: any movement or selection (`hjkl`, words, `gg`, `C-d`, `]d`, text
-objects, `v`...), a search (`/`, `?`, `*`), scrolling, the mouse wheel or a click, copying (`y`).
-The view never jumps while you're reading: new changes are counted in the statusline. `n` until
-the newest change follows again, and the statusline says `WATCH following`.
+**Keys don't stop it by accident.** While following, the movement and search keys (`hjkl`, words,
+`gg`, `C-d`, `/`, ...) do nothing: the bar says that `v` looks around. While looking around they
+work as usual, and `/`, `?`, `*` search (but `n`/`N` stay the changes'). Keys that would edit or
+open something else (insert mode, `d`, `o`, a paste, a picker, `gf`, `gd`, a buffer switch,
+[history](#history-and-bookmarks)'s `ga`/`gA`, the bookmarks' `C-i`/`C-o`/`space j`, a split) do
+nothing in either state: the bar says that `Esc` leaves watch mode first. The command line (`:`),
+the palette, the [terminal panel](#terminal-panel) (`C-t`: an agent can run in the panel while
+its changes are followed above it) and setting a bookmark (`C-s`) work in both. A typed command
+is meant: `:goto` looks around, the watch commands keep watch mode, any other command (`:w`,
+`:open`, ...) leaves it first. Scrolling or clicking with the mouse looks around. The `space` and
+other menus still open; a command picked in them is held like its key.
 
-**Anything else ends watch mode**: an edit, insert mode, opening a file yourself (`:open`, `gf`,
-`gd`, a buffer switch), [history](#history-and-bookmarks)'s `ga` and `gA` and the bookmarks'
-`C-i`, `C-o` and `space j` (they can open another buffer or screen), a picker, a split, a command
-other than `:goto` and the watch commands. The session's markers, `n`/`N` and `:watch-changes` stay until the next `:watch` or
-`:watch-clear`; the working tree is no longer watched, so they show the changes up to then. `Esc`,
-the command line (`:`) and the palette themselves, and the [terminal panel](#terminal-panel)
-(`C-t`), change nothing: an agent can run in the panel while its changes are followed above it.
-Setting or removing a bookmark (`C-s`) changes nothing either.
+**Leaving.** `Esc` (or `:watch-stop`, `:watch`) leaves watch mode. The session's markers, `n`/`N`
+and `:watch-changes` stay until the next `:watch` or `:watch-clear`; the working tree is no longer
+watched, so they show the changes up to then.
 
 **History and bookmarks.** Following and `n`/`N` through the session's changes are not
 [history](#history-and-bookmarks)'s jumps: the session has its own order and its picker, and
@@ -2635,18 +2818,47 @@ mode goes back to where your own last jump left, not to the change followed befo
 picked in `:watch-changes` is a jump, as in any picker. Bookmarks set while watching stay on their
 lines while the files change under them (a reload maps them like any edit).
 
+### Watch mode's keys
+
+Watch mode's keys are a layer of their own, `[keys.watch]`, one key per command (no menus), looked
+up before the keymap of normal mode while watch mode is on. Remap them there; the bar shows the
+keys the layer has, and a command without a key has no badge:
+
+```toml
+[keys.watch]
+l = "watch_look"        # look around on l (v still does too: add v = "no_op" to free it)
+```
+
+| Command | Default key |
+| --- | --- |
+| `watch_look` | `v` |
+| `watch_next_change` | `n` |
+| `watch_prev_change` | `N` |
+| `watch_changes` | `c` |
+| `watch_leave` | `Esc` |
+
+The commands are also in the command palette.
+
+### The bar
+
+Watch mode's [mode bar](#the-mode-bar) has two rows:
+
+- row 1: the state on the left, `WATCH ● following` (`ui.modebar.state.following`) or `WATCH ◌
+  looking` (`ui.modebar.state.looking`, both falling back to `ui.modebar.state`); in the middle the
+  current change, its number and the count (`src/main.rs · 3/12 changes · 2 files`, and `· 3 new`
+  while looking around); on the right the latest activity: what was just followed, a file skipped
+  for its unsaved edits, a lockfile or binary file that changed (not followed), a held key, where
+  watch mode started and how many files were already uncommitted. Nothing of this goes to the
+  status line.
+- row 2: the key badges, from `[keys.watch]`, clickable: `v look` (`v follow` while looking around),
+  `n next`, `N previous`, `c changes`, `Esc leave`.
+
 ### The statusline
 
-The `watch` element is in the default statusline, after the mode, and is empty outside watch mode:
-
-| Text | Theme scope | When |
-| --- | --- | --- |
-| `WATCH following` | `ui.statusline.watch.following` | changes are followed |
-| `WATCH 3 new` | `ui.statusline.watch.paused` | following is paused, and 3 hunks came since the newest one you saw |
-| `WATCH paused` | `ui.statusline.watch.paused` | following is paused, nothing new |
-
-Both fall back to `ui.statusline.watch`, then to bold black on green and on yellow. A config with
-its own statusline adds `"watch"` to a list:
+The statusline's `watch` element is no longer in the default statusline: the bar shows the state.
+A config with its own statusline may still list `"watch"`: it is a small `●` while following and
+`◌` while looking around (`ui.statusline.watch.following` and `ui.statusline.watch.paused`, both
+falling back to `ui.statusline.watch`), empty outside watch mode.
 
 ```toml
 [editor.statusline]
@@ -2689,7 +2901,7 @@ do. Lines changed before the watch keep git's marker.
 `:watch-changes` lists the session's changes in the shape of the [lists of
 changes](#lists-of-changes): one row per hunk under a divider per file, with the `+`/`-` marks, the
 most recently changed file first and, in a file, its newest hunk first. Lockfiles are a divider
-alone, deleted files are `(deleted)`, created ones `(new)`. The status line has the totals: `This
+alone, deleted files are `(deleted)`, created ones `(new)`. The prompt's row has the totals: `this
 session: 6 changes in 4 files, +7 -4`.
 
 ```text
@@ -2705,9 +2917,9 @@ session: 6 changes in 4 files, +7 -4`.
 ── Cargo.lock  +1 ──────────────────────────────────
 ```
 
-Its keys are those of the lists of changes (`j`/`k`, `w`/`b` between files, `s` filters); `Enter`
-goes to the change (`n` goes on from there) and closes the picker, `C-s`/`C-v` open it in a split.
-Opening the picker pauses following but doesn't end watch mode.
+Its keys are those of the lists of changes (`j`/`k`, `w`/`b` between files, `s` filters, `?` lists
+them); `Enter` goes to the change (`n` goes on from there) and closes the picker, `C-s`/`C-v` open
+it in a split. Opening the picker looks around but doesn't end watch mode.
 
 ### Unsaved buffers
 
@@ -2816,7 +3028,7 @@ in the order it was built.
 | `Ctrl-s` | Sets a bookmark on the cursor's line, or removes the one there; with several cursors, on each cursor's line. Normal and select mode (in insert mode it is still the undo checkpoint) |
 | `Ctrl-i` (`Tab`) | The next bookmark, in the order they were set; past the last, the first |
 | `Ctrl-o` | The previous bookmark |
-| `Space j` | The bookmark picker: number, file and line, the line's text, in the order they were set; `Enter` goes to one, `Ctrl-x` removes it |
+| `Space j` | The bookmark picker: number, file and line, the line's text, in the order they were set. It opens in normal mode like the fork's other lists (`s` filters, `?` lists the keys); `Enter` goes to one, `Ctrl-x` removes it |
 
 - **The order is the order they were set**, not file and line: the ring goes the way the working
   set was built, across files. A bookmark's number is its rank, so removing one closes the gap
@@ -2876,9 +3088,9 @@ screen" is this: screens are places.
 - **A bookmark is a line**, stored as the start of the line: text typed at the very start of the
   line, or a line opened above it, leaves it on its line. Of two bookmarks joined onto one line
   (`J`), the older stays.
-- **In watch mode**, `ga`, `gA`, `C-i`, `C-o` and `space j` end it, as opening a file yourself
-  does (also from the keys that bypass the keymap: the sticky state, the hex view, a diff);
-  `C-s` changes nothing.
+- **In watch mode**, `ga`, `gA`, `C-i`, `C-o` and `space j` do nothing until `Esc` leaves watch
+  mode, as opening a file yourself does (also from the keys that bypass the keymap: the sticky
+  state, the hex view, a diff); `C-s` changes nothing.
 - **`Ctrl-x` removes a bookmark** in the picker: no picker or prompt key uses it.
 - **`◆`** marks the bookmarks past the ninth; numbers are drawn in `ui.gutter.bookmark`, bold
   purple in the vortex theme, bold honey in upstream's.

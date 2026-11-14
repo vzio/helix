@@ -681,10 +681,7 @@ fn finish(editor: &mut Editor, session: DebugAdapterId, token: u64, kind: TaskKi
                 if files == 1 { "" } else { "s" },
                 time.map(|time| format!(" ({time})")).unwrap_or_default()
             );
-            editor.debug.console.line(LineKind::Info, text.clone());
-            if !editor.is_err() {
-                editor.set_status(text);
-            }
+            editor.debug.console.line(LineKind::Info, text);
         }
         _ => {}
     }
@@ -1049,8 +1046,7 @@ pub fn full_speed(editor: &mut Editor, key: ThreadKey) -> bool {
     if let Some(task) = &editor.debug.engine.task {
         // a continue would only reach the next hidden breakpoint: wait for the set
         editor.set_error(format!(
-            "Hidden breakpoints are still going in ({}/{} files): Space G c runs at full speed \
-             once they are",
+            "Hidden breakpoints are still going in ({}/{} files)",
             task.files_done, task.files_total
         ));
         return true;
@@ -1081,7 +1077,7 @@ pub fn full_speed(editor: &mut Editor, key: ThreadKey) -> bool {
         })
         .collect();
     let at = editor.debug.engine.record.counter();
-    editor.set_status("Continuing at full speed to your next breakpoint");
+    log::info!("continuing at full speed to the next breakpoint");
     run_files(editor, session, token, jobs, move |editor| {
         finish(editor, session, token, TaskKind::Lift);
         if editor.debug_adapters.get_client(session).is_none() {
@@ -1359,9 +1355,7 @@ pub fn on_stopped(
                     LineDecision::Spectate => {
                         editor.debug.spectator.spectated = Some(key);
                         sync_watch(editor);
-                        editor.set_status(
-                            "Stopped at the first line of your code that ran: Space plays",
-                        );
+                        editor.set_status("Stopped at the first line of your code that ran");
                     }
                     LineDecision::Stop => {}
                 }

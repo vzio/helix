@@ -5,7 +5,6 @@
 
 
 
-
                                                ▀█      █▀     ▄██▄     ██▀▀▄▄       ▄██▄     ██▀▀▀▀▀▀  ▀█▄    ▄█▀
                                                 ▀█    █▀    ▄█▀  ▀█▄   ██   ▄█▀   ▄█▀██▀█▄    ▀█▄        ▀█▄▄█▀
                                                  ██  ██    ██      ██  ██▄█▀▀    ▀▀  ██  ▀▀     ██         ██
@@ -33,6 +32,7 @@
                                                                   f    Find a file     space f
                                                                   e    File tree       space e
                                                                   l    Git history     space l
+                                                                  w    Watch mode       :watch
                                                                   q    Quit                 :q
 
 

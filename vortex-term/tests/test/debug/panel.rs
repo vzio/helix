@@ -974,3 +974,48 @@ async fn esc_in_the_focused_panel_gives_the_keys_back_and_the_panel_stays() -> a
     assert!(e.h.app.editor.debug.visible && !e.h.app.editor.debug.focused);
     e.h.finish().await
 }
+
+/// The rows of the screen as text.
+fn screen_rows(app: &Application) -> Vec<String> {
+    let screen = app.screen();
+    (0..screen.area.height)
+        .map(|y| {
+            (0..screen.area.width)
+                .map(|x| screen.get(x, y).map_or(" ", |cell| cell.symbol.as_str()))
+                .collect()
+        })
+        .collect()
+}
+
+fn help_is_open(app: &Application) -> bool {
+    screen_rows(app)
+        .iter()
+        .any(|row| row.contains("any key closes"))
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn question_mark_in_the_focused_panel_opens_the_key_help() -> anyhow::Result<()> {
+    let mut e = env(|p| Script::new(p).stop(Stop::new(3, "entry").scope(locals("1", "5")))).await?;
+    e.launch()?;
+    e.stopped("x = 1").await;
+
+    assert!(!help_is_open(&e.h.app));
+    e.h.keys("<C-g>").await?;
+    assert!(e.h.app.editor.debug.is_focused());
+    assert!(!help_is_open(&e.h.app));
+
+    e.h.keys("?").await?;
+    let rows = screen_rows(&e.h.app);
+    assert!(help_is_open(&e.h.app), "{rows:#?}");
+    assert!(
+        rows.iter().any(|row| row.contains("Debug panel")),
+        "{rows:#?}"
+    );
+    assert!(rows.iter().any(|row| row.contains("playback")), "{rows:#?}");
+    // any key closes it, and the panel keeps the keys
+    e.h.keys("x").await?;
+    assert!(!help_is_open(&e.h.app));
+    assert!(e.h.app.editor.debug.is_focused());
+    assert!(e.h.errors.is_empty(), "{:?}", e.h.errors);
+    e.h.finish().await
+}

@@ -2858,10 +2858,9 @@ fn watch_stop(cx: &mut compositor::Context, _args: Args, event: PromptEvent) -> 
     if event != PromptEvent::Validate {
         return Ok(());
     }
-    if cx.editor.watch.is_active() {
-        crate::watch::end(cx.editor);
-    } else {
-        cx.editor.set_status("Not watching");
+    match crate::watch::end(cx.editor) {
+        Some(count) => cx.editor.set_status(crate::watch::ended_message(count)),
+        None => bail!("watch mode is off"),
     }
     Ok(())
 }
@@ -4629,6 +4628,8 @@ pub(super) fn execute_command(
 
     if event == PromptEvent::Validate {
         crate::watch::before_typed(cx.editor, cmd.name);
+        // the palette lists the commands run this session first (this fork)
+        cx.editor.remember_command(&format!(":{}", cmd.name));
     }
     (cmd.fun)(cx, args, event).map_err(|err| anyhow!("'{}': {err}", cmd.name))
 }

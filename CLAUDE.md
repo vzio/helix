@@ -25,6 +25,25 @@ section. The unit test `every_command_of_the_default_keymap_is_taught` fails for
 that is in neither: write the tutor's key on a line that starts with two spaces, as the other key
 lists do, and after a line ending in `In insert mode:` for an insert-mode key.
 
+## The status line: errors and results only
+
+The message area at the bottom (`set_status`, `set_error`, `set_warning`, `save_messages`) is for
+errors (LSP, I/O, git, a failed command) and the **short** result of a command the user ran (`:w`,
+`:cd`, a staged hunk). **Keys and help go in the UI, never the status line**: no key hints ("n/N go
+through...", "press p...", ":reload to load it"), no "how to use this", no progress chatter, no
+informational notes from fork features. Put them where they belong:
+
+- a mode's state and keys: the mode bar (`vortex-term/src/ui/modebar.rs`, see FORK.md "The mode
+  bar");
+- a modal picker's or view's keys: its `?` help (`Picker::with_help`, `ui/keyhelp.rs`);
+- a list's totals, a range, what is loading: the picker's prompt row (`Picker::with_info`/
+  `set_info`);
+- otherwise the panel the feature already has, or nowhere.
+
+A confirmation question that waits for its answer (`Delete x? (y/n)`) may stay. The test
+`vortex-term/tests/status_line_guard.rs` fails on key hints it can see in messages; don't widen its
+allowlist to get past it: move the text into the UI.
+
 ## Writing a `:practice` exercise
 
 `:practice` is the fork's built-in trainer (see FORK.md, "Practice"). Exercises are plain TOML

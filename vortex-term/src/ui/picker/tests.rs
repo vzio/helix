@@ -357,3 +357,62 @@ async fn w_and_b_move_between_the_groups() {
     picker.move_to_section(Direction::Forward);
     assert_eq!(at(&picker), Some("b.rs:4"));
 }
+
+/// A picker of strings whose tie rank is the position in `recent` (the others have none).
+fn ranked(items: &[&str], recent: &[&str]) -> Picker<String, ()> {
+    let columns = [Column::new("text", |item: &String, _: &()| {
+        item.as_str().into()
+    })];
+    let recent: Vec<String> = recent.iter().map(|item| item.to_string()).collect();
+    let mut picker = Picker::new(
+        columns,
+        0,
+        items.iter().map(|item| item.to_string()),
+        (),
+        |_, _, _| {},
+    )
+    .with_tie_rank(move |item| {
+        recent
+            .iter()
+            .position(|recent| recent == item)
+            .map_or(u32::MAX, |rank| rank as u32)
+    });
+    settle(&mut picker);
+    picker
+}
+
+#[tokio::test]
+async fn without_a_rank_the_matchers_order_is_kept_for_equal_scores() {
+    let mut picker = ranked(&["abc-x", "abc-y", "abc-z"], &[]);
+    query(&mut picker, "abc");
+    assert_eq!(listed(&picker), ["abc-x", "abc-y", "abc-z"]);
+}
+
+#[tokio::test]
+async fn a_ranked_item_wins_a_tie() {
+    let mut picker = ranked(&["abc-x", "abc-y", "abc-z"], &["abc-y"]);
+    query(&mut picker, "abc");
+    assert_eq!(listed(&picker), ["abc-y", "abc-x", "abc-z"]);
+    // the lowest rank first among the ranked
+    let mut picker = ranked(&["abc-x", "abc-y", "abc-z"], &["abc-z", "abc-y"]);
+    query(&mut picker, "abc");
+    assert_eq!(listed(&picker), ["abc-z", "abc-y", "abc-x"]);
+}
+
+#[tokio::test]
+async fn a_better_score_beats_a_better_rank() {
+    let mut picker = ranked(&["a-b-c", "abc-x"], &["a-b-c"]);
+    query(&mut picker, "abc");
+    // the contiguous match scores higher than the scattered one, ranked or not
+    assert_eq!(listed(&picker), ["abc-x", "a-b-c"]);
+}
+
+#[tokio::test]
+async fn without_a_query_the_order_is_the_one_the_items_were_added_in() {
+    let mut picker = ranked(&["abc-x", "abc-y"], &["abc-y"]);
+    assert_eq!(listed(&picker), ["abc-x", "abc-y"]);
+    query(&mut picker, "abc");
+    assert_eq!(listed(&picker), ["abc-y", "abc-x"]);
+    query(&mut picker, "");
+    assert_eq!(listed(&picker), ["abc-x", "abc-y"]);
+}

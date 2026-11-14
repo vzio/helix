@@ -54,10 +54,7 @@ fn check_doc(editor: &mut Editor, doc_id: DocumentId) {
     }
     if doc.is_modified() {
         if doc.take_disk_change_warning() {
-            let message = format!(
-                "{} changed on disk: :reload to load it, or :write! to overwrite it",
-                doc.display_name()
-            );
+            let message = format!("{} changed on disk", doc.display_name());
             editor.set_warning(message);
         }
         return;

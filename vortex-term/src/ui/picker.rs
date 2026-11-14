@@ -347,7 +347,25 @@ pub struct Picker<T: 'static + Send + Sync, D: 'static> {
     /// `w`/`b` in normal mode move between the groups of dividers, see
     /// [`Picker::with_section_keys`].
     section_keys: bool,
+    /// The table has a header row with the names of the columns; the fork's lists don't, see
+    /// [`Picker::without_header`].
+    header: bool,
+    /// A short text on the prompt's row, before the count (this fork): the totals of a list, a
+    /// range, what is being loaded. Not the status line's.
+    info: Option<String>,
+    /// The title and the picker's own keys in the key help overlay, `?` in normal mode (this
+    /// fork, see [`Picker::with_help`]).
+    help: Option<(String, Vec<HelpGroup>)>,
+    /// Breaks ties between matches of the same score: the lower rank first (this fork: recent
+    /// commands in the palette), see [`Picker::with_tie_rank`].
+    tie_rank: Option<TieRank<T>>,
 }
+
+/// The rank of an item among matches of the same score, see [`Picker::with_tie_rank`].
+type TieRank<T> = Box<dyn Fn(&T) -> u32>;
+
+/// A group of keys in a picker's key help: its label, and the keys with what they do.
+pub type HelpGroup = (&'static str, crate::ui::keyhelp::Keys);
 
 /// Items listed first for some queries (this fork): the commits whose hash starts with a
 /// hash-looking query, in the commit log.
@@ -409,6 +427,10 @@ impl<'a, T: Send + Sync + 'static> Rows<'a, T> {
 }
 
 impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
+    /// The columns the prompt keeps beyond what is typed in it, before the info on its row takes
+    /// the rest (this fork).
+    const PROMPT_ROOM: u16 = 16;
+
     pub fn stream(
         columns: impl IntoIterator<Item = Column<T, D>>,
         editor_data: D,
@@ -532,7 +554,73 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
             preferred: None,
             order: None,
             section_keys: false,
+            header: true,
+            info: None,
+            help: None,
+            tie_rank: None,
         }
+    }
+
+    /// With a query, matches of the same score are listed by `rank`, the lowest first, before
+    /// the matcher's own order (shorter first, then the order they were added). Items without a
+    /// rank return `u32::MAX`.
+    pub fn with_tie_rank(mut self, rank: impl Fn(&T) -> u32 + 'static) -> Self {
+        self.tie_rank = Some(Box::new(rank));
+        self
+    }
+
+    /// No header row with the names of the columns: the columns of the fork's lists are clear
+    /// from what they show.
+    pub fn without_header(mut self) -> Self {
+        self.header = false;
+        self
+    }
+
+    /// A short text on the prompt's row, before the count.
+    pub fn with_info(mut self, info: impl Into<String>) -> Self {
+        self.info = Some(info.into());
+        self
+    }
+
+    /// Changes the text on the prompt's row (`None` removes it).
+    pub fn set_info(&mut self, info: Option<String>) {
+        self.info = info;
+    }
+
+    /// The text on the prompt's row.
+    pub fn info(&self) -> Option<&str> {
+        self.info.as_deref()
+    }
+
+    /// The picker's own keys for the key help overlay (`?` in normal mode, see
+    /// [`Picker::with_modes`]), in groups, before the keys every list has.
+    pub fn with_help(mut self, title: impl Into<String>, groups: Vec<HelpGroup>) -> Self {
+        self.help = Some((title.into(), groups));
+        self
+    }
+
+    /// The key help overlay of the picker: its own keys, then those of every list.
+    pub fn key_help(&self) -> crate::ui::keyhelp::KeyHelp {
+        let (title, mut groups) = self
+            .help
+            .clone()
+            .unwrap_or_else(|| ("Keys".to_string(), Vec::new()));
+        let mut list = vec![
+            ("j k, ↓ ↑", "move"),
+            ("C-d C-u", "half a page down, up"),
+            ("gg ge, G", "first, last"),
+        ];
+        if self.section_keys {
+            list.push(("w b", "next, previous group"));
+        }
+        list.extend([
+            ("s", "filter (Esc goes back)"),
+            ("Esc", "clear the filter, else close"),
+            ("q", "close"),
+            ("?", "these keys"),
+        ]);
+        groups.push(("list", list));
+        crate::ui::keyhelp::KeyHelp::new(title, &groups)
     }
 
     pub fn injector(&self) -> Injector<T, D> {
@@ -629,6 +717,9 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
         if self.order.is_none() {
             self.update_groups();
         }
+        if self.order.is_none() {
+            self.update_ties();
+        }
         if self.order.is_some() {
             self.cursor = self.cursor.min(self.rows().count().saturating_sub(1));
         }
@@ -669,6 +760,45 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
                 .map(|(position, _)| ListedRow::Matched(position as u32)),
         );
         self.order = Some(order);
+    }
+
+    /// With a query and a tie rank, lists the matches of the same score by rank.
+    fn update_ties(&mut self) {
+        let Some(rank) = &self.tie_rank else {
+            return;
+        };
+        let snapshot = self.matcher.snapshot();
+        if snapshot.pattern().is_empty() {
+            return;
+        }
+        // the matcher keeps its scores to itself: the matches are scored again, only when some
+        // have a rank
+        let ranks: Vec<u32> = snapshot
+            .matched_items(..)
+            .map(|item| rank(item.data))
+            .collect();
+        if ranks.iter().all(|&rank| rank == u32::MAX) {
+            return;
+        }
+        let mut matcher = nucleo::Matcher::new(nucleo::Config::DEFAULT);
+        let pattern = snapshot.pattern();
+        let scores: Vec<u32> = snapshot
+            .matched_items(..)
+            .map(|item| {
+                pattern
+                    .score(item.matcher_columns, &mut matcher)
+                    .unwrap_or(0)
+            })
+            .collect();
+        let mut positions: Vec<usize> = (0..ranks.len()).collect();
+        // stable: the matcher's order stays within the same score and rank
+        positions.sort_by_key(|&position| (std::cmp::Reverse(scores[position]), ranks[position]));
+        self.order = Some(
+            positions
+                .into_iter()
+                .map(|position| ListedRow::Matched(position as u32))
+                .collect(),
+        );
     }
 
     /// With a query, lists the rows of a picker with groups in the order they were added, each
@@ -1085,7 +1215,7 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
     }
 
     fn header_height(&self) -> u16 {
-        if self.columns.len() > 1 {
+        if self.header && self.columns.len() > 1 {
             1
         } else {
             0
@@ -1306,7 +1436,23 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
         );
 
         let area = inner.clip_left(1).with_height(1);
-        let line_area = area.clip_right(count.len() as u16 + 1);
+        // the info (this fork) before the count: the rest of the row once the prompt has room
+        // for what is typed and some more, cut if it doesn't fit
+        let info = self.info.as_deref().map(|info| {
+            let typed =
+                vortex_core::unicode::width::UnicodeWidthStr::width(self.prompt.line().as_str())
+                    as u16;
+            let prompt = typed + 2 + Self::PROMPT_ROOM;
+            let room = area
+                .width
+                .saturating_sub(count.len() as u16 + 3)
+                .saturating_sub(prompt);
+            crate::ui::modebar::cut(info, room)
+        });
+        let info_width = info.as_deref().map_or(0, |info| {
+            vortex_core::unicode::width::UnicodeWidthStr::width(info) as u16 + 2
+        });
+        let line_area = area.clip_right(count.len() as u16 + 1 + info_width);
 
         // render the prompt first since it will clear its background
         self.prompt.render(line_area, surface, cx);
@@ -1318,6 +1464,21 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
             (count.len()).min(area.width as usize),
             text_style,
         );
+        if let Some(info) = info.filter(|info| !info.is_empty()) {
+            let style = cx
+                .editor
+                .theme
+                .try_get("ui.picker.info")
+                .or_else(|| cx.editor.theme.try_get("ui.text.inactive"))
+                .unwrap_or(text_style);
+            surface.set_stringn(
+                (area.x + area.width).saturating_sub(count.len() as u16 + info_width),
+                area.y,
+                &info,
+                info_width as usize,
+                style,
+            );
+        }
 
         // -- Separator
         let sep_style = cx.editor.theme.get("ui.background.separator");
@@ -1438,7 +1599,7 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
             .widths(&self.widths);
 
         // -- Header
-        if self.columns.len() > 1 {
+        if self.header && self.columns.len() > 1 {
             let active_column = self.query.active_column(self.prompt.position());
             let header_style = cx.editor.theme.get("ui.picker.header");
             let header_column_style = cx.editor.theme.get("ui.picker.header.column");
@@ -1781,6 +1942,8 @@ impl<I: 'static + Send + Sync, D: 'static + Send + Sync> Component for Picker<I,
             key!('g') if normal => self.goto = true,
             key!('G') if normal => self.to_end(),
             key!('s') if normal => self.mode = Some(PickerMode::Filter),
+            // the key help overlay (this fork); in filter mode `?` is typed
+            key!('?') if normal => return EventResult::Consumed(Some(self.key_help().push())),
             key!('w') if normal && self.section_keys => self.move_to_section(Direction::Forward),
             key!('b') if normal && self.section_keys => self.move_to_section(Direction::Backward),
             key!(Esc) if normal && !self.prompt.line().is_empty() => {

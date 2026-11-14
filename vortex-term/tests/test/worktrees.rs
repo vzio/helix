@@ -294,16 +294,14 @@ async fn the_picker_lists_the_current_worktree_first_then_by_last_modified() {
     session.first_frame().await;
     open(&mut session, 4).await;
 
-    let header: Vec<_> = flat(&session.frame()[2])
-        .split(' ')
-        .map(str::to_string)
-        .collect();
-    assert_eq!(
-        header,
-        ["path", "branch", "changes", "unpushed", "modified"],
+    // no header with the names of the columns: the row under the prompt is a worktree
+    assert!(
+        flat(&session.frame()[2]).starts_with(&format!("● {}", shown(&fleet.main))),
         "{:#?}",
         session.frame()
     );
+    // and nothing in the status line: it is for results
+    assert_eq!(status(&session.app), "");
     // the current one first and marked (the others have no mark), the rest newest first, the
     // missing one last: `dirty` was read as the newest though its git dir is the older one of
     // the two that are at all recent
@@ -567,4 +565,35 @@ async fn from_a_linked_worktree_the_main_one_is_listed_too() {
         .iter()
         .any(|row| row.contains(&format!("{} main", shown(&fleet.main)))));
     assert_eq!(rows.len(), 5, "{rows:#?}");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn question_mark_opens_the_key_help_in_normal_mode_and_is_typed_in_filter_mode() {
+    let Some(_) = Repo::enter_with(
+        module_path!(),
+        "question_mark_opens_the_key_help_in_normal_mode_and_is_typed_in_filter_mode",
+        fleet,
+    ) else {
+        return;
+    };
+    let mut session = Session::new();
+    session.first_frame().await;
+    open(&mut session, 4).await;
+    assert!(!on_screen(&session.rows(), "any key closes"));
+
+    session.keys("?").await;
+    let rows = session.rows();
+    assert!(on_screen(&rows, "Worktrees"), "{rows:#?}");
+    assert!(on_screen(&rows, "any key closes"), "{rows:#?}");
+    assert!(on_screen(&rows, "go to the worktree"), "{rows:#?}");
+    // any key closes it, and does nothing else: the picker is still there
+    session.keys("j").await;
+    assert!(!on_screen(&session.rows(), "any key closes"));
+    assert!(picker_open(&session));
+
+    // in filter mode `?` is part of the query
+    session.keys("s?").await;
+    let rows = session.rows();
+    assert!(!on_screen(&rows, "any key closes"), "{rows:#?}");
+    assert!(session.frame()[0].contains('?'), "{:#?}", session.frame());
 }

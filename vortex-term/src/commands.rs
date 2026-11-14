@@ -278,9 +278,11 @@ impl MappableCommand {
                 }
             }
             Self::Static { name, fun, .. } => {
-                // moving pauses watch mode's following, most other commands end it
-                crate::watch::before_command(cx.editor, name);
-                (fun)(cx)
+                // in watch mode, moving waits until you look around, and editing until you
+                // leave it
+                if crate::watch::before_command(cx.editor, name) {
+                    (fun)(cx)
+                }
             }
             Self::Macro { keys, .. } => {
                 // Protect against recursive macros.
@@ -564,6 +566,11 @@ impl MappableCommand {
         swap_view_down, "Swap with split below",
         transpose_view, "Transpose splits",
         toggle_terminal, "Show and focus the terminal panel, or go back to the editor",
+        watch_look, "Watch mode: look around, or follow the changes again",
+        watch_next_change, "Watch mode: the next change (the newest follows again)",
+        watch_prev_change, "Watch mode: the previous change",
+        watch_changes, "Watch mode: the picker of the session's changes",
+        watch_leave, "Leave watch mode, to edit where you are",
         rotate_view, "Goto next window",
         rotate_view_reverse, "Goto previous window",
         hsplit, "Horizontal bottom split",
@@ -3594,6 +3601,40 @@ fn changed_file_picker(cx: &mut Context) {
     cx.push_layer(Box::new(overlaid(picker)));
 }
 
+fn watch_look(cx: &mut Context) {
+    crate::watch::look(cx.editor);
+}
+
+fn watch_next_change(cx: &mut Context) {
+    if !crate::watch::jump(cx.editor, true) {
+        cx.editor.set_error("no watch session");
+    }
+}
+
+fn watch_prev_change(cx: &mut Context) {
+    if !crate::watch::jump(cx.editor, false) {
+        cx.editor.set_error("no watch session");
+    }
+}
+
+fn watch_changes(cx: &mut Context) {
+    cx.callback.push(Box::new(|compositor, cx| {
+        crate::watch::open_changes(cx.editor, compositor);
+    }));
+}
+
+fn watch_leave(cx: &mut Context) {
+    crate::watch::leave(cx.editor);
+}
+
+/// How the palette remembers a command it ran (this fork): `:name` for a typed command.
+pub(crate) fn palette_key(command: &MappableCommand) -> String {
+    match command {
+        MappableCommand::Typable { name, .. } => format!(":{name}"),
+        command => command.name().to_string(),
+    }
+}
+
 pub fn command_palette(cx: &mut Context) {
     let register = cx.register;
     let count = cx.count;
@@ -3613,6 +3654,22 @@ pub fn command_palette(cx: &mut Context) {
                         doc: cmd.doc.to_owned(),
                     }),
             );
+            // the commands run this session first, the most recent first (this fork); with a
+            // query, they win ties
+            let recent: HashMap<String, u32> = cx
+                .editor
+                .recent_commands
+                .iter()
+                .enumerate()
+                .map(|(rank, name)| (name.clone(), rank as u32))
+                .collect();
+            let mut commands: Vec<MappableCommand> = commands.collect();
+            commands.sort_by_key(|command| {
+                recent
+                    .get(&palette_key(command))
+                    .copied()
+                    .unwrap_or(u32::MAX)
+            });
 
             let columns = [
                 ui::PickerColumn::new("name", |item, _| match item {
@@ -3656,6 +3713,7 @@ pub fn command_palette(cx: &mut Context) {
                 };
                 let focus = view!(ctx.editor).id;
 
+                ctx.editor.remember_command(&palette_key(command));
                 command.execute(&mut ctx);
 
                 if ctx.editor.tree.contains(focus) {
@@ -3672,7 +3730,13 @@ pub fn command_palette(cx: &mut Context) {
                 }
             })
             // its commands record their own jumps (this fork: history)
-            .without_jumps();
+            .without_jumps()
+            .with_tie_rank(move |command| {
+                recent
+                    .get(&palette_key(command))
+                    .copied()
+                    .unwrap_or(u32::MAX)
+            });
             compositor.push(Box::new(overlaid(picker)));
         },
     ));

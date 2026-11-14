@@ -2,7 +2,7 @@ pub mod default;
 pub mod macros;
 
 pub use crate::commands::MappableCommand;
-pub use default::default;
+pub use default::{default, layers};
 
 use arc_swap::{
     access::{DynAccess, DynGuard},
@@ -32,6 +32,10 @@ pub struct KeyTrieNode {
     /// active, in place of the editor mode's.
     #[serde(skip)]
     pub mode_label: Option<&'static str>,
+    /// The group of each key in the infobox (this fork): `["files"]` in the `keymap!` of a menu.
+    /// A key a configuration adds has none: it comes last.
+    #[serde(skip)]
+    pub groups: IndexMap<KeyEvent, &'static str>,
 }
 
 impl KeyTrieNode {
@@ -41,6 +45,7 @@ impl KeyTrieNode {
             map,
             is_sticky: false,
             mode_label: None,
+            groups: IndexMap::new(),
         }
     }
 
@@ -60,6 +65,9 @@ impl KeyTrieNode {
     }
 
     pub fn infobox(&self) -> Info {
+        if !self.groups.is_empty() {
+            return self.grouped_infobox();
+        }
         let mut body: Vec<(BTreeSet<KeyEvent>, &str)> = Vec::with_capacity(self.len());
         for (&key, trie) in self.iter() {
             let desc = match trie {
@@ -88,6 +96,59 @@ impl KeyTrieNode {
             })
             .collect();
         Info::new(self.name.clone(), &body)
+    }
+
+    /// The description of a key in the infobox; `None` for keys that do nothing.
+    fn description(trie: &KeyTrie) -> Option<&str> {
+        Some(match trie {
+            KeyTrie::MappableCommand(cmd) if cmd.name() == "no_op" => return None,
+            KeyTrie::MappableCommand(cmd) => cmd.doc(),
+            KeyTrie::Node(n) => &n.name,
+            KeyTrie::Sequence(_) => "[Multiple commands]",
+        })
+    }
+
+    /// The infobox of a menu in groups (this fork): each group under a dim separator with its
+    /// label, in the order they were defined; keys without a group (added by a configuration)
+    /// last, under a separator without a label.
+    fn grouped_infobox(&self) -> Info {
+        let mut order: Vec<Option<&'static str>> = Vec::new();
+        for group in self.groups.values() {
+            if !order.contains(&Some(*group)) {
+                order.push(Some(*group));
+            }
+        }
+        order.push(None);
+        let mut sections: Vec<vortex_view::info::Section<String, &str>> = Vec::new();
+        for group in order {
+            let mut body: Vec<(BTreeSet<KeyEvent>, &str)> = Vec::new();
+            for (&key, trie) in self.iter() {
+                if self.groups.get(&key).copied() != group {
+                    continue;
+                }
+                let Some(desc) = Self::description(trie) else {
+                    continue;
+                };
+                match body.iter().position(|(_, d)| d == &desc) {
+                    Some(pos) => {
+                        body[pos].0.insert(key);
+                    }
+                    None => body.push((BTreeSet::from([key]), desc)),
+                }
+            }
+            if body.is_empty() {
+                continue;
+            }
+            let body = body
+                .into_iter()
+                .map(|(events, desc)| {
+                    let events = events.iter().map(ToString::to_string).collect::<Vec<_>>();
+                    (events.join(", "), desc)
+                })
+                .collect();
+            sections.push((group, body));
+        }
+        Info::grouped(self.name.clone(), &sections)
     }
 }
 
@@ -266,8 +327,29 @@ pub enum KeymapResult {
 /// A map of command names to keybinds that will execute the command.
 pub type ReverseKeymap = HashMap<String, Vec<Vec<KeyEvent>>>;
 
+/// A layer of keys over the editor's modes, used while a mode of this fork is on (watch mode;
+/// debug mode next): its keys are looked up first, one key each (no menus). Configured in
+/// `[keys.watch]`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum Layer {
+    Watch,
+}
+
+impl Layer {
+    pub const ALL: [Layer; 1] = [Layer::Watch];
+
+    /// The name of its table under `[keys]`.
+    pub fn name(self) -> &'static str {
+        match self {
+            Layer::Watch => "watch",
+        }
+    }
+}
+
 pub struct Keymaps {
     pub map: Box<dyn DynAccess<HashMap<Mode, KeyTrie>>>,
+    /// The layers (this fork): keys of the fork's modes, looked up before the editor's mode.
+    layers: Box<dyn DynAccess<HashMap<Layer, KeyTrie>>>,
     /// Stores pending keys waiting for the next key. This is relative to a
     /// sticky node if one is in use.
     state: Vec<KeyEvent>,
@@ -279,9 +361,40 @@ impl Keymaps {
     pub fn new(map: Box<dyn DynAccess<HashMap<Mode, KeyTrie>>>) -> Self {
         Self {
             map,
+            layers: Box::new(arc_swap::access::Constant(layers())),
             state: Vec::new(),
             sticky: None,
         }
+    }
+
+    /// The keymaps with the layers of a configuration.
+    pub fn with_layers(mut self, layers: Box<dyn DynAccess<HashMap<Layer, KeyTrie>>>) -> Self {
+        self.layers = layers;
+        self
+    }
+
+    /// Replaces the layers (for tests).
+    pub fn set_layers(&mut self, layers: HashMap<Layer, KeyTrie>) {
+        self.layers = Box::new(arc_swap::access::Constant(layers));
+    }
+
+    /// The command (or commands) of `key` in `layer`, if it has one. A layer's keys are single
+    /// keys: a menu in it is ignored.
+    pub fn layer_get(&self, layer: Layer, key: KeyEvent) -> Option<KeyTrie> {
+        let layers = self.layers.load();
+        match layers.get(&layer)?.search(&[key])? {
+            KeyTrie::Node(_) => None,
+            trie => Some(trie.clone()),
+        }
+    }
+
+    /// The keys of each command of `layer`, for its badges.
+    pub fn layer_reverse_map(&self, layer: Layer) -> ReverseKeymap {
+        self.layers
+            .load()
+            .get(&layer)
+            .map(KeyTrie::reverse_map)
+            .unwrap_or_default()
     }
 
     pub fn map(&self) -> DynGuard<HashMap<Mode, KeyTrie>> {
@@ -375,6 +488,15 @@ pub fn merge_keys(dst: &mut HashMap<Mode, KeyTrie>, mut delta: HashMap<Mode, Key
                 .remove(mode)
                 .unwrap_or_else(|| KeyTrie::Node(KeyTrieNode::default())),
         )
+    }
+}
+
+/// Merges a configuration's layers (`[keys.watch]`) into the default ones.
+pub fn merge_layers(dst: &mut HashMap<Layer, KeyTrie>, mut delta: HashMap<Layer, KeyTrie>) {
+    for (layer, keys) in dst {
+        if let Some(delta) = delta.remove(layer) {
+            keys.merge_nodes(delta);
+        }
     }
 }
 
@@ -619,5 +741,97 @@ is_sticky = false
         ));
 
         assert_eq!(toml::from_str(keys), Ok(expectation));
+    }
+
+    /// The `Space` menu's infobox: its groups under dim separators, in their order; a key a
+    /// configuration adds comes last, under a separator without a label; a remapped key stays in
+    /// its group.
+    #[test]
+    fn menus_in_groups() {
+        let lines = |info: &Info| -> Vec<String> { info.text.lines().map(String::from).collect() };
+        let mut keymap = default();
+        let space = |keymap: &HashMap<Mode, KeyTrie>| {
+            keymap[&Mode::Normal]
+                .search(&[key!(' ')])
+                .and_then(KeyTrie::node)
+                .unwrap()
+                .infobox()
+        };
+        let info = space(&keymap);
+        let text = lines(&info);
+        let labels: Vec<&str> = info
+            .separators
+            .iter()
+            .map(|&line| {
+                text[line as usize]
+                    .trim_start_matches("── ")
+                    .trim_end_matches('─')
+                    .trim()
+            })
+            .collect();
+        assert_eq!(
+            labels,
+            [
+                "files",
+                "search",
+                "git",
+                "LSP",
+                "clipboard",
+                "comments",
+                "windows and debug",
+                "commands"
+            ]
+        );
+        // every line of the box is as wide as the box, separators included
+        for &line in &info.separators {
+            assert!(text[line as usize].starts_with("──"), "{text:?}");
+        }
+        assert_eq!(info.height as usize, text.len());
+        // the file picker is under "files", the palette under "commands", still on `Space ?`
+        let at = |needle: &str| text.iter().position(|l| l.contains(needle)).unwrap();
+        assert!(at("Open file picker") > info.separators[0] as usize);
+        assert!(at("Open file picker") < info.separators[1] as usize);
+        let palette = &text[info.separators[7] as usize + 1];
+        assert!(palette.starts_with('?'), "{palette:?}");
+
+        // a configuration remaps `f` and adds `Z`
+        merge_keys(
+            &mut keymap,
+            hashmap! {
+                Mode::Normal => keymap!({ "Normal mode"
+                    "space" => { ""
+                        "f" => buffer_picker,
+                        "Z" => select_all,
+                    },
+                })
+            },
+        );
+        let info = space(&keymap);
+        let text = lines(&info);
+        // the new key last, under a separator without a label
+        let last = *info.separators.last().unwrap() as usize;
+        assert!(text[last].chars().all(|c| c == '─'), "{text:?}");
+        assert!(text[last + 1].starts_with('Z'), "{text:?}");
+        // the remapped `f` stays in "files", with the buffer picker's entry
+        let files_end = info.separators[1] as usize;
+        assert!(
+            text[..files_end]
+                .iter()
+                .any(|l| l.starts_with("f, b") || l.starts_with("b, f")),
+            "{text:?}"
+        );
+    }
+
+    /// Menus without groups look as before: no separators.
+    #[test]
+    fn menus_without_groups_have_no_separators() {
+        let keymap = default();
+        let info = keymap[&Mode::Normal]
+            .search(&[key!('m')])
+            .and_then(KeyTrie::node)
+            .unwrap()
+            .infobox();
+        assert!(info.separators.is_empty());
+        assert_eq!(info.height as usize, info.text.lines().count());
     }
 }

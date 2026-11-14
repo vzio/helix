@@ -121,7 +121,7 @@ pub fn open_selected(editor: &mut Editor) {
         _ => None,
     };
     let Some(node) = node else {
-        editor.set_status("M shows the memory of a value in Variables or Watch");
+        editor.set_error("no value with memory here");
         return;
     };
     if editor.debug.is_rewinding() {
@@ -135,8 +135,7 @@ pub fn open_selected(editor: &mut Editor) {
 }
 
 /// What opening memory says in rewind: the references of a recorded stop are gone.
-const REWIND_OPEN: &str =
-    "REWIND: a recorded stop's memory can't be read any more; L goes back to live";
+const REWIND_OPEN: &str = "REWIND: a recorded stop's memory can't be read any more";
 
 /// `:debug-memory <expression|0xaddress>`: an address opens there, an expression opens the
 /// memory its value points to. Without an argument, the value under the panel's cursor.
@@ -304,7 +303,6 @@ fn show(
         }
     }
     center(editor, address);
-    editor.set_status(format!("memory of {label} at 0x{address:x}"));
 }
 
 /// Puts the cursor of the focused memory view on `address`, in the middle of the view.
@@ -665,20 +663,14 @@ pub fn not_editable(editor: &Editor) -> Option<String> {
         ));
     }
     if editor.debug.is_rewinding() {
-        return Some(
-            "REWIND: nothing is executing, so memory can't be changed; L goes back to live".into(),
-        );
+        return Some("REWIND: nothing is executing, so memory can't be changed".into());
     }
     if memory.ended {
         return Some("the debug session ended: its memory is gone".into());
     }
     match editor.debug.spectator.mode {
-        Mode::Playing => {
-            return Some("playing: pause (Space in the panel) to overwrite memory".into())
-        }
-        Mode::FastForward => {
-            return Some("fast forwarding: stop it (f) to overwrite memory".into())
-        }
+        Mode::Playing => return Some("playing: pause to overwrite memory".into()),
+        Mode::FastForward => return Some("fast forwarding: stop it to overwrite memory".into()),
         Mode::Paused => {}
     }
     if !session_stopped(editor, memory.session) {

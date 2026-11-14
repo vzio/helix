@@ -491,9 +491,12 @@ async fn the_spectated_thread_is_paced_and_every_line_is_recorded() -> anyhow::R
     assert_eq!(spectator(&e.h.app).mode, Mode::Paused);
     assert_eq!(e.fake.stops_sent().len(), 1);
     assert!(is_stopped(&e.h.app, LINE_REASON));
-    assert!(e.h.app.editor.get_status().is_some_and(
-        |(m, _)| m.contains("Stopped at the first line of your code that ran: Space plays")
-    ));
+    assert!(e
+        .h
+        .app
+        .editor
+        .get_status()
+        .is_some_and(|(m, _)| m.contains("Stopped at the first line of your code that ran")));
     assert_eq!(
         spectator(&e.h.app).spectated.map(|k| k.thread.to_string()),
         Some("1".into())

@@ -122,13 +122,23 @@ impl Application {
         let keys = Box::new(Map::new(Arc::clone(&config), |config: &Config| {
             &config.keys
         }));
-        let editor_view = Box::new(ui::EditorView::new(Keymaps::new(keys)));
+        let layers = Box::new(Map::new(Arc::clone(&config), |config: &Config| {
+            &config.layers
+        }));
+        let editor_view = Box::new(ui::EditorView::new(Keymaps::new(keys).with_layers(layers)));
         compositor.push(editor_view);
 
         let jobs = Jobs::new();
 
         // `vx` and `vx <folder>` open on the dashboard (this fork), `vx <file>` never does
-        let dashboard = config.load().editor.dashboard
+        // `"auto"`, the default, decides by the situation (no SSH, not the Linux console); `vx
+        // --plain` never shows it
+        let dashboard = !args.plain
+            && config
+                .load()
+                .editor
+                .dashboard
+                .shows(|name| std::env::var(name).ok())
             && !args.load_tutor
             && match args.files.len() {
                 0 => stdin().is_terminal() || cfg!(feature = "integration"),

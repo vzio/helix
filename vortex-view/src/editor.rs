@@ -346,6 +346,133 @@ impl<'de> Deserialize<'de> for Ignored {
     }
 }
 
+/// When `vx` opens on the dashboard (fork feature): `"auto"`, `true` or `false`.
+#[derive(Debug, Copy, Clone, Default, PartialEq, Eq)]
+pub enum DashboardStartup {
+    /// Where it fits: in a local terminal; not under SSH (`SSH_CONNECTION`, `SSH_TTY` or
+    /// `SSH_CLIENT` set), nor on the Linux console (`TERM=linux`).
+    #[default]
+    Auto,
+    Always,
+    Never,
+}
+
+impl DashboardStartup {
+    /// Whether the dashboard opens, with the environment read by `var`.
+    pub fn shows(self, var: impl Fn(&str) -> Option<String>) -> bool {
+        match self {
+            Self::Always => true,
+            Self::Never => false,
+            Self::Auto => {
+                let set = |name: &str| var(name).is_some_and(|value| !value.is_empty());
+                let ssh = ["SSH_CONNECTION", "SSH_TTY", "SSH_CLIENT"]
+                    .into_iter()
+                    .any(set);
+                let console = var("TERM").as_deref() == Some("linux");
+                !ssh && !console
+            }
+        }
+    }
+}
+
+impl From<bool> for DashboardStartup {
+    fn from(on: bool) -> Self {
+        if on {
+            Self::Always
+        } else {
+            Self::Never
+        }
+    }
+}
+
+impl Serialize for DashboardStartup {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        match self {
+            Self::Auto => serializer.serialize_str("auto"),
+            Self::Always => serializer.serialize_bool(true),
+            Self::Never => serializer.serialize_bool(false),
+        }
+    }
+}
+
+impl<'de> Deserialize<'de> for DashboardStartup {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        #[derive(Deserialize)]
+        #[serde(untagged)]
+        enum Raw {
+            Bool(bool),
+            Text(String),
+        }
+        match Raw::deserialize(deserializer)? {
+            Raw::Bool(on) => Ok(on.into()),
+            Raw::Text(text) if text == "auto" => Ok(Self::Auto),
+            Raw::Text(text) => Err(serde::de::Error::custom(format!(
+                "dashboard: expected true, false or \"auto\", found \"{text}\""
+            ))),
+        }
+    }
+}
+
+#[cfg(test)]
+mod dashboard_startup_tests {
+    use super::DashboardStartup;
+
+    fn env<'a>(pairs: &'a [(&'a str, &'a str)]) -> impl Fn(&str) -> Option<String> + 'a {
+        move |name| {
+            pairs
+                .iter()
+                .find(|(key, _)| *key == name)
+                .map(|(_, value)| value.to_string())
+        }
+    }
+
+    #[test]
+    fn auto_by_situation() {
+        let auto = DashboardStartup::Auto;
+        assert!(auto.shows(env(&[("TERM", "xterm-256color")])));
+        assert!(auto.shows(env(&[])));
+        for ssh in ["SSH_CONNECTION", "SSH_TTY", "SSH_CLIENT"] {
+            assert!(
+                !auto.shows(env(&[(ssh, "10.0.0.1 22"), ("TERM", "xterm")])),
+                "{ssh}"
+            );
+        }
+        // an empty variable is not set
+        assert!(auto.shows(env(&[("SSH_TTY", "")])));
+        assert!(!auto.shows(env(&[("TERM", "linux")])));
+        // any other terminal name is fine: no list of names
+        assert!(auto.shows(env(&[("TERM", "linux-something")])));
+        assert!(auto.shows(env(&[("TERM", "dumb-but-local")])));
+    }
+
+    #[test]
+    fn explicit_wins() {
+        let ssh = [("SSH_TTY", "/dev/pts/1"), ("TERM", "linux")];
+        assert!(DashboardStartup::Always.shows(env(&ssh)));
+        assert!(!DashboardStartup::Never.shows(env(&[])));
+    }
+
+    #[test]
+    fn config_values() {
+        #[derive(serde::Deserialize)]
+        struct Config {
+            dashboard: DashboardStartup,
+        }
+        let parse = |text: &str| toml::from_str::<Config>(text).map(|config| config.dashboard);
+        assert_eq!(parse("dashboard = true").unwrap(), DashboardStartup::Always);
+        assert_eq!(parse("dashboard = false").unwrap(), DashboardStartup::Never);
+        assert_eq!(
+            parse("dashboard = \"auto\"").unwrap(),
+            DashboardStartup::Auto
+        );
+        assert!(parse("dashboard = \"sometimes\"").is_err());
+        assert_eq!(
+            crate::editor::Config::default().dashboard,
+            DashboardStartup::Auto
+        );
+    }
+}
+
 /// The background of the dashboard (fork feature).
 #[derive(Debug, Copy, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
@@ -511,8 +638,9 @@ pub struct Config {
     /// File tree overlay, opened with `space e` and `space E` (fork feature).
     pub explorer: ExplorerConfig,
     /// Whether `vx` and `vx <folder>` open on the dashboard rather than an empty buffer or the
-    /// file picker (fork feature). `:dashboard` shows it either way. Defaults to true.
-    pub dashboard: bool,
+    /// file picker (fork feature): `"auto"` (in a local terminal, not under SSH nor on the Linux
+    /// console), `true` or `false`. `:dashboard` shows it either way. Defaults to `"auto"`.
+    pub dashboard: DashboardStartup,
     /// The animated vortex behind the dashboard (fork feature): `on` (spins while the dashboard
     /// is up), `load` (spins while it loads, then slows down to a stop), `static` (one still
     /// frame) or `off`. Defaults to `on`.
@@ -830,7 +958,6 @@ impl Default for StatusLineConfig {
         Self {
             left: vec![
                 E::Mode,
-                E::Watch,
                 E::Spinner,
                 E::FileName,
                 E::ReadOnlyIndicator,
@@ -878,7 +1005,8 @@ pub enum StatusLineElement {
     /// The editor mode (Normal, Insert, Visual/Selection)
     Mode,
 
-    /// Watch mode (fork feature): `WATCH following`, `WATCH 3 new`, `WATCH paused`
+    /// Watch mode (fork feature): a small `●` while following, `◌` while looking around. Not in
+    /// the default statusline: the mode bar shows watch mode
     Watch,
 
     /// The LSP activity spinner
@@ -1350,7 +1478,7 @@ impl Default for Config {
             file_picker: FilePickerConfig::default(),
             file_explorer: FileExplorerConfig::default(),
             explorer: ExplorerConfig::default(),
-            dashboard: true,
+            dashboard: DashboardStartup::Auto,
             dashboard_background: DashboardBackground::default(),
             dashboard_title: true,
             inline_blame: InlineBlameConfig::default(),
@@ -1473,6 +1601,9 @@ pub struct Editor {
     /// Messages shown instead of `'file' written` when the save of these documents completes
     /// (fork feature: a hunk revert says how to undo it).
     pub save_messages: HashMap<DocumentId, String>,
+    /// The commands run from the command palette or the command line this session, the most
+    /// recent first (this fork): the palette lists them first. In memory only.
+    pub recent_commands: Vec<String>,
     pub tree: Tree,
     pub next_document_id: DocumentId,
     pub documents: BTreeMap<DocumentId, Document>,
@@ -1638,6 +1769,7 @@ impl Editor {
                 debug
             },
             save_messages: HashMap::new(),
+            recent_commands: Vec::new(),
             tree: Tree::new(area),
             next_document_id: DocumentId::default(),
             documents: BTreeMap::new(),
@@ -1753,6 +1885,17 @@ impl Editor {
 
     pub fn clear_status(&mut self) {
         self.status_msg = None;
+    }
+
+    /// The most recent commands kept for the palette.
+    pub const RECENT_COMMANDS: usize = 50;
+
+    /// Remembers that the command `name` ran from the palette or the command line (typed
+    /// commands as `:name`), for the palette to list it first.
+    pub fn remember_command(&mut self, name: &str) {
+        self.recent_commands.retain(|recent| recent != name);
+        self.recent_commands.insert(0, name.to_string());
+        self.recent_commands.truncate(Self::RECENT_COMMANDS);
     }
 
     #[inline]

@@ -167,6 +167,15 @@ impl Env {
             .await;
     }
 
+    /// Waits until the cursor of the memory view is on `address`.
+    async fn cursor_at(&mut self, address: u64) {
+        self.h
+            .until(&format!("the cursor at 0x{address:x}"), |app| {
+                cursor_is(app, address)
+            })
+            .await;
+    }
+
     /// Waits until the status line says `text`.
     async fn says(&mut self, text: &str) {
         self.h
@@ -190,6 +199,13 @@ fn status(app: &Application) -> String {
 }
 
 /// The document showing memory, if one is open.
+/// Whether the cursor of the current view (the memory view) is on `address`.
+fn cursor_is(app: &Application, address: u64) -> bool {
+    let (view, doc) = current_ref!(app.editor);
+    doc.hex()
+        .is_some_and(|hex| hex.cursor(view.id).offset == address)
+}
+
 fn memory_doc(app: &Application) -> Option<&Document> {
     app.editor.documents().find(|doc| doc.memory().is_some())
 }
@@ -338,7 +354,7 @@ async fn values_with_a_memory_reference_get_a_badge_and_m_opens_their_memory() -
     e.h.keys("jM").await?;
     e.h.until("the memory view", |app| memory_doc(app).is_some())
         .await;
-    assert_eq!(status(&e.h.app), "memory of p at 0x1010");
+    assert!(cursor_is(&e.h.app, 0x1010));
     assert_eq!(memory_views(&e.h.app), 1);
     assert_eq!(e.h.app.editor.tree.views().count(), 2);
     let areas: Vec<_> = e.h.app.editor.tree.views().map(|(v, _)| v.area).collect();
@@ -367,7 +383,7 @@ async fn values_with_a_memory_reference_get_a_badge_and_m_opens_their_memory() -
     e.h.keys("M").await?;
     e.h.until("the view", |app| !app.editor.debug.is_focused())
         .await;
-    assert_eq!(status(&e.h.app), "memory of p at 0x1010");
+    assert!(cursor_is(&e.h.app, 0x1010));
     assert_eq!(memory_views(&e.h.app), 1);
     assert_eq!(e.h.app.editor.tree.views().count(), 2);
     e.h.finish().await
@@ -378,7 +394,7 @@ async fn debug_memory_at_an_address_opens_there_and_reuses_the_view() -> anyhow:
     let mut e = env(program).await?;
     e.start().await?;
     e.open(0x1234).await?;
-    assert_eq!(status(&e.h.app), "memory of 0x1234 at 0x1234");
+    assert!(cursor_is(&e.h.app, 0x1234));
     assert_eq!(memory(&e.h.app).base, 0x1234);
     let (view, doc) = current_ref!(e.h.app.editor);
     assert_eq!(doc.hex().unwrap().cursor(view.id).offset, 0x1234);
@@ -390,7 +406,7 @@ async fn debug_memory_at_an_address_opens_there_and_reuses_the_view() -> anyhow:
 
     // another address of the session goes to the same view
     e.h.keys(":debug-memory<space>0x1800<ret>").await?;
-    e.says("memory of 0x1800 at 0x1800").await;
+    e.cursor_at(0x1800).await;
     assert_eq!(
         e.h.app
             .editor
@@ -416,7 +432,7 @@ async fn debug_memory_of_an_expression_evaluates_it_in_the_current_frame() -> an
     assert!(memory_doc(&e.h.app).is_none());
     // one that does
     e.h.keys(":debug-memory<space>p<ret>").await?;
-    e.says("memory of p at 0x1010").await;
+    e.cursor_at(0x1010).await;
     assert_eq!(memory(&e.h.app).base, 0x1010);
     let evaluations: Vec<Value> = e
         .fake
@@ -478,7 +494,7 @@ async fn gg_and_ge_are_refused_in_memory() -> anyhow::Result<()> {
         e.h.keys(keys).await?;
         assert_eq!(
             status(&e.h.app),
-            "memory has no first or last byte: G goes to an address",
+            "memory has no first or last byte",
             "{keys}"
         );
         let (view, doc) = current_ref!(e.h.app.editor);
@@ -579,12 +595,12 @@ async fn unreadable_bytes_are_cells_and_question_marks_never_errors() -> anyhow:
     assert!(e.h.errors.is_empty(), "{:?}", e.h.errors);
     // a whole page of nothing, in the same view
     e.h.keys(":debug-memory<space>0x9000<ret>").await?;
-    e.says("memory of 0x9000 at 0x9000").await;
+    e.cursor_at(0x9000).await;
     e.cells_are(0x9000, &[Cell::Unreadable; 16]).await;
     assert_eq!(memory_views(&e.h.app), 1);
     assert!(e.h.errors.is_empty(), "{:?}", e.h.errors);
     e.h.keys(":debug-memory<space>0x10f0<ret>").await?;
-    e.says("memory of 0x10f0 at 0x10f0").await;
+    e.cursor_at(0x10f0).await;
     e.has_byte(0x10ff, Cell::Byte(0xff)).await;
 
     // there is nothing to overwrite there
@@ -912,7 +928,7 @@ async fn writes_are_refused_while_running_and_in_rewind() -> anyhow::Result<()> 
     assert!(e.h.app.editor.debug.is_rewinding());
     refused(
         &mut e,
-        "REWIND: nothing is executing, so memory can't be changed; L goes back to live",
+        "REWIND: nothing is executing, so memory can't be changed",
     )
     .await?;
     // back live, it is allowed again
@@ -983,11 +999,7 @@ async fn writes_are_refused_while_playing_and_fast_forwarding() -> anyhow::Resul
     })
     .await;
     e.h.keys("<C-g>").await?;
-    refused(
-        &mut e,
-        "playing: pause (Space in the panel) to overwrite memory",
-    )
-    .await?;
+    refused(&mut e, "playing: pause to overwrite memory").await?;
     // pause
     e.panel("<space>").await?;
     e.h.until("paused", |app| {
@@ -1001,7 +1013,7 @@ async fn writes_are_refused_while_playing_and_fast_forwarding() -> anyhow::Resul
     })
     .await;
     e.h.keys("<C-g>").await?;
-    refused(&mut e, "fast forwarding: stop it (f) to overwrite memory").await?;
+    refused(&mut e, "fast forwarding: stop it to overwrite memory").await?;
     assert!(e.fake.requests_named("writeMemory").is_empty());
     e.panel("f").await?;
     e.h.finish().await
@@ -1207,7 +1219,7 @@ async fn opening_memory_in_rewind_is_refused() -> anyhow::Result<()> {
     e.step(1).await?;
     e.panel("[").await?;
     assert!(e.h.app.editor.debug.is_rewinding());
-    let why = "REWIND: a recorded stop's memory can't be read any more; L goes back to live";
+    let why = "REWIND: a recorded stop's memory can't be read any more";
     e.h.keys(":debug-memory<space>0x1000<ret>").await?;
     assert_eq!(status(&e.h.app), why);
     e.panel("jjM").await?;

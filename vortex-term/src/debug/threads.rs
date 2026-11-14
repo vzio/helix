@@ -76,10 +76,7 @@ pub fn spectate(editor: &mut Editor, key: ThreadKey) {
         load::select_frame(editor, key, index);
         editor.set_status(format!("Spectating thread {} {name}", key.thread));
     } else {
-        editor.set_status(format!(
-            "Spectating thread {} {name} (running: Space pauses it and plays)",
-            key.thread
-        ));
+        editor.set_status(format!("Spectating thread {} {name} (running)", key.thread));
     }
     super::engine::sync_watch(editor);
 }
@@ -262,7 +259,7 @@ pub fn step(editor: &mut Editor, kind: StepKind) {
         return;
     };
     let Some(thread) = client.thread_id else {
-        editor.set_error("The current thread is not stopped: switch the thread (Space G s t)");
+        editor.set_error("The current thread is not stopped");
         return;
     };
     let key = ThreadKey {
@@ -312,8 +309,7 @@ pub fn event(editor: &mut Editor, session: DebugAdapterId, reason: &str, thread:
                 });
                 editor.debug.set_threads(session, threads);
             }
-            let keys = super::panel::THREAD_KEYS;
-            editor.set_status(format!("Thread {thread} joined · {keys} to spectate"));
+            log::info!("thread {thread} joined");
         }
         "exited" => {
             editor.debug.engine.record.thread_exited(key);
@@ -331,9 +327,9 @@ pub fn event(editor: &mut Editor, session: DebugAdapterId, reason: &str, thread:
                 if spectator.is_playing() {
                     spectator.pause();
                 }
-                editor.set_status(format!("Thread {thread} left: it was spectated"));
+                log::info!("thread {thread} left: it was spectated");
             } else {
-                editor.set_status(format!("Thread {thread} left"));
+                log::info!("thread {thread} left");
             }
         }
         _ => {}

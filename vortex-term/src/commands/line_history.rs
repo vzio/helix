@@ -23,9 +23,6 @@ use super::git_log::{self, CommitLog, CommitRange, CommitStyle, LogRow, RowKind}
 use crate::compositor::{self, Compositor};
 use crate::job::Callback;
 
-/// The keys, after what the status line says of the search.
-const HINT: &str = "s filter, v extend, w/b section, enter diff, o commit";
-
 /// The lines followed in a commit (or in the buffer, for the uncommitted changes), for a row of
 /// the line history.
 pub(crate) struct LineRow {
@@ -132,46 +129,29 @@ struct Search {
     error: Mutex<Option<String>>,
 }
 
-/// What the line history follows and how its search goes, for its status line.
+/// What the line history follows and how its search goes, for its picker's prompt row.
 pub(crate) struct LineHistory {
     /// `src/main.rs:12-14`.
     label: String,
     /// `None` when none of the lines is committed: there is nothing to search.
     search: Option<Arc<Search>>,
-    /// What the status line was last set to.
-    shown: Option<String>,
 }
 
 impl LineHistory {
-    /// `src/main.rs:12-14 · 7 commits · <keys>`, with the progress while it searches.
-    fn status(&self) -> String {
+    /// `src/main.rs:12-14 · 7 commits`, with the progress while it searches.
+    pub(crate) fn status(&self) -> String {
         let Some(search) = &self.search else {
-            return format!("{} · these lines aren't committed yet · {HINT}", self.label);
+            return format!("{} · these lines aren't committed yet", self.label);
         };
         let found = commits(search.found.load(Ordering::Relaxed));
         if let Some(error) = search.error.lock().unwrap().as_ref() {
             return format!("{} · {found} · stopped: {error}", self.label);
         }
         if search.done.load(Ordering::Relaxed) {
-            return format!("{} · {found} · {HINT}", self.label);
+            return format!("{} · {found}", self.label);
         }
         let searched = commits(search.searched.load(Ordering::Relaxed));
-        format!("{} · {found} · searching… {searched} · {HINT}", self.label)
-    }
-
-    /// Shows the status in the status line when it changed, unless the status line shows
-    /// something else (the range of commits selected, the message of what was opened on top).
-    pub(crate) fn show_status(&mut self, editor: &mut Editor) {
-        let status = self.status();
-        let current = editor.get_status().map(|(status, _)| status.to_string());
-        let ours = match &current {
-            None => true,
-            Some(current) => Some(current) == self.shown.as_ref() && *current != status,
-        };
-        if ours {
-            editor.set_status(status.clone());
-        }
-        self.shown = Some(status);
+        format!("{} · {found} · searching… {searched}", self.label)
     }
 }
 
@@ -288,15 +268,10 @@ pub(crate) fn open(editor: &mut Editor) -> Option<CommitLog> {
 
     let label = label(&path, &lines);
     let search = (!in_head.parent.is_empty()).then(|| Arc::new(Search::default()));
-    let mut history = LineHistory {
+    let history = LineHistory {
         label,
         search: search.clone(),
-        shown: None,
     };
-    // whatever the status line said before
-    let status = history.status();
-    editor.set_status(status.clone());
-    history.shown = Some(status);
     // paths are shown from the working directory, or the file's working tree outside of it
     let cwd = vortex_stdx::env::current_working_dir();
     let cwd = if path.starts_with(&cwd) {
@@ -373,7 +348,7 @@ fn start(editor: &Editor, log: &CommitLog, walk: Walk, search: Arc<Search>) {
         first,
     } = walk;
 
-    // the progress in the status line, while nothing else draws
+    // the progress on the prompt row, while nothing else draws
     tokio::spawn({
         let (search, injector) = (search.clone(), injector.clone());
         async move {

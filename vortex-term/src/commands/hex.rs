@@ -30,7 +30,7 @@ use crate::{
 const MAX_YANK: u64 = 16 * 1024 * 1024;
 
 /// What a typed character does in read-only mode.
-pub const READ_ONLY: &str = "read-only, i to overwrite";
+pub const READ_ONLY: &str = "read-only";
 
 /// The key state of the hex view kept between keys: the first key of `g` sequences.
 #[derive(Default)]
@@ -265,7 +265,7 @@ fn read_only_key(cx: &mut Context, key: KeyEvent, keys: &mut HexKeys) -> bool {
         Char('n') => search_next(cx.editor, Direction::Forward),
         Char('N') => search_next(cx.editor, Direction::Backward),
         Char('/') => search_prompt(cx, Direction::Forward),
-        Char('?') => search_prompt(cx, Direction::Backward),
+        Char('?') => cx.push_layer(Box::new(key_help())),
         Char('G') => goto_prompt(cx),
         Char('u') | Char('U') => undo(cx, key.code == Char('u')),
         Char('i') => {
@@ -294,6 +294,46 @@ fn read_only_key(cx: &mut Context, key: KeyEvent, keys: &mut HexKeys) -> bool {
         _ => return false,
     }
     true
+}
+
+/// The keys of the hex view, for the key help overlay (`?`).
+fn key_help() -> ui::keyhelp::KeyHelp {
+    ui::keyhelp::KeyHelp::new(
+        "Hex view",
+        &[
+            (
+                "move",
+                vec![
+                    ("h l, j k", "previous, next byte, row"),
+                    ("w b", "next, previous word (4 bytes)"),
+                    ("gg ge", "first, last byte"),
+                    ("gh gl, Home End", "start, end of the row"),
+                    ("C-d C-u, C-f C-b", "half a page, a page"),
+                    ("Tab", "hex (or bin), ASCII column"),
+                    ("~", "hex, bin mode"),
+                    ("G", "go to an offset"),
+                ],
+            ),
+            (
+                "search and select",
+                vec![
+                    ("/", "search hex bytes or \"text\""),
+                    ("n N", "next, previous match"),
+                    ("v", "select bytes (; or Esc stops)"),
+                    ("y", "yank as hex text"),
+                ],
+            ),
+            (
+                "overwrite",
+                vec![
+                    ("i", "overwrite mode (Esc stops)"),
+                    ("u U", "undo, redo"),
+                    (":w", "write the changed bytes in place"),
+                ],
+            ),
+            ("view", vec![("?", "these keys")]),
+        ],
+    )
 }
 
 /// `u` (`undo`) or `U`. In memory, a step already written is written back at once, so
@@ -341,8 +381,7 @@ fn goto_key(cx: &mut Context, prefix: char, key: KeyEvent) {
         return;
     };
     if target.hex.is_memory() && matches!(key.code, KeyCode::Char('g' | 'e')) && prefix == 'g' {
-        cx.editor
-            .set_status("memory has no first or last byte: G goes to an address");
+        cx.editor.set_status("memory has no first or last byte");
         return;
     }
     let offset = target.cursor().offset;
@@ -559,7 +598,7 @@ fn search_next(editor: &mut Editor, direction: Direction) {
         return;
     };
     let Some(pattern) = target.hex.search.clone() else {
-        editor.set_status("no search yet: / searches hex bytes or \"text\"");
+        editor.set_status("no search yet");
         return;
     };
     let offset = target.cursor().offset;

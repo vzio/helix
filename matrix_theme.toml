@@ -184,6 +184,13 @@ hint = { fg = "dim", bg = "g_1", modifiers = ["italic"] }
 "ui.highlight.watch" = { bg = "g_3" }
 "ui.statusline.watch.following" = { fg = "background", bg = "mid", modifiers = ["bold"] }
 "ui.statusline.watch.paused" = { fg = "background", bg = "dim", modifiers = ["bold", "italic"] }
+"ui.modebar" = { fg = "text", bg = "g_2" }
+"ui.modebar.state" = { fg = "background", bg = "mid", modifiers = ["bold"] }
+"ui.modebar.state.following" = { fg = "background", bg = "mid", modifiers = ["bold"] }
+"ui.modebar.state.looking" = { fg = "background", bg = "dim", modifiers = ["bold", "italic"] }
+"ui.modebar.info" = { fg = "text", bg = "g_2" }
+"ui.modebar.key" = { fg = "background", bg = "bright", modifiers = ["bold"] }
+"ui.modebar.label" = { fg = "text", bg = "g_2" }
 
 # Terminal panel and its SH indicator
 "ui.terminal" = { fg = "text", bg = "background" }

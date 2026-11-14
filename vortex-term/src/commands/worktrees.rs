@@ -25,8 +25,6 @@ use crate::dashboard::render::{shimmer, Styles};
 use crate::key;
 use crate::ui::{Picker, PickerColumn};
 
-/// Shown in the status line when the picker opens.
-const HINT: &str = "s filter, enter cd";
 /// Shown instead of the picker outside a repository, or without other worktrees.
 pub(crate) const NO_WORKTREES: &str = "no other worktrees";
 /// The width of a loading cell.
@@ -237,7 +235,12 @@ pub(crate) fn worktree_picker(editor: &mut Editor) -> Option<WorktreePicker> {
     let picker = Picker::new(columns, 1, rows.clone(), data, |cx, row: &Arc<Row>, _| {
         pick(cx, row)
     })
-    .with_modes();
+    .with_modes()
+    .without_header()
+    .with_help(
+        "Worktrees",
+        vec![("worktrees", vec![("Enter", "go to the worktree (:cd)")])],
+    );
 
     let pending = Arc::new(AtomicUsize::new(0));
     for row in rows.iter().filter(|row| !row.worktree.missing) {
@@ -267,7 +270,6 @@ pub(crate) fn worktree_picker(editor: &mut Editor) -> Option<WorktreePicker> {
         handle.spawn(tick(pending));
     }
 
-    editor.set_status(HINT);
     Some(WorktreePicker {
         picker,
         rows,
@@ -337,8 +339,8 @@ impl Component for WorktreePicker {
             };
             // a missing worktree can't be picked: the picker stays
             if row.worktree.missing {
-                cx.editor.set_status(format!(
-                    "{} is missing: `git worktree prune` forgets it",
+                cx.editor.set_error(format!(
+                    "{} is missing",
                     vortex_stdx::path::fold_home_dir(&row.worktree.path).display()
                 ));
                 return EventResult::Consumed(None);
