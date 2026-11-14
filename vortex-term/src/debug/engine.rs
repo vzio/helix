@@ -45,7 +45,7 @@ use vortex_view::{
     Editor,
 };
 
-use super::{breakpoints, breakpoints::Sent, playback};
+use super::{breakpoints, breakpoints::Sent, playback, threads};
 use crate::job;
 
 /// How long `breakpointLocations` may take before a file falls back to verifying a breakpoint
@@ -689,6 +689,14 @@ fn finish(editor: &mut Editor, session: DebugAdapterId, token: u64, kind: TaskKi
         editor.debug.engine.refollow = false;
         follow_changed(editor);
     }
+    if kind != TaskKind::Lift {
+        if let Some(key) = editor.debug.engine.pending_full_speed.take() {
+            if !full_speed(editor, key) {
+                threads::continue_thread(editor, key);
+            }
+            return;
+        }
+    }
     if kind != TaskKind::Lift && std::mem::take(&mut editor.debug.engine.pending_advance) {
         let spectator = &editor.debug.spectator;
         if spectator.is_playing() && spectator.step.is_none() {
@@ -1040,16 +1048,14 @@ fn drop_strays_soon(editor: &mut Editor, path: PathBuf) {
 /// puts them back at the next stop. Returns false when the session has no hidden breakpoints in
 /// place (the caller continues as usual).
 pub fn full_speed(editor: &mut Editor, key: ThreadKey) -> bool {
+    if editor.debug.engine.task.is_some() && editor.debug.engine.is_on(key.session) {
+        // a continue now would only reach the next hidden breakpoint: it runs once the set is in
+        editor.debug.engine.pending_full_speed = Some(key);
+        crate::debug::mode::say(editor, "full speed once the hidden breakpoints are in");
+        return true;
+    }
     if !editor.debug.engine.is_ready(key.session) {
         return false;
-    }
-    if let Some(task) = &editor.debug.engine.task {
-        // a continue would only reach the next hidden breakpoint: wait for the set
-        editor.set_error(format!(
-            "Hidden breakpoints are still going in ({}/{} files)",
-            task.files_done, task.files_total
-        ));
-        return true;
     }
     let session = key.session;
     let files: Vec<PathBuf> = editor.debug.engine.sessions[&session]

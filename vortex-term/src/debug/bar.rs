@@ -222,6 +222,11 @@ pub fn layout(
     for k in 0..cells {
         let (from, to) = (start_of(k), start_of(k + 1).min(now));
         let n = to.saturating_sub(from);
+        // fewer hits than cells: each hit is drawn over the cells it spans
+        let (from, n) = match n {
+            0 if now > first => ((first + k * span / cells).min(now - 1), 1),
+            n => (from, n),
+        };
         let density = match (n, thread) {
             (0, _) => 0.0,
             (_, None) => 1.0,
@@ -570,8 +575,8 @@ fn note(editor: &Editor) -> String {
         .history
         .current()
         .and_then(|snapshot| snapshot.frames.first().cloned())
-        .or_else(|| editor.debug.spectator.shown_frame.clone())
-        .or_else(|| editor.debug_adapters.current_stack_frame().cloned());
+        .or_else(|| editor.debug_adapters.current_stack_frame().cloned())
+        .or_else(|| editor.debug.spectator.shown_frame.clone());
     let place = frame.and_then(|frame| {
         let path = frame.source.as_ref()?.path.clone()?;
         let cwd = vortex_stdx::env::current_working_dir();
@@ -653,7 +658,7 @@ pub fn bar(editor: &Editor, keys: &ReverseKeymap, width: u16) -> Bar {
             },
             Row {
                 left: keys_row(editor, keys),
-                right: vec![Segment::info(note(editor))],
+                right: vec![Segment::note(note(editor))],
                 ..Row::default()
             },
         ],

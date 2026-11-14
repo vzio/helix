@@ -36,6 +36,8 @@ const GROUP_GAP: u16 = 3;
 /// What a segment is, which also decides what gives way first on a narrow window.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Part {
+    /// A passing note (what the last key did): cut first, before any key collapses.
+    Note,
     /// The mode's state (`WATCH ● following`): shortened last.
     State,
     /// Information (the current change, the latest activity): shortened after the keys.
@@ -83,6 +85,15 @@ impl Segment {
     pub fn info(text: impl Into<String>) -> Self {
         Self {
             part: Part::Info,
+            content: Content::Text(text.into()),
+            scopes: Vec::new(),
+        }
+    }
+
+    /// A passing note: cut before anything else.
+    pub fn note(text: impl Into<String>) -> Self {
+        Self {
+            part: Part::Note,
             content: Content::Text(text.into()),
             scopes: Vec::new(),
         }
@@ -308,7 +319,7 @@ impl Styles {
         let own = first(theme, &segment.scopes).map(|style| self.bar.patch(style));
         own.unwrap_or(match segment.part {
             Part::State => self.state,
-            Part::Info => self.info,
+            Part::Info | Part::Note => self.info,
             Part::Keys => self.label,
         })
     }
@@ -444,6 +455,10 @@ fn fit(row: &Row, width: u16) -> Fitted<'_> {
     if fitted.width() <= width {
         return fitted;
     }
+    // a note gives way first, down to nothing, so that it never hides the keys
+    if !cut_part(&mut fitted, Part::Note, width) {
+        return fitted;
+    }
     // the keys: all labels go, then badges from the last
     for shown in fitted.of_part(Part::Keys) {
         *shown = Shown::KeyOnly;
@@ -460,30 +475,38 @@ fn fit(row: &Row, width: u16) -> Fitted<'_> {
     // then the information, then the state: the widest is cut a column at a time, down to
     // nothing
     for part in [Part::Info, Part::State] {
-        loop {
-            let over = fitted.width().saturating_sub(width);
-            if over == 0 {
-                return fitted;
-            }
-            let widest = fitted
-                .groups
-                .iter_mut()
-                .flat_map(|group| group.iter_mut())
-                .filter(|(segment, shown)| segment.part == part && *shown != Shown::Hidden)
-                .max_by_key(|(segment, shown)| width_of(segment, *shown));
-            let Some((segment, shown)) = widest else {
-                break;
-            };
-            let now = width_of(segment, *shown);
-            // a cut text keeps at least two columns (a character and `…`), or goes
-            *shown = match now.saturating_sub(over) {
-                left if left >= 2 => Shown::Cut(left),
-                _ if now > 2 => Shown::Cut(2),
-                _ => Shown::Hidden,
-            };
+        if !cut_part(&mut fitted, part, width) {
+            return fitted;
         }
     }
     fitted
+}
+
+/// Cuts the segments of `part` (the widest first, a column at a time, down to nothing) until the
+/// row fits: `false` once it does.
+fn cut_part(fitted: &mut Fitted<'_>, part: Part, width: u16) -> bool {
+    loop {
+        let over = fitted.width().saturating_sub(width);
+        if over == 0 {
+            return false;
+        }
+        let widest = fitted
+            .groups
+            .iter_mut()
+            .flat_map(|group| group.iter_mut())
+            .filter(|(segment, shown)| segment.part == part && *shown != Shown::Hidden)
+            .max_by_key(|(segment, shown)| width_of(segment, *shown));
+        let Some((segment, shown)) = widest else {
+            return true;
+        };
+        let now = width_of(segment, *shown);
+        // a cut text keeps at least two columns (a character and `…`), or goes
+        *shown = match now.saturating_sub(over) {
+            left if left >= 2 => Shown::Cut(left),
+            _ if now > 2 => Shown::Cut(2),
+            _ => Shown::Hidden,
+        };
+    }
 }
 
 /// Draws `bar` in `area` (its last rows are the bar's), and returns where its badges went.
@@ -824,6 +847,28 @@ mod tests {
                 assert!(row.width() as u16 <= width, "{width}: {row:?}");
             }
         }
+    }
+
+    /// A note gives way before any key loses its label.
+    #[test]
+    fn a_note_is_cut_before_the_keys() {
+        let keys = watch_keys();
+        let mut bar = two_rows(&keys);
+        bar.rows[1].right = vec![Segment::note(
+            "Stopped at the first line of your code that ran",
+        )];
+        let (rows, _) = draw(&bar, 60);
+        assert!(
+            rows[1].starts_with("  v  look   n  next   N  previous   Esc  leave"),
+            "{rows:?}"
+        );
+        assert!(rows[1].contains('…'), "{rows:?}");
+        // narrower than the keys: the note is gone first
+        let (rows, _) = draw(&bar, 48);
+        assert_eq!(
+            rows[1], "  v  look   n  next   N  previous   Esc  leave",
+            "{rows:?}"
+        );
     }
 
     #[test]

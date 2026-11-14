@@ -313,6 +313,9 @@ pub struct Engine {
     pub unplaced: Option<(ThreadKey, Counter)>,
     /// Playback waits for the hidden breakpoints to be back before its next advance.
     pub pending_advance: bool,
+    /// A full-speed run asked for while hidden breakpoints were going in (debug mode's `L` right
+    /// after a stop, while they are put back): it starts once they are in.
+    pub pending_full_speed: Option<ThreadKey>,
     /// The follow mode changed during a task: reinstall after it.
     pub refollow: bool,
     /// Files to send again without their strays.
@@ -340,6 +343,7 @@ impl Engine {
         self.last_stop = None;
         self.unplaced = None;
         self.pending_advance = false;
+        self.pending_full_speed = None;
         self.refollow = false;
         self.redo.clear();
         self.stop_animation();
@@ -369,6 +373,7 @@ impl Engine {
         self.task = None;
         self.stop_animation();
         self.pending_advance = false;
+        self.pending_full_speed = None;
         self.full_speed = None;
         self.manual = None;
         for session in self.sessions.values_mut() {

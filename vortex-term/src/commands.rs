@@ -3700,12 +3700,21 @@ fn debug_help(cx: &mut Context) {
         let Some(view) = compositor.find::<ui::EditorView>() else {
             return;
         };
-        let Some(info) = view
+        let Some(mut info) = view
             .keymaps
             .layer_infobox(crate::keymap::Layer::Debug, " Debug mode · any key closes ")
         else {
             return;
         };
+        // in its own box, "Debug mode: " goes without saying
+        info.text = info.text.replace("Debug mode: ", "");
+        info.width = info
+            .text
+            .lines()
+            .filter(|line| !line.starts_with('─'))
+            .map(|line| vortex_core::unicode::width::UnicodeWidthStr::width(line) as u16)
+            .max()
+            .unwrap_or(info.width);
         compositor.push(Box::new(ui::keyhelp::KeyHelp::from_info(info)));
     }));
 }
