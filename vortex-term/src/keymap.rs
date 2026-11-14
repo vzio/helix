@@ -327,21 +327,23 @@ pub enum KeymapResult {
 /// A map of command names to keybinds that will execute the command.
 pub type ReverseKeymap = HashMap<String, Vec<Vec<KeyEvent>>>;
 
-/// A layer of keys over the editor's modes, used while a mode of this fork is on (watch mode;
-/// debug mode next): its keys are looked up first, one key each (no menus). Configured in
-/// `[keys.watch]`.
+/// A layer of keys over the editor's modes, used while a mode of this fork is on (watch mode,
+/// debug mode): its keys are looked up first, one key each (no menus). Configured in
+/// `[keys.watch]` and `[keys.debug]`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Layer {
     Watch,
+    Debug,
 }
 
 impl Layer {
-    pub const ALL: [Layer; 1] = [Layer::Watch];
+    pub const ALL: [Layer; 2] = [Layer::Watch, Layer::Debug];
 
     /// The name of its table under `[keys]`.
     pub fn name(self) -> &'static str {
         match self {
             Layer::Watch => "watch",
+            Layer::Debug => "debug",
         }
     }
 }
@@ -386,6 +388,16 @@ impl Keymaps {
             KeyTrie::Node(_) => None,
             trie => Some(trie.clone()),
         }
+    }
+
+    /// The box of `layer`'s keys, in its groups, titled `title` (debug mode's `?`): the keys as
+    /// configured.
+    pub fn layer_infobox(&self, layer: Layer, title: &str) -> Option<Info> {
+        let layers = self.layers.load();
+        let node = layers.get(&layer)?.node()?;
+        let mut info = node.infobox();
+        info.title = title.to_string().into();
+        Some(info)
     }
 
     /// The keys of each command of `layer`, for its badges.

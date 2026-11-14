@@ -2854,6 +2854,14 @@ fn watch(cx: &mut compositor::Context, _args: Args, event: PromptEvent) -> anyho
     crate::watch::toggle(cx.editor)
 }
 
+fn debug_mode(cx: &mut compositor::Context, _args: Args, event: PromptEvent) -> anyhow::Result<()> {
+    if event != PromptEvent::Validate {
+        return Ok(());
+    }
+    crate::debug::mode::toggle(cx.editor);
+    Ok(())
+}
+
 fn watch_stop(cx: &mut compositor::Context, _args: Args, event: PromptEvent) -> anyhow::Result<()> {
     if event != PromptEvent::Validate {
         return Ok(());
@@ -4378,6 +4386,17 @@ pub const TYPABLE_COMMAND_LIST: &[TypableCommand] = &[
         aliases: &[],
         doc: "Watch mode: follow the changes made to the working tree as they happen (an agent at work). Moving pauses following, n/N go through the changes, any other action ends it. Again to stop.",
         fun: watch,
+        completer: CommandCompleter::none(),
+        signature: Signature {
+            positionals: (0, Some(0)),
+            ..Signature::DEFAULT
+        },
+    },
+    TypableCommand {
+        name: "debug-mode",
+        aliases: &[],
+        doc: "Enter debug mode (the debugger as a video player over the lineline), or leave it.",
+        fun: debug_mode,
         completer: CommandCompleter::none(),
         signature: Signature {
             positionals: (0, Some(0)),

@@ -256,7 +256,7 @@ pub fn step_once(editor: &mut Editor) {
     send_step(editor, true);
 }
 
-fn pause_thread(editor: &mut Editor, key: ThreadKey) {
+pub(crate) fn pause_thread(editor: &mut Editor, key: ThreadKey) {
     let Some(client) = editor.debug_adapters.get_client(key.session) else {
         return;
     };
@@ -470,7 +470,7 @@ pub fn on_stopped(
                 schedule(editor, done);
             } else {
                 editor.debug.spectator.pause();
-                editor.set_status(format!("Playback paused: {reason}"));
+                crate::debug::mode::say(editor, format!("Playback paused: {reason}"));
             }
         }
         return Show::Full { follow: false };
@@ -487,7 +487,7 @@ pub fn on_stopped(
         editor.debug.spectator.spectated = Some(key);
         if editor.debug.spectator.is_playing() {
             editor.debug.spectator.pause();
-            editor.set_status(format!("Playback paused: {reason}"));
+            crate::debug::mode::say(editor, format!("Playback paused: {reason}"));
         }
         record::capture(editor, id, key, reason, frames.to_vec());
         return Show::Full { follow: false };
@@ -533,7 +533,10 @@ pub fn on_stopped(
         if at_line(frames, &target) {
             editor.debug.spectator.run_to = None;
             editor.debug.spectator.pause();
-            editor.set_status(format!("Reached the cursor (line {})", target.line + 1));
+            crate::debug::mode::say(
+                editor,
+                format!("Reached the cursor (line {})", target.line + 1),
+            );
             return Show::Full { follow: true };
         }
     }
@@ -743,7 +746,7 @@ fn fast_forward_check(
                 LineKind::Info,
                 format!("Fast forward stopped after {steps} steps: {text}"),
             );
-            editor.set_status(format!("Changed after {steps} steps: {text}"));
+            crate::debug::mode::say(editor, format!("Changed after {steps} steps: {text}"));
             editor.debug.spectator.changes = changes;
             editor.debug.spectator.pause();
             show_current(editor, false);
@@ -760,39 +763,21 @@ pub fn show_current(editor: &mut Editor, follow: bool) {
     load::reload_frame(editor);
 }
 
-/// Jumps to `frame`: centered, or while playing only scrolled into view.
-pub fn show_frame(editor: &mut Editor, frame: &StackFrame, follow: bool) {
+/// Jumps to `frame` (`playing`: a playback step). In debug mode the camera follows it, keeping
+/// its line in the middle third of the view, and doesn't move in view mode. Outside debug mode a
+/// pause jumps there, centered, and playback doesn't move the view: you are editing.
+pub fn show_frame(editor: &mut Editor, frame: &StackFrame, playing: bool) {
+    if editor.debug.viewing() || (!editor.debug.mode_on() && playing) {
+        return;
+    }
     // a memory view keeps its place: the source moves in another view
     vortex_view::handlers::dap::in_source_view(editor, |editor| {
-        show_frame_here(editor, frame, follow)
+        if editor.debug.following() {
+            super::mode::camera(editor, frame);
+        } else {
+            jump_to_stack_frame(editor, frame);
+        }
     })
-}
-
-fn show_frame_here(editor: &mut Editor, frame: &StackFrame, follow: bool) {
-    if !follow {
-        jump_to_stack_frame(editor, frame);
-        return;
-    }
-    let Some(path) = frame.source.as_ref().and_then(|source| source.path.clone()) else {
-        return;
-    };
-    let same = vortex_view::doc!(editor).path() == Some(&path);
-    if !same {
-        // another file: center it like any jump
-        jump_to_stack_frame(editor, frame);
-        return;
-    }
-    let scrolloff = editor.config().scrolloff;
-    let (view, doc) = vortex_view::current!(editor);
-    let text = doc.text();
-    let line = frame
-        .line
-        .saturating_sub(1)
-        .min(text.len_lines().saturating_sub(1));
-    let pos = text.line_to_char(line) + frame.column.saturating_sub(1);
-    let pos = pos.min(text.len_chars().saturating_sub(1));
-    doc.set_selection(view.id, vortex_core::Selection::point(pos));
-    view.ensure_cursor_in_view(doc, scrolloff);
 }
 
 /// Run to cursor: while playing, plays until the cursor's line; else continues to it through
@@ -859,7 +844,10 @@ fn finish_run_to(editor: &mut Editor, frames: &[StackFrame]) {
         breakpoints::sync(editor, &target.path);
     }
     if at_line(frames, &target) {
-        editor.set_status(format!("Reached the cursor (line {})", target.line + 1));
+        crate::debug::mode::say(
+            editor,
+            format!("Reached the cursor (line {})", target.line + 1),
+        );
     }
 }
 

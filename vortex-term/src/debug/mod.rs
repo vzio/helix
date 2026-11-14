@@ -3,15 +3,18 @@
 //! breakpoints, console). The state the panel shows is `vortex-view`'s `editor.debug`; this
 //! module talks to the adapters, loads that state, draws it and routes keys to it.
 
+pub mod bar;
 pub mod breakpoints;
 pub mod cpu;
 pub mod engine;
+pub mod launch;
 pub mod load;
 pub mod memory;
+pub mod mode;
 pub mod panel;
 pub mod playback;
 pub mod record;
-mod render;
+pub(crate) mod render;
 pub mod rewind;
 mod session;
 pub mod threads;

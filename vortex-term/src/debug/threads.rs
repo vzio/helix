@@ -74,9 +74,12 @@ pub fn spectate(editor: &mut Editor, key: ThreadKey) {
             })
             .unwrap_or(0);
         load::select_frame(editor, key, index);
-        editor.set_status(format!("Spectating thread {} {name}", key.thread));
+        crate::debug::mode::say(editor, format!("Spectating thread {} {name}", key.thread));
     } else {
-        editor.set_status(format!("Spectating thread {} {name} (running)", key.thread));
+        crate::debug::mode::say(
+            editor,
+            format!("Spectating thread {} {name} (running)", key.thread),
+        );
     }
     super::engine::sync_watch(editor);
 }
@@ -127,12 +130,15 @@ pub fn toggle_freeze(editor: &mut Editor, key: ThreadKey) {
         if !playback::is_stopped(editor, key) {
             pause(editor, key);
         }
-        editor.set_status(format!(
-            "Thread {} {name} is frozen: it won't run until thawed",
-            key.thread
-        ));
+        crate::debug::mode::say(
+            editor,
+            format!(
+                "Thread {} {name} is frozen: it won't run until thawed",
+                key.thread
+            ),
+        );
     } else {
-        editor.set_status(format!("Thread {} {name} is thawed", key.thread));
+        crate::debug::mode::say(editor, format!("Thread {} {name} is thawed", key.thread));
     }
 }
 
@@ -147,11 +153,14 @@ pub fn toggle_solo(editor: &mut Editor) {
     }
     let spectator = &mut editor.debug.spectator;
     spectator.solo = !spectator.solo;
-    editor.set_status(if editor.debug.spectator.solo {
-        "Only the spectated thread runs during steps and continues"
-    } else {
-        "Every thread that isn't frozen runs during steps and continues"
-    });
+    crate::debug::mode::say(
+        editor,
+        if editor.debug.spectator.solo {
+            "Only the spectated thread runs during steps and continues"
+        } else {
+            "Every thread that isn't frozen runs during steps and continues"
+        },
+    );
 }
 
 /// `p`: continues `key` if it is stopped, pauses it if it runs.
@@ -248,7 +257,7 @@ fn resume_others(editor: &mut Editor, key: ThreadKey) {
     }
 }
 
-/// A step from the editor (`Space G n/i/o`) of the current thread, honouring freeze and solo.
+/// A step from the editor (debug mode's `.`, `i`, `o`) of the current thread, honouring freeze and solo.
 pub fn step(editor: &mut Editor, kind: StepKind) {
     rewind::to_live(editor);
     if editor.debug.spectator.is_playing() {

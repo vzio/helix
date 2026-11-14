@@ -671,7 +671,7 @@ fn finish(editor: &mut Editor, session: DebugAdapterId, token: u64, kind: TaskKi
         TaskKind::Install | TaskKind::Reinstall if off => {
             let text = "No line breakpoints verified in your code: playback steps instead";
             editor.debug.console.line(LineKind::Info, text.to_owned());
-            editor.set_status(text);
+            crate::debug::mode::say(editor, text);
         }
         TaskKind::Install | TaskKind::Reinstall => {
             let text = format!(
@@ -793,7 +793,7 @@ fn warn_capped(editor: &mut Editor, capped: bool) {
              config narrows the folders)"
         );
         editor.debug.console.line(LineKind::Info, text.clone());
-        editor.set_status(text);
+        crate::debug::mode::say(editor, text);
     }
 }
 
@@ -1036,7 +1036,7 @@ fn drop_strays_soon(editor: &mut Editor, path: PathBuf) {
 // Full-speed runs
 // ---------------------------------------------------------------------------------------------
 
-/// `Space G c`: lifts every hidden breakpoint of the session, continues `key` at full speed, and
+/// Debug mode's `L` (the engine's continue): lifts every hidden breakpoint of the session, continues `key` at full speed, and
 /// puts them back at the next stop. Returns false when the session has no hidden breakpoints in
 /// place (the caller continues as usual).
 pub fn full_speed(editor: &mut Editor, key: ThreadKey) -> bool {
@@ -1355,7 +1355,10 @@ pub fn on_stopped(
                     LineDecision::Spectate => {
                         editor.debug.spectator.spectated = Some(key);
                         sync_watch(editor);
-                        editor.set_status("Stopped at the first line of your code that ran");
+                        crate::debug::mode::say(
+                            editor,
+                            "Stopped at the first line of your code that ran",
+                        );
                     }
                     LineDecision::Stop => {}
                 }
@@ -1522,7 +1525,7 @@ pub fn advance_kind(editor: &Editor, key: ThreadKey, top: Option<&StackFrame>) -
     }
 }
 
-/// A manual step (`Space G n`, `i`, `o`) of `key` with the hidden breakpoints in place: the
+/// A manual step (debug mode's `.`, `i`, `o`) of `key` with the hidden breakpoints in place: the
 /// thread continues and its next hits end the step where a step would have. Returns false when
 /// the engine doesn't take it (the caller sends the step).
 pub fn manual_step(editor: &mut Editor, key: ThreadKey, kind: StepKind) -> bool {

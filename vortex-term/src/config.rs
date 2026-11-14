@@ -13,7 +13,7 @@ use vortex_view::{document::Mode, theme};
 pub struct Config {
     pub theme: Option<theme::Config>,
     pub keys: HashMap<Mode, KeyTrie>,
-    /// The keys of the fork's modes (`[keys.watch]`).
+    /// The keys of the fork's modes (`[keys.watch]`, `[keys.debug]`).
     pub layers: HashMap<Layer, KeyTrie>,
     pub editor: vortex_view::editor::Config,
 }
@@ -22,6 +22,7 @@ pub struct Config {
 #[derive(Debug, Clone, PartialEq, Deserialize)]
 pub struct RawKeys {
     watch: Option<KeyTrie>,
+    debug: Option<KeyTrie>,
     #[serde(flatten)]
     modes: HashMap<Mode, KeyTrie>,
 }
@@ -32,6 +33,9 @@ impl RawKeys {
         merge_keys(keys, self.modes);
         if let Some(watch) = self.watch {
             merge_layers(layers, HashMap::from([(Layer::Watch, watch)]));
+        }
+        if let Some(debug) = self.debug {
+            merge_layers(layers, HashMap::from([(Layer::Debug, debug)]));
         }
     }
 }

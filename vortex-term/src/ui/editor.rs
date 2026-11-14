@@ -110,6 +110,8 @@ impl EditorView {
         }
         if let Some(command) = drawn.command_at(event.column, event.row).cloned() {
             command.execute(cx);
+        } else if let Some(spot) = drawn.spot_at(event.column, event.row) {
+            crate::ui::modebar::click_spot(cx.editor, spot);
         }
         // the command may open something (the changes picker) through a callback
         let callbacks = take(&mut cx.callback);
@@ -125,21 +127,45 @@ impl EditorView {
         Some(EventResult::Consumed(callback))
     }
 
-    /// The key of the layer of the fork's mode that is on (watch mode), run before the keymap:
-    /// `None` when it isn't one of the layer's.
+    /// The key of the layer of the fork's mode that is on (watch mode, debug mode), run before
+    /// the keymap: `None` when it isn't one of the layer's. While the debug panel has the keys, it
+    /// takes them first: [`Self::debug_layer_key`] runs after it.
     fn layer_key(&mut self, key: KeyEvent, cx: &mut commands::Context) -> Option<()> {
-        if !cx.editor.watch.is_active()
-            || !self.keymaps.pending().is_empty()
+        let layer = if cx.editor.watch.is_active() {
+            crate::keymap::Layer::Watch
+        } else if cx.editor.debug.mode_on() && !cx.editor.debug.is_focused() {
+            crate::keymap::Layer::Debug
+        } else {
+            return None;
+        };
+        self.run_layer_key(layer, key, cx)
+    }
+
+    /// Debug mode's key, after the focused debug panel didn't take it.
+    fn debug_layer_key(&mut self, key: KeyEvent, cx: &mut commands::Context) -> Option<()> {
+        if !cx.editor.debug.mode_on() {
+            return None;
+        }
+        self.run_layer_key(crate::keymap::Layer::Debug, key, cx)
+    }
+
+    fn run_layer_key(
+        &mut self,
+        layer: crate::keymap::Layer,
+        key: KeyEvent,
+        cx: &mut commands::Context,
+    ) -> Option<()> {
+        if !self.keymaps.pending().is_empty()
             || self.keymaps.sticky().is_some()
             || !self.pseudo_pending.is_empty()
             || self.on_next_key.is_some()
             || cx.editor.count.is_some()
             || cx.editor.mode() == Mode::Insert
-            || cx.editor.debug.is_focused()
+            || (layer == crate::keymap::Layer::Watch && cx.editor.debug.is_focused())
         {
             return None;
         }
-        match self.keymaps.layer_get(crate::keymap::Layer::Watch, key)? {
+        match self.keymaps.layer_get(layer, key)? {
             crate::keymap::KeyTrie::MappableCommand(command) => command.execute(cx),
             crate::keymap::KeyTrie::Sequence(commands) => {
                 for command in commands {
@@ -318,7 +344,7 @@ impl EditorView {
                 overlays.push(tabstops);
             }
             // looking around in watch mode (this fork), your cursor is drawn as in select mode
-            let mode = if crate::watch::looking(editor) {
+            let mode = if crate::watch::looking(editor) || crate::debug::mode::viewing(editor) {
                 Mode::Select
             } else {
                 editor.mode()
@@ -1462,6 +1488,7 @@ impl EditorView {
                 | MouseEventKind::ScrollRight
         ) {
             crate::watch::moved(cxt.editor);
+            crate::debug::mode::moved(cxt.editor);
         }
 
         match kind {
@@ -1499,7 +1526,10 @@ impl EditorView {
                     return EventResult::Consumed(None);
                 }
 
-                if let Some((coords, view_id)) = gutter_coords_and_view(editor, row, column) {
+                // a click in the gutter sets a breakpoint, in debug mode only (this fork)
+                if let Some((coords, view_id)) =
+                    gutter_coords_and_view(editor, row, column).filter(|_| editor.debug.mode_on())
+                {
                     editor.focus(view_id);
 
                     let (view, doc) = current!(cxt.editor);
@@ -1726,7 +1756,7 @@ impl Component for EditorView {
                     return result;
                 }
 
-                // the keys of watch mode (this fork) come first while it is on
+                // the keys of watch mode and debug mode (this fork) come first while they are on
                 let layer_handled = self.layer_key(key, &mut cx).is_some();
 
                 let mode = cx.editor.mode();
@@ -1772,7 +1802,25 @@ impl Component for EditorView {
                     && mode == Mode::Normal
                 {
                     match crate::debug::handle_key(cx.editor, key) {
-                        crate::debug::Handled::No => {}
+                        // a key the panel doesn't take is debug mode's, when it is on
+                        crate::debug::Handled::No => {
+                            if self.debug_layer_key(key, &mut cx).is_some() {
+                                let callbacks = take(&mut cx.callback);
+                                let callback: Option<crate::compositor::Callback> =
+                                    (!callbacks.is_empty()).then(|| {
+                                        Box::new(
+                                            move |compositor: &mut crate::compositor::Compositor,
+                                                  cx: &mut Context| {
+                                                for callback in callbacks {
+                                                    callback(compositor, cx)
+                                                }
+                                            },
+                                        )
+                                            as crate::compositor::Callback
+                                    });
+                                return EventResult::Consumed(callback);
+                            }
+                        }
                         crate::debug::Handled::Yes => return EventResult::Consumed(None),
                         crate::debug::Handled::Prompt(prompt) => {
                             return EventResult::Consumed(Some(Box::new(
@@ -1816,7 +1864,7 @@ impl Component for EditorView {
                 }
 
                 // a document in the hex view (this fork) takes its keys first
-                // (not while a sticky menu is open: `space G` stays usable over a memory view)
+                // (not while a sticky menu is open)
                 let hex_handled = layer_handled
                     || self.keymaps.pending().is_empty()
                         && self.keymaps.sticky().is_none()
@@ -1969,7 +2017,7 @@ impl Component for EditorView {
         }
 
         // the mode bar (this fork) above the message line, below everything else
-        let modebar = crate::ui::modebar::current(cx.editor, &self.keymaps);
+        let modebar = crate::ui::modebar::current(cx.editor, &self.keymaps, editor_area.width);
         let modebar_area = modebar.as_ref().map(|bar| {
             let height = bar.height().min(editor_area.height.saturating_sub(1));
             let area = Rect::new(
@@ -2146,7 +2194,9 @@ impl Component for EditorView {
         }
         let mut cursor = editor.cursor();
         // looking around in watch mode (this fork): the cursor of select mode
-        if crate::watch::looking(editor) && cursor.0.is_some() {
+        if (crate::watch::looking(editor) || crate::debug::mode::viewing(editor))
+            && cursor.0.is_some()
+        {
             cursor.1 = editor.config().cursor_shape.from_mode(Mode::Select);
         }
         match cursor {
@@ -2367,7 +2417,7 @@ mod modebar_tests {
         let mut jobs = Jobs::new();
         let mut view = EditorView::new(crate::keymap::Keymaps::default());
         assert_eq!(crate::ui::modebar::height(&editor), 0);
-        assert!(crate::ui::modebar::current(&editor, &view.keymaps).is_none());
+        assert!(crate::ui::modebar::current(&editor, &view.keymaps, 80).is_none());
         let mut surface = Surface::empty(area);
         let mut cx = crate::compositor::Context {
             editor: &mut editor,

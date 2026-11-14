@@ -35,6 +35,11 @@ impl KeyHelp {
         }
     }
 
+    /// A box of an infobox already laid out (a keymap's: debug mode's keys as configured).
+    pub fn from_info(info: Info) -> Self {
+        Self { info }
+    }
+
     /// The text of the box, its lines (for tests).
     pub fn text(&self) -> &str {
         &self.info.text

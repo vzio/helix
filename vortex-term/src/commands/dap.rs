@@ -3,7 +3,7 @@ use crate::{
     compositor::{self, Compositor},
     debug::{self, breakpoints, load, panel},
     job::{Callback, Jobs},
-    ui::{self, overlay::overlaid, Picker, Prompt, PromptEvent},
+    ui::{self, Picker, Prompt, PromptEvent},
 };
 use dap::{StackFrame, Thread, ThreadStates};
 use vortex_core::syntax::config::{DebugConfigCompletion, DebugTemplate};
@@ -110,17 +110,6 @@ pub fn dap_start_impl(
     socket: Option<std::net::SocketAddr>,
     params: Option<Vec<std::borrow::Cow<str>>>,
 ) -> Result<(), anyhow::Error> {
-    // Refuse to spawn a debug adapter in workspace trust restricted mode.
-    let workspace = doc!(cx.editor).workspace_root().to_path_buf();
-    if !cx
-        .editor
-        .workspace_trust
-        .query(&workspace, vortex_loader::workspace_trust::TrustQuery::Dap)
-        .is_trusted()
-    {
-        bail!("Workspace is not trusted. Run `:workspace-trust` to enable the debug adapter.");
-    }
-
     let doc = doc!(cx.editor);
     let config = doc
         .language_config()
@@ -132,11 +121,49 @@ pub fn dap_start_impl(
         Some(name) => config.templates.iter().find(|t| t.name == name),
         None => config.templates.first(),
     }
-    .ok_or_else(|| anyhow!("No debug config with given name"))?;
+    .ok_or_else(|| anyhow!("No debug config with given name"))?
+    .clone();
 
-    let params = params
-        .map(|params| prepare_dap_params(template, &params))
+    let params: Vec<String> = params
+        .map(|params| params.iter().map(|param| param.to_string()).collect())
         .unwrap_or_default();
+    start_session(cx.editor, socket, &config, &template, &params)
+}
+
+/// Starts a session of `template` of the debugger `config`, its prompts answered with `params`
+/// (this fork: `vx --debug`, and the templates of any language).
+pub fn start_with(
+    editor: &mut Editor,
+    config: &vortex_core::syntax::config::DebugAdapterConfig,
+    template: &DebugTemplate,
+    params: &[String],
+) -> anyhow::Result<()> {
+    start_session(editor, None, config, template, params)
+}
+
+fn start_session(
+    editor: &mut Editor,
+    socket: Option<std::net::SocketAddr>,
+    config: &vortex_core::syntax::config::DebugAdapterConfig,
+    template: &DebugTemplate,
+    params: &[String],
+) -> anyhow::Result<()> {
+    // the workspace of the current file, or of the working directory
+    let workspace = match doc!(editor).path() {
+        Some(_) => doc!(editor).workspace_root().to_path_buf(),
+        None => vortex_loader::find_workspace().0,
+    };
+    // Refuse to spawn a debug adapter in workspace trust restricted mode.
+    if !editor
+        .workspace_trust
+        .query(&workspace, vortex_loader::workspace_trust::TrustQuery::Dap)
+        .is_trusted()
+    {
+        bail!("Workspace is not trusted. Run `:workspace-trust` to enable the debug adapter.");
+    }
+
+    let params: Vec<std::borrow::Cow<str>> = params.iter().map(|p| p.as_str().into()).collect();
+    let params = prepare_dap_params(template, &params);
     let mut args: HashMap<&str, Value> = template
         .args
         .iter()
@@ -156,7 +183,29 @@ pub fn dap_start_impl(
     let args = to_value(args).unwrap();
     let session_name = format!("{}: {}", config.name, template.name);
     let request = template.request.clone();
-    debug::start(cx.editor, socket, &config, &session_name, &request, args)
+    debug::start(editor, socket, config, &session_name, &request, args)
+}
+
+/// Launches `template`: at once when it has no prompts, else after asking them.
+pub fn launch_template(
+    cx: &mut compositor::Context,
+    config: vortex_core::syntax::config::DebugAdapterConfig,
+    template: DebugTemplate,
+) {
+    if template.completion.is_empty() {
+        if let Err(err) = start_with(cx.editor, &config, &template, &[]) {
+            cx.editor.set_error(err.to_string());
+        }
+        return;
+    }
+    let callback = Box::pin(async move {
+        let call: Callback = Callback::EditorCompositor(Box::new(move |_editor, compositor| {
+            let prompt = debug_parameter_prompt(config, template, Vec::new());
+            compositor.push(Box::new(prompt));
+        }));
+        Ok(call)
+    });
+    cx.jobs.callback(callback);
 }
 
 fn prepare_dap_params(template: &DebugTemplate, params: &[std::borrow::Cow<str>]) -> Vec<String> {
@@ -242,52 +291,28 @@ pub fn dap_launch(cx: &mut Context) {
         return;
     }
 
+    // the templates of the file's language; without a debugger for it, every language's
     let doc = doc!(cx.editor);
-
-    let config = match doc
+    let candidates: Vec<debug::launch::Candidate> = match doc
         .language_config()
-        .and_then(|config| config.debugger.as_ref())
+        .and_then(|config| Some((config.language_id.clone(), config.debugger.clone()?)))
     {
-        Some(c) => c,
-        None => {
-            cx.editor
-                .set_error("No debug adapter available for language");
-            return;
-        }
+        Some((language, config)) => config
+            .templates
+            .iter()
+            .map(|template| debug::launch::Candidate {
+                language: language.clone(),
+                config: config.clone(),
+                template: template.clone(),
+            })
+            .collect(),
+        None => debug::launch::all(cx.editor),
     };
-
-    let templates = config.templates.clone();
-
-    let columns = [ui::PickerColumn::new(
-        "template",
-        |item: &DebugTemplate, _| item.name.as_str().into(),
-    )];
-
-    cx.push_layer(Box::new(overlaid(Picker::new(
-        columns,
-        0,
-        templates,
-        (),
-        |cx, template, _action| {
-            if template.completion.is_empty() {
-                if let Err(err) = dap_start_impl(cx, Some(&template.name), None, None) {
-                    cx.editor.set_error(err.to_string());
-                }
-            } else {
-                let completions = template.completion.clone();
-                let name = template.name.clone();
-                let callback = Box::pin(async move {
-                    let call: Callback =
-                        Callback::EditorCompositor(Box::new(move |_editor, compositor| {
-                            let prompt = debug_parameter_prompt(completions, name, Vec::new());
-                            compositor.push(Box::new(prompt));
-                        }));
-                    Ok(call)
-                });
-                cx.jobs.callback(callback);
-            }
-        },
-    ))));
+    if candidates.is_empty() {
+        cx.editor.set_error("No debug adapter available");
+        return;
+    }
+    cx.push_layer(debug::launch::picker(candidates, None));
 }
 
 pub fn dap_restart(cx: &mut Context) {
@@ -318,15 +343,18 @@ pub fn dap_restart(cx: &mut Context) {
     dap_callback(
         cx.jobs,
         debugger.restart(),
-        |editor, _compositor, _resp: Value| editor.set_status("Debugging session restarted"),
+        |editor, _compositor, _resp: Value| {
+            crate::debug::mode::say(editor, "Debugging session restarted")
+        },
     );
 }
 
 fn debug_parameter_prompt(
-    completions: Vec<DebugConfigCompletion>,
-    config_name: String,
+    config: vortex_core::syntax::config::DebugAdapterConfig,
+    template: DebugTemplate,
     mut params: Vec<String>,
 ) -> Prompt {
+    let completions = template.completion.clone();
     let completion = completions.get(params.len()).unwrap();
     let field_type = if let DebugConfigCompletion::Advanced(cfg) = completion {
         cfg.completion.as_deref().unwrap_or("")
@@ -369,24 +397,19 @@ fn debug_parameter_prompt(
             params.push(value);
 
             if params.len() < completions.len() {
-                let completions = completions.clone();
-                let config_name = config_name.clone();
+                let config = config.clone();
+                let template = template.clone();
                 let params = params.clone();
                 let callback = Box::pin(async move {
                     let call: Callback =
                         Callback::EditorCompositor(Box::new(move |_editor, compositor| {
-                            let prompt = debug_parameter_prompt(completions, config_name, params);
+                            let prompt = debug_parameter_prompt(config, template, params);
                             compositor.push(Box::new(prompt));
                         }));
                     Ok(call)
                 });
                 cx.jobs.callback(callback);
-            } else if let Err(err) = dap_start_impl(
-                cx,
-                Some(&config_name),
-                None,
-                Some(params.iter().map(|x| x.into()).collect()),
-            ) {
+            } else if let Err(err) = start_with(cx.editor, &config, &template, &params) {
                 cx.editor.set_error(err.to_string());
             }
         },
@@ -394,6 +417,9 @@ fn debug_parameter_prompt(
 }
 
 pub fn dap_toggle_breakpoint(cx: &mut Context) {
+    if breakpoints::outside_debug_mode(cx.editor) {
+        return;
+    }
     let Some((path, line)) = panel::cursor_line(cx.editor) else {
         cx.editor
             .set_error("Can't set breakpoint: document has no path");
@@ -447,7 +473,7 @@ pub fn dap_next(cx: &mut Context) {
     debug::threads::step(cx.editor, dap::StepKind::Over);
 }
 
-// spectator mode, from the editor's `Space G` menu
+// spectator mode, from debug mode's keys
 
 pub fn dap_play(cx: &mut Context) {
     debug::playback::toggle(cx.editor);
@@ -460,13 +486,13 @@ pub fn dap_play_step(cx: &mut Context) {
 pub fn dap_faster(cx: &mut Context) {
     cx.editor.debug.spectator.faster();
     let speed = cx.editor.debug.spectator.speed_label();
-    cx.editor.set_status(format!("Playback speed: {speed}"));
+    crate::debug::mode::say(cx.editor, format!("Playback speed: {speed}"));
 }
 
 pub fn dap_slower(cx: &mut Context) {
     cx.editor.debug.spectator.slower();
     let speed = cx.editor.debug.spectator.speed_label();
-    cx.editor.set_status(format!("Playback speed: {speed}"));
+    crate::debug::mode::say(cx.editor, format!("Playback speed: {speed}"));
 }
 
 pub fn dap_fast_forward(cx: &mut Context) {
@@ -493,7 +519,7 @@ pub fn dap_follow_mode(cx: &mut Context) {
     let spectator = &mut cx.editor.debug.spectator;
     spectator.follow = spectator.follow.next();
     let label = spectator.follow.label();
-    cx.editor.set_status(format!("Playback follows: {label}"));
+    crate::debug::mode::say(cx.editor, format!("Playback follows: {label}"));
     debug::engine::follow_changed(cx.editor);
 }
 
@@ -527,7 +553,7 @@ pub fn dap_capture_settings(cx: &mut Context) {
 
 pub fn dap_clear_time_labels(cx: &mut Context) {
     cx.editor.debug.spectator.timing.clear_labels();
-    cx.editor.set_status("Time labels cleared");
+    crate::debug::mode::say(cx.editor, "Time labels cleared");
 }
 
 pub fn dap_memory(cx: &mut Context) {
@@ -631,11 +657,14 @@ fn set_exception_filters(cx: &mut Context, enable: bool) {
             }
         });
     }
-    cx.editor.set_status(if enable {
-        "Stopping on exceptions"
-    } else {
-        "Not stopping on exceptions"
-    });
+    crate::debug::mode::say(
+        cx.editor,
+        if enable {
+            "Stopping on exceptions"
+        } else {
+            "Not stopping on exceptions"
+        },
+    );
 }
 
 pub fn dap_enable_exceptions(cx: &mut Context) {
@@ -644,6 +673,17 @@ pub fn dap_enable_exceptions(cx: &mut Context) {
 
 pub fn dap_disable_exceptions(cx: &mut Context) {
     set_exception_filters(cx, false);
+}
+
+/// Stops on exceptions (every filter the adapter offers), or stops not stopping on them.
+pub fn dap_toggle_exceptions(cx: &mut Context) {
+    let on = cx
+        .editor
+        .debug
+        .exception_filters
+        .as_ref()
+        .is_some_and(|filters| !filters.is_empty());
+    set_exception_filters(cx, !on);
 }
 
 /// A prompt on the command line to edit a field of the breakpoint on the cursor's line.
@@ -693,6 +733,9 @@ fn edit_breakpoint_prompt(
 }
 
 pub fn dap_edit_condition(cx: &mut Context) {
+    if breakpoints::outside_debug_mode(cx.editor) {
+        return;
+    }
     edit_breakpoint_prompt(
         cx,
         "condition: ",
@@ -702,6 +745,9 @@ pub fn dap_edit_condition(cx: &mut Context) {
 }
 
 pub fn dap_edit_log(cx: &mut Context) {
+    if breakpoints::outside_debug_mode(cx.editor) {
+        return;
+    }
     edit_breakpoint_prompt(
         cx,
         "log message: ",
@@ -775,7 +821,7 @@ pub fn dap_switch_stack_frame(cx: &mut Context) {
     cx.push_layer(Box::new(picker))
 }
 
-/// `Space G p`: shows or hides the debug panel.
+/// Debug mode's `P`: shows or hides the debug panel.
 pub fn debug_panel(cx: &mut Context) {
     debug::toggle(cx.editor);
 }
@@ -785,7 +831,7 @@ pub fn debug_panel_focus(cx: &mut Context) {
     debug::toggle_focus(cx.editor);
 }
 
-/// `Space G w`: adds a watch expression.
+/// Debug mode's `w`: adds a watch expression.
 pub fn dap_watch(cx: &mut Context) {
     debug::show(cx.editor);
     let callback = Box::pin(async move {
@@ -797,7 +843,7 @@ pub fn dap_watch(cx: &mut Context) {
     cx.jobs.callback(callback);
 }
 
-/// `Space G x`: evaluates an expression in the selected frame; the console shows the result.
+/// Debug mode's `x`: evaluates an expression in the selected frame; the console shows the result.
 pub fn dap_evaluate(cx: &mut Context) {
     debug::show(cx.editor);
     let callback = Box::pin(async move {

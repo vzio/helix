@@ -1,7 +1,8 @@
-//! Scrubbing through the recorded stops (`[` / `]`): the editor and the panel show a stop as it
-//! was, read-only; nothing executes. Play, a step, or `L` comes back to the live position.
+//! Scrubbing through the recorded stops (debug mode's `h` / `l`, `H` / `L`, a click on the
+//! lineline): the editor and the panel show a stop as it was, read-only; nothing executes. Play,
+//! a step, or `p` comes back to the live position.
 
-use vortex_view::{handlers::dap::jump_to_stack_frame, Editor};
+use vortex_view::Editor;
 
 /// The error for what can't be done in rewind.
 pub const READ_ONLY: &str = "REWIND: nothing is executing, values can't change";
@@ -27,10 +28,22 @@ pub fn back(editor: &mut Editor, by: usize) {
 /// Goes forward `by` stops; past the last one, back to live.
 pub fn forward(editor: &mut Editor, by: usize) {
     if !editor.debug.is_rewinding() {
-        editor.set_status("Live: nothing after this stop yet");
+        super::mode::say(editor, "Live: nothing after this stop yet");
         return;
     }
     if editor.debug.spectator.history.forward(by) {
+        show(editor);
+    } else {
+        live_shown(editor);
+    }
+}
+
+/// Shows recorded stop `index` (debug mode's seeks); the last stop is the live one.
+pub fn seek(editor: &mut Editor, index: usize) {
+    if editor.debug.spectator.is_playing() {
+        super::playback::pause(editor);
+    }
+    if editor.debug.spectator.history.seek(index) {
         show(editor);
     } else {
         live_shown(editor);
@@ -59,9 +72,9 @@ pub fn to_live(editor: &mut Editor) {
 
 fn live_shown(editor: &mut Editor) {
     if let Some(frame) = editor.debug_adapters.current_stack_frame().cloned() {
-        jump_to_stack_frame(editor, &frame);
+        super::playback::show_frame(editor, &frame, false);
     }
-    editor.set_status("Live");
+    super::mode::say(editor, "Live");
 }
 
 /// Shows the frame of the stop in rewind.
@@ -74,5 +87,5 @@ fn show(editor: &mut Editor) {
     else {
         return;
     };
-    jump_to_stack_frame(editor, &frame);
+    super::playback::show_frame(editor, &frame, false);
 }

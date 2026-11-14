@@ -1549,6 +1549,63 @@ pub struct Breakpoint {
     pub disabled: bool,
     /// What each debug session made of it: a session's events name its own ids (fork feature).
     pub sessions: Vec<SessionBreakpoint>,
+    /// Which threads it pauses (fork feature, debug mode): a hit of another thread is recorded
+    /// and continued.
+    pub kind: BreakpointKind,
+}
+
+/// Which threads a breakpoint pauses (fork feature, debug mode `B`). The adapter knows nothing
+/// of it: the engine continues the hits that don't match.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum BreakpointKind {
+    /// Any thread.
+    #[default]
+    Any,
+    /// Only the program's main thread (the first thread the adapter reported).
+    Main,
+    /// Only the other threads.
+    Sub,
+}
+
+impl BreakpointKind {
+    /// any -> main -> sub -> any.
+    pub fn next(self) -> Self {
+        match self {
+            Self::Any => Self::Main,
+            Self::Main => Self::Sub,
+            Self::Sub => Self::Any,
+        }
+    }
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Any => "any thread",
+            Self::Main => "main thread only",
+            Self::Sub => "sub-threads only",
+        }
+    }
+
+    /// Whether a hit of `thread` pauses, `main` being the program's main thread. Without a main
+    /// thread known yet, every hit counts as the main thread's.
+    pub fn matches(self, is_main: bool) -> bool {
+        match self {
+            Self::Any => true,
+            Self::Main => is_main,
+            Self::Sub => !is_main,
+        }
+    }
+
+    /// The gutter's (and the panel's) glyph: verified, or not (yet).
+    pub fn glyph(self, verified: bool) -> &'static str {
+        match (self, verified) {
+            (Self::Any, true) => "●",
+            (Self::Any, false) => "◯",
+            (Self::Main, true) => "▲",
+            (Self::Main, false) => "△",
+            (Self::Sub, true) => "▼",
+            (Self::Sub, false) => "▽",
+        }
+    }
 }
 
 /// A breakpoint as one debug session knows it.

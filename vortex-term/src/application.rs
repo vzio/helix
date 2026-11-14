@@ -134,6 +134,7 @@ impl Application {
         // `"auto"`, the default, decides by the situation (no SSH, not the Linux console); `vx
         // --plain` never shows it
         let dashboard = !args.plain
+            && args.debug.is_none()
             && config
                 .load()
                 .editor
@@ -253,6 +254,14 @@ impl Application {
         if args.watch {
             if let Err(err) = crate::watch::start(&mut editor) {
                 editor.set_error(err.to_string());
+            }
+        }
+
+        // `vx --debug [program] [-- args]` (this fork): debug mode, and the program launched, or
+        // the picker of the templates that fit it
+        if let Some(target) = args.debug {
+            if let Some(picker) = crate::debug::launch::start_cli(&mut editor, target) {
+                compositor.push(picker);
             }
         }
 

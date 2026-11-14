@@ -374,6 +374,7 @@ lib-paths = ["/.cargo/registry/", "/.cargo/git/", "/vendor/"]
 [[language.debugger.templates]]
 name = "binary"
 request = "launch"
+takes = "executable"
 completion = [ { name = "binary", completion = "filename" } ]
 args = { program = "{0}" }
 
@@ -381,12 +382,14 @@ args = { program = "{0}" }
 [[language.debugger.templates]]
 name = "binary with arguments"
 request = "launch"
+takes = "executable"
 completion = [ { name = "binary", completion = "filename" }, { name = "arguments", default = "" } ]
 args = { program = "{0}", args = [ "{1}" ] }
 
 [[language.debugger.templates]]
 name = "binary (terminal)"
 request = "launch"
+takes = "executable"
 completion = [ { name = "binary", completion = "filename" } ]
 args = { program = "{0}", runInTerminal = true }
 
@@ -726,12 +729,14 @@ std-paths = ["/usr/include/", "/usr/lib/", "/usr/src/", "/usr/local/include/"]
 [[language.debugger.templates]]
 name = "binary"
 request = "launch"
+takes = "executable"
 completion = [ { name = "binary", completion = "filename" } ]
 args = { console = "internalConsole", program = "{0}" }
 
 [[language.debugger.templates]]
 name = "binary with arguments"
 request = "launch"
+takes = "executable"
 completion = [ { name = "binary", completion = "filename" }, { name = "arguments", default = "" } ]
 args = { console = "internalConsole", program = "{0}", args = [ "{1}" ] }
 
@@ -772,12 +777,14 @@ std-paths = ["/usr/include/", "/usr/lib/", "/usr/src/", "/usr/local/include/"]
 [[language.debugger.templates]]
 name = "binary"
 request = "launch"
+takes = "executable"
 completion = [ { name = "binary", completion = "filename" } ]
 args = { console = "internalConsole", program = "{0}" }
 
 [[language.debugger.templates]]
 name = "binary with arguments"
 request = "launch"
+takes = "executable"
 completion = [ { name = "binary", completion = "filename" }, { name = "arguments", default = "" } ]
 args = { console = "internalConsole", program = "{0}", args = [ "{1}" ] }
 
@@ -832,6 +839,7 @@ port-arg = "--server={}"
 [[language.debugger.templates]]
 name = "launch"
 request = "launch"
+takes = "executable"
 completion = [ { name = "path to dll", completion = "filename" } ]
 args = { type = "coreclr", console = "internalConsole", internalConsoleOptions = "openOnSessionStart", program = "{0}" }
 
@@ -867,12 +875,14 @@ command = "lldb-dap"
 [[language.debugger.templates]]
 name = "binary"
 request = "launch"
+takes = "executable"
 completion = [ { name = "binary", completion = "filename" } ]
 args = { console = "internalConsole", program = "{0}" }
 
 [[language.debugger.templates]]
 name = "binary with arguments"
 request = "launch"
+takes = "executable"
 completion = [ { name = "binary", completion = "filename" }, { name = "arguments", default = "" } ]
 args = { console = "internalConsole", program = "{0}", args = [ "{1}" ] }
 
@@ -940,18 +950,21 @@ port-arg = "-l 127.0.0.1:{}"
 [[language.debugger.templates]]
 name = "source"
 request = "launch"
+takes = "source"
 completion = [ { name = "entrypoint", completion = "filename", default = "." } ]
 args = { mode = "debug", program = "{0}" }
 
 [[language.debugger.templates]]
 name = "binary"
 request = "launch"
+takes = "executable"
 completion = [ { name = "binary", completion = "filename" } ]
 args = { mode = "exec", program = "{0}" }
 
 [[language.debugger.templates]]
 name = "test"
 request = "launch"
+takes = "source"
 completion = [ { name = "tests", completion = "directory", default = "." } ]
 args = { mode = "test", program = "{0}" }
 
@@ -1053,6 +1066,7 @@ quirks = { absolute-paths = true }
 [[language.debugger.templates]]
 name = "source"
 request = "launch"
+takes = "source"
 completion = [ { name = "main", completion = "filename", default = "index.js" } ]
 args = { type = "pwa-node", program = "{0}", skipFiles = [ "<node_internals>/**" ], __workspaceFolder = "${workspaceFolder}" }
 
@@ -1108,6 +1122,7 @@ quirks = { absolute-paths = true }
 [[language.debugger.templates]]
 name = "source"
 request = "launch"
+takes = "source"
 completion = [ { name = "main", completion = "filename", default = "index.ts" } ]
 args = { type = "pwa-node", program = "{0}", skipFiles = [ "<node_internals>/**" ], __workspaceFolder = "${workspaceFolder}" }
 
@@ -1880,12 +1895,14 @@ command = "lldb-dap"
 [[language.debugger.templates]]
 name = "binary"
 request = "launch"
+takes = "executable"
 completion = [ { name = "binary", completion = "filename" } ]
 args = { console = "internalConsole", program = "{0}" }
 
 [[language.debugger.templates]]
 name = "binary with arguments"
 request = "launch"
+takes = "executable"
 completion = [ { name = "binary", completion = "filename" }, { name = "arguments", default = "" } ]
 args = { console = "internalConsole", program = "{0}", args = [ "{1}" ] }
 
@@ -2849,12 +2866,14 @@ command = "lldb-dap"
 [[language.debugger.templates]]
 name = "binary"
 request = "launch"
+takes = "executable"
 completion = [ { name = "binary", completion = "filename" } ]
 args = { console = "internalConsole", program = "{0}" }
 
 [[language.debugger.templates]]
 name = "binary with arguments"
 request = "launch"
+takes = "executable"
 completion = [ { name = "binary", completion = "filename" }, { name = "arguments", default = "" } ]
 args = { console = "internalConsole", program = "{0}", args = [ "{1}" ] }
 

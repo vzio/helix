@@ -29,17 +29,9 @@ fn tab_label(section: Section) -> String {
     format!(" {} {} ", section.index() + 1, section.title())
 }
 
-/// Whether the panel has a row of key hints at its bottom.
-fn has_hints(area: Rect) -> bool {
-    area.height >= 6
-}
-
 fn layout(editor: &Editor, area: Rect) -> Layout {
     let state = &editor.debug;
-    let mut body = area.clip_top(1);
-    if has_hints(area) {
-        body = body.clip_bottom(1);
-    }
+    let body = area.clip_top(1);
     let mut tabs = Vec::new();
     let mut x = area.x;
     let mut push_tab = |section: Section, x: &mut u16| {
@@ -232,46 +224,25 @@ pub fn render(editor: &mut Editor, area: Rect, surface: &mut Surface) {
         );
     }
 
-    if has_hints(area) {
-        let hints = hint_text(editor);
-        let style = base.patch(exact_or(theme, "ui.debug.hint", "ui.text.inactive"));
-        let y = area.bottom() - 1;
-        surface.set_stringn(
-            area.x + 1,
-            y,
-            &hints,
-            area.width.saturating_sub(2) as usize,
-            style,
+    // the keys are debug mode's bar's and the `?` box's: the panel has no row of hints
+    if editor.debug.engine.task.is_some() && !editor.debug.mode_on() {
+        // over the top row's status (debug mode's bar shows it in its state)
+        draw_loading(
+            editor,
+            Rect::new(area.x, area.y, area.width, 1),
+            surface,
+            base,
         );
     }
 
-    if editor.debug.engine.task.is_some() {
-        // over the hints, or over the top row's status when there is no row of hints
-        let row = if has_hints(area) {
-            Rect::new(area.x, area.bottom() - 1, area.width, 1)
-        } else {
-            Rect::new(area.x, area.y, area.width, 1)
-        };
-        draw_loading(editor, row, surface, base);
-    }
-
     if editor.debug.spectator.settings.is_some() {
-        let mut body = area.clip_top(1);
-        if has_hints(area) {
-            body = body.clip_bottom(1);
-        }
-        draw_settings(editor, body, surface, base);
+        draw_settings(editor, area.clip_top(1), surface, base);
         return;
     }
 
     if let Some(divider) = layout.divider {
         let style = base.patch(theme.get("ui.window"));
-        let bottom = if has_hints(area) {
-            area.bottom() - 1
-        } else {
-            area.bottom()
-        };
-        for y in area.y + 1..bottom {
+        for y in area.y + 1..area.bottom() {
             surface.set_stringn(divider, y, "│", 1, style);
         }
         if let Some((_, x, width)) = layout.tabs.iter().find(|(s, _, _)| *s == Section::Console) {
@@ -292,8 +263,23 @@ const LOADING_BAR: usize = 24;
 /// sweeps while the files are still being found) with a glow running along it, and the
 /// progress: `◜ ━━━━━━━━━━──────────── installing breakpoints · 12/48 files · 3,410 lines`.
 fn draw_loading(editor: &Editor, row: Rect, surface: &mut Surface, base: Style) {
+    surface.set_style(row, base);
+    let right = row.right().saturating_sub(1);
+    let mut x = row.x + 1;
+    for (text, style) in loading_spans(editor, row.width as usize) {
+        if x >= right {
+            break;
+        }
+        surface.set_stringn(x, row.y, &text, (right - x) as usize, base.patch(style));
+        x += text.chars().count() as u16;
+    }
+}
+
+/// The loading animation as spans, for a row `width` columns wide (the panel's, or debug mode's
+/// bar): empty while the engine has no task.
+pub(crate) fn loading_spans(editor: &Editor, width: usize) -> Vec<(String, Style)> {
     let Some(task) = &editor.debug.engine.task else {
-        return;
+        return Vec::new();
     };
     let theme = &editor.theme;
     let text = theme
@@ -309,27 +295,13 @@ fn draw_loading(editor: &Editor, row: Rect, surface: &mut Surface, base: Style) 
     let track = theme
         .try_get_exact("ui.debug.loading.track")
         .unwrap_or_else(|| theme.get("ui.text.inactive"));
-    surface.set_style(row, base);
     let frame = (task.started.elapsed().as_millis() / 80) as usize;
-    let mut x = row.x + 1;
-    let right = row.right().saturating_sub(1);
-    let put = |surface: &mut Surface, x: &mut u16, text: &str, style: Style| {
-        if *x < right {
-            surface.set_stringn(*x, row.y, text, (right - *x) as usize, base.patch(style));
-            *x += text.chars().count() as u16;
-        }
-    };
-    put(
-        surface,
-        &mut x,
-        &format!("{} ", engine::spinner(frame / 2)),
-        text,
-    );
-    let width = LOADING_BAR.min((row.width as usize).saturating_sub(4) / 3);
-    if width >= 6 {
-        let cycle = width + 6;
+    let mut spans = vec![(format!("{} ", engine::spinner(frame / 2)), text)];
+    let cells = LOADING_BAR.min(width.saturating_sub(4) / 3);
+    if cells >= 6 {
+        let cycle = cells + 6;
         let head = frame % cycle;
-        for cell in 0..width {
+        for cell in 0..cells {
             let (glyph, style) = if task.files_total == 0 {
                 // still finding the files: a comet sweeps along the track
                 let behind = head.checked_sub(cell + 3);
@@ -339,44 +311,19 @@ fn draw_loading(editor: &Editor, row: Rect, surface: &mut Surface, base: Style) 
                     _ => ("─", track),
                 }
             } else {
-                let filled = cell * task.files_total < task.files_done * width;
+                let filled = cell * task.files_total < task.files_done * cells;
                 match (filled, head.checked_sub(3) == Some(cell)) {
                     (true, true) => ("━", glow),
                     (true, false) => ("━", bar),
                     (false, _) => ("─", track),
                 }
             };
-            put(surface, &mut x, glyph, style);
+            spans.push((glyph.to_string(), style));
         }
-        put(surface, &mut x, " ", text);
+        spans.push((" ".to_string(), text));
     }
-    put(surface, &mut x, &task.label(), text);
-}
-
-/// The keys for what the panel shows now.
-fn hint_text(editor: &Editor) -> String {
-    let state = &editor.debug;
-    if state.spectator.settings.is_some() {
-        return "j/k choose · h/l or -/+ change · Esc closes".into();
-    }
-    if !state.is_focused() {
-        return "C-g: the panel's keys (Space plays there) · Space G Space plays from here".into();
-    }
-    if state.is_rewinding() {
-        return "[ ] scrub · { } by 10 · Enter: a frame · L or Space: back to live · Esc: editor"
-            .into();
-    }
-    if state.spectator.is_playing() {
-        return "Space pause · +/- speed · < > thread · e std/lib/own · r to cursor · Esc: editor"
-            .into();
-    }
-    // the values whose memory can be shown have a badge, and `M` shows it
-    let memory = if super::memory::shown(editor) {
-        format!("M {} memory · ", vortex_view::debug::MEMORY_BADGE)
-    } else {
-        String::new()
-    };
-    format!("Space play · n step · +/- speed · f to a change · r to cursor · < > thread · z freeze · o alone · p run/pause thread · e std/lib/own · [ rewind · * mark · {memory}x clear times · R capture · Esc: editor (Space menu)")
+    spans.push((task.label(), text));
+    spans
 }
 
 fn status_text(editor: &Editor) -> String {

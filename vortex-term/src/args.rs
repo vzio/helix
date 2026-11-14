@@ -24,6 +24,8 @@ pub struct Args {
     pub watch: bool,
     /// `--plain`, `-p`: start without the dashboard, whatever the config says (fork feature).
     pub plain: bool,
+    /// `--debug [program] [-- args]`: start in debug mode and launch the program (fork feature).
+    pub debug: Option<crate::debug::launch::Target>,
 }
 
 impl Args {
@@ -115,6 +117,21 @@ impl Args {
                 // buffer is closed; outside the panel an editor always waits for itself.
                 "--wait" => {}
                 "--plain" => args.plain = true,
+                // `--debug [program] [-- args]`: debug mode, launching the program; everything
+                // after `--` is its arguments
+                "--debug" => {
+                    let program = argv
+                        .next_if(|arg| !arg.starts_with('-'))
+                        .map(|program| vortex_stdx::path::canonicalize(PathBuf::from(program)));
+                    let mut program_args = Vec::new();
+                    if program.is_some() && argv.next_if(|arg| arg == "--").is_some() {
+                        program_args.extend(argv.by_ref());
+                    }
+                    args.debug = Some(crate::debug::launch::Target {
+                        program,
+                        args: program_args,
+                    });
+                }
                 // `--watch [folder]`: watch mode, in the folder when one follows
                 "--watch" => {
                     args.watch = true;
@@ -262,6 +279,24 @@ mod tests {
         assert!(parse(&["-vp", "file.txt"]).plain);
         assert!(!parse(&[]).plain);
         assert!(!parse(&["file.txt"]).plain);
+    }
+
+    #[test]
+    fn debug_takes_a_program_and_its_arguments() {
+        let args = parse(&["--debug"]);
+        assert_eq!(args.debug, Some(crate::debug::launch::Target::default()));
+        assert!(parse(&[]).debug.is_none());
+
+        let args = parse(&["--debug", "target/app", "--", "--port", "8080", "-v"]);
+        let target = args.debug.unwrap();
+        assert!(target.program.unwrap().ends_with("target/app"));
+        assert_eq!(target.args, ["--port", "8080", "-v"]);
+        // the program's arguments aren't files to open
+        assert!(args.files.is_empty());
+
+        let args = parse(&["--debug", "app", "--plain"]);
+        assert!(args.debug.unwrap().args.is_empty());
+        assert!(args.plain);
     }
 
     #[test]
