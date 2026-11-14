@@ -33,7 +33,7 @@ pub fn start(
     args: Value,
 ) -> anyhow::Result<()> {
     if editor.debug_adapters.iter().next().is_some() {
-        anyhow::bail!("A debug session is already running: Space G t ends it");
+        anyhow::bail!("A debug session is already running");
     }
     if !matches!(request, "launch" | "attach") {
         anyhow::bail!("Unsupported request '{request}'");
@@ -59,6 +59,8 @@ pub fn start(
 
     editor.debug_adapters.set_active_client(id);
     editor.debug.start_session(name.to_owned());
+    // debug mode follows the new session
+    super::mode::session_started(editor);
     panel::show(editor);
 
     let request = request.to_owned();
@@ -491,7 +493,7 @@ pub fn end(editor: &mut Editor, id: DebugAdapterId) {
     end_with(editor, id, true);
 }
 
-/// [`end`], without disconnecting when that was done already (`space G t` on an attached
+/// [`end`], without disconnecting when that was done already (debug mode's `S` on an attached
 /// program).
 pub fn end_with(editor: &mut Editor, id: DebugAdapterId, disconnect: bool) {
     playback::session_ended(editor);
@@ -512,10 +514,13 @@ pub fn end_with(editor: &mut Editor, id: DebugAdapterId, disconnect: bool) {
     editor.debug.end_session();
     // an error that ended it (a failed launch) stays shown
     if !editor.is_err() {
-        editor.set_status(match editor.debug.exit_code {
-            Some(code) => format!("Debug session ended: exited with code {code}"),
-            None => "Debug session ended".to_owned(),
-        });
+        crate::debug::mode::say(
+            editor,
+            match editor.debug.exit_code {
+                Some(code) => format!("Debug session ended: exited with code {code}"),
+                None => "Debug session ended".to_owned(),
+            },
+        );
     }
 }
 

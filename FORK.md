@@ -112,7 +112,7 @@ Each feature lives in its own modules, to keep rebasing on upstream cheap:
 | Feature | Modules |
 | --- | --- |
 | The status line rule | `vortex-term/tests/status_line_guard.rs` (the test that keeps key hints out of it) |
-| The mode bar | `vortex-term/src/ui/modebar.rs` (segments, the layout and its truncation, badges, the mouse), `Layer`, `Keymaps::layer_get` and `layer_reverse_map` in `vortex-term/src/keymap.rs`, `layers()` in `vortex-term/src/keymap/default.rs`, `RawKeys` in `vortex-term/src/config.rs` (`[keys.watch]`) |
+| The mode bar | `vortex-term/src/ui/modebar.rs` (segments, the layout and its truncation, badges, the mouse), `Layer`, `Keymaps::layer_get` and `layer_reverse_map` in `vortex-term/src/keymap.rs`, `layers()` in `vortex-term/src/keymap/default.rs`, `RawKeys` in `vortex-term/src/config.rs` (`[keys.watch]`, `[keys.debug]`), debug mode's bar in `vortex-term/src/debug/bar.rs` |
 | Menus and key help | the `["group"]` form of `keymap!` in `vortex-term/src/keymap/macros.rs`, `KeyTrieNode::groups` and `grouped_infobox` in `vortex-term/src/keymap.rs`, `Info::grouped` in `vortex-view/src/info.rs`, `vortex-term/src/ui/keyhelp.rs` (the `?` overlay), `with_help`, `key_help`, `without_header` and `with_info` in `vortex-term/src/ui/picker.rs`, `vortex-term/tests/test/menus.rs` |
 | The command palette's recent commands | `Editor::recent_commands` and `remember_command` in `vortex-view/src/editor.rs`, `with_tie_rank` in `vortex-term/src/ui/picker.rs`, `palette_key` and `command_palette` in `vortex-term/src/commands.rs`, `vortex-term/tests/test/palette.rs` |
 | Diff view | `vortex-term/src/ui/diff_view.rs`, `vortex-term/src/commands/diff_view.rs` |
@@ -128,7 +128,7 @@ Each feature lives in its own modules, to keep rebasing on upstream cheap:
 | `x` on an empty line | `vortex-term/src/handlers/line_select.rs` |
 | Move lines | `vortex-term/src/commands/move_lines.rs` |
 | Terminal panel | `vortex-terminal/` (the shell: pty, emulator, OSC 133, bash/zsh integration), `vortex-view/src/terminal.rs` (panel state, `[editor.terminal]`), `vortex-term/src/terminal/` (drawing, focus, input encoding, the `vx` shim), `vortex-term/tests/test/terminal.rs` |
-| The debugger | `vortex-term/src/debug/` (`session.rs` the sessions, the adapter's events and reverse requests, `load.rs` what the panel loads at a stop, `breakpoints.rs` breakpoints per session (yours and the engine's hidden ones in one request), `engine.rs` the per-line breakpoint engine: finding and installing hidden breakpoints, full-speed runs, the hit decision, `panel.rs` the keys and the mouse, `render.rs` the drawing; spectator mode: `playback.rs` automatic stepping, fast forward and run to cursor, `threads.rs` spectating, freezing and running threads alone, `record.rs` what each stop records, `rewind.rs` scrubbing, `cpu.rs` a thread's CPU time from the OS; `memory.rs` a debugged program's memory in the hex view: opening, reading, refreshing, writing, recording for rewind), `vortex-view/src/debug/` (`mod.rs` the panel's state and rows; `spectator.rs`, `history.rs`, `timing.rs`, `config.rs` spectator mode's state, `[editor.debugger]`; `engine.rs` the engine's state and decisions, `lineline.rs` the record of every hit), `vortex-dap/src/hits.rs` (the engine's fast path: hits of unwatched threads continued by the client), `vortex-term/src/ui/text_decorations/step_times.rs` (the time per line), `vortex-dap/src/requester.rs` (requests that borrow nothing, for background tasks), child sessions in `vortex-dap/src/registry.rs`, `vortex-term/src/commands/dap.rs` (the `space G` commands, the templates), `vortex-term/tests/test/debug/` (a scripted fake adapter and the tests) |
+| The debugger | `vortex-term/src/debug/` (`session.rs` the sessions, the adapter's events and reverse requests, `load.rs` what the panel loads at a stop, `breakpoints.rs` breakpoints per session (yours and the engine's hidden ones in one request), `engine.rs` the per-line breakpoint engine: finding and installing hidden breakpoints, full-speed runs, the hit decision, `panel.rs` the keys and the mouse, `render.rs` the drawing; spectator mode: `playback.rs` automatic stepping, fast forward and run to cursor, `threads.rs` spectating, freezing and running threads alone, `record.rs` what each stop records, `rewind.rs` scrubbing, `cpu.rs` a thread's CPU time from the OS; `memory.rs` a debugged program's memory in the hex view: opening, reading, refreshing, writing, recording for rewind), `vortex-view/src/debug/` (`mod.rs` the panel's state and rows; `spectator.rs`, `history.rs`, `timing.rs`, `config.rs` spectator mode's state, `[editor.debugger]`; `engine.rs` the engine's state and decisions, `lineline.rs` the record of every hit), `vortex-dap/src/hits.rs` (the engine's fast path: hits of unwatched threads continued by the client), `vortex-term/src/ui/text_decorations/step_times.rs` (the time per line), `vortex-dap/src/requester.rs` (requests that borrow nothing, for background tasks), child sessions in `vortex-dap/src/registry.rs`, `vortex-term/src/commands/dap.rs` (the debug commands, the templates); debug mode: `vortex-term/src/debug/mode.rs` (entering and leaving, view mode and following, the camera, the lineline's seeks, the held keys and the notes), `vortex-term/src/debug/bar.rs` (the three rows: the transport, the lineline's layout and cells, the keys; clicks), `vortex-term/src/debug/launch.rs` (the template of `vx --debug`, the template picker), `vortex-term/tests/test/debug/` (a scripted fake adapter and the tests) |
 | Hex view | `vortex-view/src/hex/mod.rs` (the bytes: windowed reads, the overwritten bytes, undo, cursors, search, the row layout), `vortex-view/src/hex/memory.rs` (a debugged program's memory as the bytes: the page cache, what each byte is as drawn), `vortex-term/src/ui/hex_view.rs` (drawing, the statusline texts), `vortex-term/src/commands/hex.rs` (keys, mouse, prompts, `:hex`), `vortex-term/tests/test/hex_view.rs` |
 | Dashboard | `vortex-term/src/dashboard.rs` (when it is up, its keys), `vortex-term/src/dashboard/` (`stats.rs` the background reading, `languages.rs` the line counts, `render.rs` the layout and the panels, `timeline.rs` when things move, `title.rs` the title, `vortex.rs` the vortex, `charset.rs` blocks or ASCII, `wrap.rs` long values on two rows, `snapshots/` the drawings the tests compare with), `vortex-vcs/src/git/summary.rs` (the git summary), `vortex-term/tests/test/dashboard.rs` |
 | Worktrees | `vortex-term/src/commands/worktrees.rs` (the `:worktrees` picker: its rows, columns, background jobs and `Enter`), `vortex-vcs/src/git/summary.rs` (the worktrees, missing ones flagged; `Repo::status`, the last modified time; `Repo::dated_worktrees`; `Worktree::details`), `vortex-stdx/src/time.rs` (`format_ago`), the dashboard's worktree rows and `t` in `vortex-term/src/dashboard/`, `vortex-term/tests/test/worktrees.rs` |
@@ -197,7 +197,7 @@ its small helpers); the gutter's breakpoint and `▶` markers in `vortex-view/sr
 layout (the panel takes the terminal panel's place), its keys first in `handle_event`, `Esc`, the
 cursor, the frame line limited to its file, and a gutter click in `ui/editor.rs`; the mouse in
 `Application::handle_terminal_events` and the adapters' messages in `Application`; the `debug`
-statusline element; `:debug-eval` (raw input) in `typed.rs`; the `space G` additions and `C-g` in
+statusline element; `:debug-eval` (raw input) in `typed.rs`; `space G` (`debug_mode`) and `C-g` in
 `keymap/default.rs`; the terminal panel hiding the debug panel in `terminal/panel.rs`; in
 `vortex-dap`, the client's `Requester`, child sessions, bodyless responses, the TCP connect retry,
 and `supportsStartDebuggingRequest`; `SetVariable`/`SetExpression` and signed exit codes in
@@ -219,12 +219,28 @@ and `vortex-dap-types`; a `capabilities` event merged into the capabilities inst
 them, in `vortex-term/src/debug/session.rs`. The engine adds: `stopped` events going through the
 engine first, the configuration installing hidden breakpoints before the rest, `continued` and
 `breakpoint` events redrawing only when something shown changed, in `debug/session.rs`; every send
-of your breakpoints carrying the hidden ones, in `debug/breakpoints.rs`; `space G c` running at full
+of your breakpoints carrying the hidden ones, in `debug/breakpoints.rs`; `L` running at full
 speed in `commands/dap.rs`; the loading animation in the `debug` statusline element; the
 `own-paths` of `DebugAdapterConfig` (`vortex-core`); `[editor.debugger]` applied at startup and on
 reload (`DebugState::apply_config`, called from `Editor::new` and `refresh_config`); in `vortex-dap`
 the client's hit filter and `Event::taken`, `breakpointLocations` and `loadedSources`; `BreakpointLocations` and `LoadedSources` in `vortex-dap-types`; the vortex
 theme's loading scopes in `theme.toml`.
+
+Debug mode changes core files: `Layer::Debug` and `Keymaps::layer_infobox` in
+`vortex-term/src/keymap.rs`, the debug layer in `layers()` and `space G` in
+`vortex-term/src/keymap/default.rs`, `[keys.debug]` in `vortex-term/src/config.rs`; the layer's keys
+first, the gutter click (a breakpoint only in debug mode) and the view mode cursor style in
+`ui/editor.rs`; `Content::Spans`, `Line`, `Drawn::spots`, `click_spot` and the three rows in
+`ui/modebar.rs`; the new commands (`debug_mode`, `debug_view`, `debug_play_pause`,
+`debug_line_forward`, `debug_line_back`, `debug_breakpoint_forward`, `debug_breakpoint_back`,
+`debug_breakpoint_kind`, `debug_help`, `debug_leave`, `debug_panel_focus`, `debug_panel`) in
+`commands.rs` and `commands/dap.rs` (a breakpoint command outside debug mode is an error);
+`:debug-mode` in `commands/typed.rs`; `--debug` in `args.rs` and `application.rs`; the gutter rule
+(breakpoints in debug mode, bookmarks outside it) in `vortex-view/src/gutter.rs`; `BreakpointKind`
+in `vortex-view/src/editor.rs` and `breakpoint_pauses` in `vortex-view/src/debug/engine.rs`;
+`DebugState::mode` in `vortex-view/src/debug/mod.rs`; `History::seek` and `nearest` in
+`vortex-view/src/debug/history.rs`; `takes` of `DebugTemplate` in `vortex-core/src/syntax/config.rs`
+and `languages.toml`; the debug mode scopes in `theme.toml` and `matrix_theme.toml`.
 
 The hex view changes core files: the `hex` field of `Document` and what it changes there
 (`open_hex`, `enter_hex`/`leave_hex`, `apply` refusing transactions, `is_modified`, `save_impl`
@@ -345,7 +361,7 @@ in isn't seen by it: the rule in [CLAUDE.md](CLAUDE.md) covers those.
 
 A bar of one to three rows above the message area, shown only while a mode that uses it is on, and
 costing nothing otherwise: no row is taken, nothing is laid out. [Watch mode](#watch-mode) uses two
-rows; debug mode (the debug plan's next step) will use three.
+rows; [debug mode](#debug-mode) uses three.
 
 ```text
  WATCH ● following      src/main.rs · 3/12 changes · 2 files      followed src/main.rs:30
@@ -354,9 +370,11 @@ rows; debug mode (the debug plan's next step) will use three.
 
 **Layout.** A mode supplies rows of segments, each placed left, middle or right; the bar draws
 them, a column of padding on each side, the middle centered (moved aside when it would touch the
-others). A segment is the mode's **state**, **information**, or a **key badge**. When a row is too
-narrow, the keys collapse first (all their labels go, leaving the keys, then the last badges go),
-then the information is cut with `…` (the widest first), then the state. The bar takes its place
+others). A segment is the mode's **state**, **information**, a passing **note** (what the last key
+did: debug mode's), or a **key badge**; a row can also be a **line** of cells as wide as the bar
+(debug mode's lineline). When a row is too narrow, a note goes first (cut with `…`, then gone), then
+the keys collapse (all their labels go, leaving the keys, then the last badges go), then the
+information is cut with `…` (the widest first), then the state. The bar takes its place
 under the splits and the panels (the terminal and debug panels stay above it), and the infobox
 moves up over it.
 
@@ -375,27 +393,35 @@ label) runs the command. A label may be a glyph (`▶`) rather than a word.
 | `ui.modebar.key` | a badge's key | `ui.dashboard.key` |
 | `ui.modebar.label` | a badge's label | `ui.dashboard.action` |
 
-**How debug mode plugs in.** Debug mode (PR 2 of the debug plan) will be one more mode of the bar,
-the same way as watch mode:
+**How debug mode uses it.** Debug mode is one more mode of the bar, the same way as watch mode:
 
 1. a layer `Layer::Debug` in `vortex-term/src/keymap.rs` with its default keys in `layers()`
    (`[keys.debug]` in a config), looked up before the normal mode's while debug mode is on (one
    line in `EditorView::layer_key`);
-2. a `bar(editor, &keys) -> Option<modebar::Bar>` in the debugger's modules, returning three rows:
-   the transport bar, the lineline, the keys; `modebar::current` and `modebar::height` call it
-   while debug mode is on;
-3. the transport bar is a row of badges whose labels are the plain glyphs `|◀ ◀◀ ▶ ❚❚ ▶▶ ▶|`
-   (never emoji: no variation selector), each naming its command (`dap_restart`,
-   `dap_rewind_back`, `dap_play`, `dap_pause`, `dap_fast_forward`, `dap_live`...), so each shows its
-   key and a click runs it; the state (`DEBUG ▶ playing`) on the left and the speed on the right;
-   the lineline a row of information; the third row the other keys. The test
-   `three_rows_like_debug_mode` in `vortex-term/src/ui/modebar.rs` lays out exactly that with a fake
-   mode.
+2. `debug::bar::bar(editor, &keys, width)` in `vortex-term/src/debug/bar.rs`, returning three rows:
+   the transport, the lineline, the keys; `modebar::current` and `modebar::height` call it while
+   debug mode is on (`height` is 3);
+3. the transport's badges are plain glyphs (never emoji: no variation selector), each naming its
+   command, so each shows its key and a click runs it: `|◀` is `debug_breakpoint_back`, `◀◀`
+   `debug_line_back`, `▶` or `❚❚` `debug_play_pause`, `▶▶` `debug_line_forward` and `▶|`
+   `debug_breakpoint_forward`; the speed is information on the right;
+4. the lineline is a `Line`: a full-width row of cells, not segments. A cell has a style and may carry
+   a click `spot`, a number the mode decides the meaning of; the bar records the cells that have one
+   in `Drawn::spots`, and the mouse calls `modebar::click_spot`, which hands the spot to the mode
+   that is on (`debug::bar::click` seeks);
+5. the state is styled: `Content::Spans` is text with a style for each piece, which is how the
+   loading animation (a spinner, the bar filling, the glow) is drawn in the state's place, under
+   `ui.modebar.state.loading`;
+6. the third row is badges for the other keys, and the note on its right: what the last key did,
+   or why it waited (`DebugState::note`).
+
+The test `three_rows_like_debug_mode` in `vortex-term/src/ui/modebar.rs` stays as the layout test:
+it lays out three rows like debug mode's with a fake mode. The real bar's tests (the lineline's
+layout, its cells and glyphs, the clicks, the states) are in `vortex-term/src/debug/bar.rs`.
 
 ## Menus and key help
 
-**Categories.** The `space` menu, the `g` menu, `[` and `]`, `z` and `Z`, `C-w` (`space w`) and the
-debugger's `space G` group their entries under short labels, drawn in the infobox as dim
+**Categories.** The `space` menu, the `g` menu, `[` and `]`, `z` and `Z`, `C-w` (`space w`) group their entries under short labels, drawn in the infobox as dim
 separator lines (`ui.infobox.separator`, falling back to `ui.text.inactive`):
 
 ```text
@@ -419,7 +445,6 @@ separator lines (`ui.infobox.separator`, falling back to `ui.text.inactive`):
 | `[`, `]` | diagnostics and changes, syntax, lines |
 | `z`, `Z` | align, scroll, search |
 | `C-w`, `space w` | splits, focus, move |
-| `space G` | session, breakpoints, stepping, inspect, playback, threads |
 
 The groups are part of the default keymap: in `keymap!`, a `["label"]` before keys puts them under
 that label (`keymap/default.rs`); a menu without labels looks as before. A key a config adds to a
@@ -429,7 +454,10 @@ place. The `space` and `g` menus have no `?` and no expanded help: only the sepa
 **`?` help.** In the fork's modal pickers and views, `?` in their normal mode opens a box over them
 listing their keys, in groups; any key closes it: the commit log and line history, the lists of
 changes (of commits, the uncommitted changes, watch mode's changes), the worktrees, the bookmarks,
-the file tree, the side by side diff, the hex view and the debug panel. Where `?` is typed text
+the file tree, the side by side diff, the hex view, the debug panel and [debug mode](#debug-mode)
+(its groups: playback, stepping, threads, view and breakpoints, session, inspect, panel, mode; the box is
+built from the keymap, so a remapped key shows as remapped). A box taller than the screen (debug
+mode's, on a small terminal) is laid out in two columns, split between groups. Where `?` is typed text
 (a picker's filter mode, after `s`), it stays text. Their keys are no longer printed to the status
 line, nor in the diff's footer. The hex view's `?` was a backward search: `/` and then `N` searches
 backward.
@@ -1639,37 +1667,243 @@ TypeScript).
 Vortex ships no debug adapter: like language servers, you install them, and `languages.toml`
 says how to start them (see [Adapters](#adapters)).
 
-### Usage
+The debugger is driven from [debug mode](#debug-mode), entered with `space G`: a mode with its own
+keys and a three-row bar, whose spectator mode plays the program like a video.
+
+### Debug mode
+
+The debugger is driven from a mode, like [watch mode](#watch-mode): while it is on, its keys come
+first, one key per command, and its state, the transport, the record of the run and the keys are on
+the [mode bar](#the-mode-bar), in three rows. Playing, stepping, rewinding, breakpoints and
+threads are all keys of the mode, so the debugger works like a video player: play, pause, one line
+forward or back, jump to the next breakpoint, click on the timeline to seek.
+
+**Entering and leaving.**
 
 | Key or command | What it does |
 | --- | --- |
-| `space G` | The debug menu; it stays until `Esc`, so one key steps at a time |
-| `space G l` | Launch (or attach): pick a template of the language, answer its prompts |
-| `space G b` | Add or remove a breakpoint on the cursor's line (also a click in the gutter) |
-| `space G C-c`, `space G C-l` | The condition, or the log message (a logpoint), of the breakpoint on the line |
-| `space G c`, `h` | Continue (with the [engine](#engine): at full speed to your next breakpoint); pause |
-| `space G n`, `i`, `o` | Step over, into, out |
-| `space G p` | Show or hide the panel |
-| `space G v` | The panel's variables, focused |
-| `space G w` | Add a watch expression |
-| `space G x`, `:debug-eval expr` | Evaluate an expression in the selected frame; the console shows it and its value |
-| `space G s t`, `space G s f` | Pick a thread, a stack frame |
-| `space G e`, `E` | Stop on exceptions (the adapter's filters), or don't |
-| `space G r`, `t` | Restart; end the session |
-| `space G space`, `.` | Play or pause (spectator mode); one playback step |
-| `space G +`, `-` | Play faster, slower |
-| `space G f`, `g` | Fast forward to the first change of a watched value; run (or play) to the cursor's line |
-| `space G <`, `>` | Spectate the previous, next thread |
-| `space G m` | What playback steps into: std, lib, own |
-| `space G z`, `a` | Freeze or thaw the spectated thread; only it runs during steps (or all do) |
-| `space G [`, `]`, `L` | Rewind to the stop before, forward, back to live |
-| `space G R`, `X` | The capture settings; clear the time labels |
-| `space G M`, `:debug-memory [expr\|0xaddr]` | [Memory](#memory) of the value under the panel's cursor, of an expression, at an address |
-| `Ctrl-g` | Focus the panel, or go back to the editor |
+| `space G`, `:debug-mode` | Enter debug mode (`:debug-mode` again leaves it) |
+| `vx --debug [program] [-- args]` | Start in debug mode and launch the program (see [`vx --debug`](#vx---debug)) |
+| `Esc` | Leave debug mode. The session keeps running, paused or playing, and the panel stays as it is |
 
-The panel opens when a session starts (the editor keeps the keys) and hides when it ends; `space G
-p` shows it again with the last console. `Esc` in normal mode hides it, like the terminal panel,
-with which it shares its place: showing one hides the other.
+One mode at a time: entering debug mode ends [watch mode](#watch-mode) (the changes it recorded
+stay), and `:watch` or `vx --watch` leaves debug mode. Without a session debug mode starts in view
+mode (there is nothing to follow): set breakpoints, then `s` launches. When a session starts, the
+mode follows it.
+
+The keys are the layer `[keys.debug]` (see [Watch mode's keys](#watch-modes-keys) for how a layer
+is remapped); `?` shows them as configured. A command that has no key is still in the command
+palette (`space ?`).
+
+#### Keys
+
+| Key | Live | In rewind |
+| --- | --- | --- |
+| **Playback** | | |
+| `Space` | Play or pause. A program running at full speed is paused (DAP `pause`) | Plays on, back to live |
+| `l` | The next line: one playback step | One recorded stop forward; past the last, live |
+| `h` | The previous line: into rewind, one recorded stop back | One more stop back |
+| `L` | The next breakpoint: [continue](#engine) at full speed to your next breakpoint | The next breakpoint mark of the record, else live |
+| `H` | The previous breakpoint: into rewind, at the stop nearest the previous breakpoint mark | The same, from where you are |
+| `k`, `j` | Play faster, slower | The same |
+| `p` | Nothing (only in rewind) | Back to live: the present |
+| `f` | Fast forward to the first change of a watched value (`f` again cancels) | Goes back to live first |
+| `r` | Run (or play) to the cursor's line | Goes back to live first |
+| `e` | What playback follows: own, lib, std | The same |
+| **Stepping** | | |
+| `.`, `i`, `o` | Step over, into, out | Go back to live first |
+| **Threads** | | |
+| `>`, `<` | Spectate the next, previous thread | The same |
+| `t`, `F` | Pick a thread, a stack frame | The same |
+| `z` | Freeze or thaw the spectated thread | The same |
+| `a` | Only the spectated thread runs during steps, or all do | The same |
+| **View and breakpoints** | | |
+| `v` | View mode, or follow again (see below) | The same |
+| `b` | Add or remove a breakpoint on the cursor's line | The same |
+| `B` | The type of the breakpoint on the line: any thread, main thread only, sub-threads only | The same |
+| `C`, `M` | The condition, the log message (a logpoint) of the breakpoint on the line | The same |
+| `E` | Stop on exceptions (the adapter's filters), or don't | The same |
+| **Session** | | |
+| `s` | Start: pick a template of the language, answer its prompts (the picker of every template when the file's language has no debugger) | |
+| `S` | End the session: terminate a launched program, detach from an attached one | The same |
+| `R` | Restart | The same |
+| **Inspect** | | |
+| `x` | Evaluate an expression in the selected frame; the console shows it and its value (`:debug-eval expr`) | Refused |
+| `w` | Add a watch expression | The same |
+| `V` | The panel's variables, focused | The same |
+| `m` | The [memory](#memory) of the value under the panel's cursor (`:debug-memory [expr\|0xaddr]` for an expression or an address) | The same |
+| `c` | The capture settings | The same |
+| `X` | Clear the time labels | The same |
+| **Panel** | | |
+| `Tab`, `Ctrl-g` | Focus the panel; in the panel, `Tab` and `Ctrl-g` go back to the editor | The same |
+| `P` | Show or hide the panel | The same |
+| **Mode** | | |
+| `?` | The key help box: every key above, in these groups, built from the keymap | The same |
+| `Esc` | Leave debug mode | The same |
+
+Keys that change a value (`x`, setting a variable in the panel) are refused in rewind, which is
+history, never re-execution.
+
+Where the keys of the old `space G` menu went (the menu is gone: `space G` enters the mode):
+
+| Old | New | Old | New |
+| --- | --- | --- | --- |
+| `space G l` | `s` | `space G space`, `h` | `Space` |
+| `space G r` | `R` | `space G n`, `i`, `o` | `.`, `i`, `o` |
+| `space G t` | `S` | `space G v` | `V` |
+| `space G p` | `P` | `space G M` | `m` |
+| `space G b` | `b` | `space G s t`, `s f` | `t`, `F` |
+| `space G C-c`, `C-l` | `C`, `M` | `space G .` | `l` |
+| `space G e`, `E` | `E` (a toggle) | `space G +`, `-` | `k`, `j` |
+| `space G c` | `L` | `space G g` | `r` |
+| `space G m` | `e` | `space G [`, `]` | `h`, `l` |
+| `space G L` | `p` | `space G R` | `c` |
+
+`w`, `x`, `X`, `f`, `z`, `a` and `< >` are where they were, after `space G`. Every command is
+still in the command palette.
+
+#### The bar
+
+Three rows, above the message area:
+
+```text
+ DEBUG ❚❚ paused · breakpoint   H |◀  h ◀◀  Space ▶  l ▶▶  L ▶|     j −  2 lines/s · own  k +
+ ·░▒▓█▓▒░·░░▒▒▓███▒░  ✕  ┄full speed┄  ░▒▓█▓▒░░  ●  ░░▒▓▒·  ‖ ┃
+  v view   b breakpoint   e own   f change   r cursor   > thread   S stop   main · src/main.rs:30
+```
+
+**Row 1, the transport.** On the left the state, then the badges `|◀` (`H`), `◀◀` (`h`), `▶` or
+`❚❚` while playing (`Space`), `▶▶` (`l`) and `▶|` (`L`), in the middle; in rewind `p present` too.
+On the right the speed and what playback follows (`8 lines/s · own`), between the badges of its
+keys: `j −` slower, `k +` faster.
+
+| State | When |
+| --- | --- |
+| `DEBUG ○ no session` | nothing is running |
+| `DEBUG ◌ starting` | the session is starting |
+| `DEBUG ▶ playing` | playback is on |
+| `DEBUG ❚❚ paused` | the program is stopped, with `· <reason>` when a breakpoint, an exception or a pause stopped it |
+| `DEBUG ▶ running at full speed` | a continue on the engine |
+| `DEBUG ▶▶ fast forward · 12` | fast forward, with its count |
+| `DEBUG ▶ blocked in f 1.2 s` | a step that doesn't stop |
+| `DEBUG ◀◀ rewind 128/2,048` | rewinding: the stop and how many are kept |
+| `DEBUG ○ exited 3`, `DEBUG ○ ended` | the program ended |
+| `DEBUG ◜ ━━━─── installing breakpoints · 12/48 files` | the [engine](#engine)'s loading animation |
+
+**Row 3, the keys.** `s start` without a session; `v view` or `v follow`; `b breakpoint`; in view
+mode `B type`; with a session `e own` (what playback follows), `f change` (fast forward to a
+change), `r cursor` (run to the cursor), `> thread`, `S stop`; then `Tab panel`, `? keys`,
+`Esc leave`: every label fits a 120-column window. Each is a badge: a click runs it. On the right of
+the row is the note, what the last key did or why it waited (`following: v looks around to move`),
+else the spectated thread and its place: `main · src/main.rs:30`. The note gives way first (cut, then
+gone) so that it never hides a label; then a narrow window drops the labels, then the last badges.
+
+#### The lineline
+
+Row 2 is the [record](#the-record) of the run drawn as one row of cells, as wide as the bar. It
+reads like a video's timeline: the left end is the oldest hit kept, the last column is now.
+
+- **Scale.** The range from the oldest hit kept to now is mapped evenly onto the columns, apart from
+  the full-speed gaps. The last column is **now**: the live playhead `┃` (ASCII `|`); in rewind
+  `▕` (`]`), the end of the record; `■` once the program ended. Marks recorded after the last hit
+  go in the last column.
+- **Density.** A span's cell shows how often the spectated thread ran in it, normalized to the densest
+  cell, with the [dashboard](#dashboard)'s shades: ` ·░▒▓█` (ASCII ` .:=#&@`, as the theme's
+  `charset` says).
+- **The playhead.** In rewind, `┃` is drawn on the cell of the stop you are at, over everything.
+- **Marks.** When several share a cell, the first of this list shows:
+
+  | Mark | Glyph | ASCII |
+  | --- | --- | --- |
+  | an exception | `✕` | `!` |
+  | a breakpoint hit (also one that didn't pause: a type that didn't match) | `●` | `*` |
+  | a switch to another thread (the first thread followed is no switch) | `⇄` | `/` |
+  | the program's end | `■` | `$` |
+  | a pause | `‖` | `"` |
+  | every covered file has its hidden breakpoints from here | `✓` | `+` |
+  | the selected variable written, read here (reserved: not recorded yet) | `▾`, `▿` | `w`, `r` |
+
+  Below the marks come the dead stretch and the density.
+- **Dead stretches.** Cells before the spectated thread started and after it exited are `─` (ASCII
+  `_`) in the error color: the thread wasn't there.
+- **Full-speed gaps.** A run at full speed isn't counted line by line, so it takes columns of its own:
+  `┄full speed┄` (12 columns) when every gap fits in a third of the width, else `┄┄┄`, else one `┄`
+  (ASCII `~`).
+- **Click** a cell to seek: the last column goes to the present; a span, to the recorded stop of
+  the spectated thread nearest the middle of the cell; a gap, to the stop nearest its counter.
+
+#### Following and view mode
+
+With a session the mode **follows**: each stop moves the view to the spectated thread's line, and
+rewind follows the recorded stop the same way. The line is kept in the middle third of the view: no
+scroll while it stays there, centered when it leaves it; a stop in another file opens it centered.
+
+While following, the movement and search keys of the editor do nothing (the bar's note says `v looks
+around to move`), and neither do the keys that edit (`Esc leaves debug mode, then edit`).
+
+`v` is **view mode**: your own cursor, drawn as in select mode (`ui.cursor.select`), moves and
+searches freely, and the stops don't move the view (playback goes on). `v` again follows, jumping to
+the current stop. A click or a scroll with the mouse in the text enters view mode too. In view mode
+the keys of the mode stay its own (`h j k l w b e f x`...): move with the arrows, `Ctrl-d` and
+`Ctrl-u`, the page keys, the `g` menu, `/` and `n`/`N`.
+
+`b`, `B`, `C`, `M` and `r` act on the cursor's line: while following, the line of the stop; in view
+mode, where your cursor is.
+
+Outside debug mode, with a session running, playback steps don't move the view (you are editing); a
+pause (a breakpoint, an exception) still jumps there.
+
+#### Breakpoints
+
+Breakpoints are set in debug mode only: `b`, `C`, `M`, `B`, and a click in the gutter. Outside it
+the commands say `breakpoints are set in debug mode`. They stay in memory across sessions and are
+sent to the adapter whether or not debug mode is on.
+
+A breakpoint has a type (`B` cycles it): **any thread** (the default), **main thread only**, or
+**sub-threads only**. The main thread is the first one the adapter reported. Verified and
+unverified glyphs:
+
+| Type | Verified | Not verified |
+| --- | --- | --- |
+| any thread | `●` | `◯` |
+| main thread only | `▲` | `△` |
+| sub-threads only | `▼` | `▽` |
+
+A turned-off breakpoint is `○` whatever its type. The panel's list shows the type (`main thread
+only`, `sub-threads only`) after the line.
+
+A hit on a thread the type doesn't match isn't a stop: it is recorded as a breakpoint hit (a `●`
+on the lineline), continued at once, and the camera stays where it is.
+
+**The gutter.** In debug mode the gutter's breakpoint column shows breakpoints only; outside it,
+the bookmarks only (and breakpoints aren't drawn). The two never share the column.
+
+#### `vx --debug`
+
+`vx --debug [program] [-- args]` starts in debug mode and launches the program, without the
+dashboard. A source file (a file of a language that has a debugger) is launched with that
+language's templates; anything else is an executable, launched with the templates of every language.
+A template fits when:
+
+- it launches (`request = "launch"`) and one of its prompts is a filename prompt that fills
+  `program`;
+- its `takes` agrees with the program: `takes = "executable"` or `takes = "source"` in the debugger
+  template in `languages.toml`; unset means either;
+- its prompts are exactly the program, plus one that fills a list argument whole (`args = ["{1}"]`)
+  when arguments were given;
+- its adapter's command is installed (on `PATH`).
+
+Of the templates of one adapter that fit, the first in the config's order is kept (`binary`, not
+`binary (terminal)`). One template left: the program launches at once, with its arguments filled in
+(quoted where they have spaces). Several: a picker of `adapter: template`, with the language. None:
+an error, such as `no installed debugger of rust launches a source file`. `vx --debug` alone opens
+the template picker.
+
+#### The status line
+
+While debug mode is on, the debugger's notes (what a key did, an expression's result, a step's
+outcome) go to the bar's note, on the right of the third row, not the status line. Errors still
+go to the status line, and outside debug mode the debugger's messages do too.
 
 ### The panel
 
@@ -1679,12 +1913,19 @@ expressions), **Call stack** (the threads; the current one open on its frames), 
 evaluated). From 120 columns the console shows beside the data section; narrower, it is the fifth
 tab. The tab bar shows the session's status and name, and the search of the section.
 
-Its keys, when focused, are modal like the fork's pickers:
+The panel opens when a session starts (the editor keeps the keys) and hides when it ends; `P` in
+debug mode shows it again with the last console. `Esc` in normal mode hides it, like the terminal
+panel, with which it shares its place: showing one hides the other. `Tab` or `Ctrl-g` in debug
+mode, or `Ctrl-g` outside it, focuses it.
+
+Its keys, when focused, are modal like the fork's pickers. The keys it doesn't take go to debug
+mode while debug mode is on, so `Space`, `H`, `L`, `.` and the rest of the mode still work
+with the panel focused:
 
 | Key | What it does |
 | --- | --- |
 | `j` `k`, arrows, `gg` `G`, `Ctrl-d` `Ctrl-u` | Move |
-| `Tab` `Shift-Tab`, `w` `b`, `1`-`5` | The next, previous, or a given section |
+| `Tab` `Shift-Tab`, `w` `b`, `1`-`5` | The next, previous, or a given section; in debug mode `Tab` goes back to the editor instead (`Shift-Tab`, `w`, `b` and `1`-`5` still switch) |
 | `Enter` | Open or close a node; select a frame (or a thread: its top frame), which jumps to its code and shows its variables; go to a breakpoint; in the console, evaluate |
 | `l` `h` | Open, close (on a closed node: to its parent) |
 | `s` | Search the section as you type (`Esc` in the panel clears it) |
@@ -1695,21 +1936,17 @@ Its keys, when focused, are modal like the fork's pickers:
 | `t` | Turn a breakpoint off or on (off: kept in the list and the gutter as `○`, not sent to the adapter) |
 | `y` | Yank the value (the line, in the console) |
 | `i` | Evaluate an expression (history in the `=` register) |
-| `space` | Play or pause ([spectator mode](#spectator-mode)): while the panel has the keys there is no space menu; `Esc`, `q` or `Ctrl-g` first, then `space` is the menu again |
-| `n`, `+` `-` | One playback step; faster, slower |
-| `f`, `r` | Fast forward to a change (`f` again cancels); run (or play) to the cursor's line |
-| `<` `>` | Spectate the previous, next thread |
 | `z`, `o`, `p` | Freeze or thaw the thread under the cursor (the spectated one outside the call stack); only the spectated thread runs; continue or pause the thread under the cursor |
-| `e`, `u` | What playback steps into (std, lib, own); the step's unit (line, statement, instruction), when the adapter offers it |
+| `u` | The step's unit (line, statement, instruction), when the adapter offers it |
 | `*` | Mark a variable: fast forward stops when it changes |
-| `[` `]`, `{` `}`, `L` | Rewind one stop back or forward, ten, back to live |
-| `R`, `x` | The capture settings; clear the time labels |
+| `{` `}` | Rewind ten stops back or forward |
 | `M` | The [memory](#memory) of the value under the cursor (`▦` after it), in the hex view |
 | `:`, `Ctrl-t` | The command line; the terminal panel |
 | `q`, `Esc`, `Ctrl-g` | Back to the editor |
 
-The last row of a panel of 6 lines or more shows the keys for what it shows (playing, rewinding,
-the capture settings).
+The panel has no row of hints: the keys are in debug mode's `?` box and on the bar. The loading
+animation (a spinner, `installing breakpoints · 12/48 files`) shows in the panel's top row outside
+debug mode, and in the bar's state in debug mode.
 
 The mouse: a click focuses the panel and puts the cursor on the row (a second click acts like
 `Enter`, a click on a tab switches to it), the wheel moves, a click elsewhere gives the keys back.
@@ -1737,6 +1974,14 @@ Watch the program like a video, or a game's spectator mode: it plays line by lin
 choose, you follow one thread and cut to others as they come, pause anywhere to look or change a
 value, and scrub back through what you already watched.
 
+Spectator mode is driven from [debug mode](#debug-mode): `Space` plays and pauses, `l` and `h` are
+the next and previous line, `L` and `H` the next and previous breakpoint, `k` and `j` the speed,
+and the bar's [lineline](#the-lineline) is its timeline. Its old keys in the panel moved there:
+`Space`, `+ -`, `n`, `< >`, `e`, `r`, `f`, `L`, `[ ]`, `R` and `x` became `Space`, `k j`, `l`,
+`< >`, `e`, `r`, `f`, `p`, `h l`, `c` and `X` of debug mode (the panel keeps `{ }`, `z o p u * M`
+and the data keys), and they work with the panel focused, since debug mode takes the keys the
+panel doesn't.
+
 **Playback** runs on the [engine](#engine): a hidden breakpoint on every line of your code, so
 the program continues and stops at its next line, wherever it is; Vortex waits out the speed's
 interval there, and continues it again. With `engine = "stepping"` it steps instead: step, wait for
@@ -1748,7 +1993,7 @@ that thread. Values load at every stop like at any stop
 it, instead of centering at every step. With `supportsSteppingGranularity` the step's unit can be
 a statement or an instruction (`u`); line by default.
 
-**What playback follows**, cycled with `e` (shown in the panel's status): `own` (the default)
+**What playback follows**, cycled with `e` (shown on the bar, `8 lines/s · own`): `own` (the default)
 stays in your code, `lib` also goes into libraries, `std` into everything, the language's runtime
 included. On the engine, that is which files get hidden breakpoints (`lib` and `std` are a work in
 progress: see [Engine](#engine)). With `engine = "stepping"`, a playback step is a `stepIn`; when
@@ -1771,13 +2016,13 @@ own-paths = ["/home/me/work/app/server"]   # instead of the workspace and the la
 ```
 
 A step that doesn't stop (blocking I/O, a lock, a sleep) shows `blocked in <function>` and a
-running timer after half a second, in the panel and the statusline; `space` pauses it there (DAP
+running timer after half a second, in the panel, the bar's state and the statusline; `Space` pauses it there (DAP
 `pause`), so you see where it waits.
 
 **Fast forward** (`f`) plays as fast as the adapter goes, without moving the view, and compares at
 each of the spectated thread's stops the watch expressions and the variables you marked (`*`, `◆`
 in the tree) with their values when it started; it stops at the first change and says `old -> new`
-(status line and console). Your breakpoints and the program's end stop it too; `f` or `space`
+(status line and console). Your breakpoints and the program's end stop it too; `f` or `Space`
 cancels it.
 
 **Run to cursor** (`r`): paused, the program runs until the spectated thread reaches the cursor's
@@ -1792,10 +2037,10 @@ session of its own) and `T2 name` in the statusline. `<` and `>` cut to the prev
 thread; `Enter` on a thread spectates it. A thread starting or exiting shows in the call stack
 (and the log), not in the status line. To force a suspected race by hand, schedule the threads
 yourself: `z` freezes a thread (`❄ frozen`: it never runs during steps, continues or playback
-until thawed, and a running thread is paused as it freezes), `o` makes steps and continues run only
-the spectated thread, and `p` continues or pauses the thread under the cursor. For example: step
+until thawed, and a running thread is paused as it freezes), `a` makes steps and continues run only
+the spectated thread (`o` in the panel), and `p` in the panel continues or pauses the thread under the cursor. For example: step
 A to the check, freeze A, run B through, thaw A and continue it. This is DAP `singleThread`: the
-adapter must say it supports it (`supportsSingleThreadExecutionRequests`); without it `z` and `o`
+adapter must say it supports it (`supportsSingleThreadExecutionRequests`); without it `z` and `a`
 say that the adapter runs every thread on each step, and aren't offered (except between sessions,
 which never run each other's threads). Adapters that stop every thread at a stop (lldb's
 all-stop) can run one thread or all of them: with a thread frozen, steps of the others run them
@@ -1813,7 +2058,7 @@ capabilities = { supportsSingleThreadExecutionRequests = true }
 lldb-dap (18, 20 and 21) doesn't advertise it: lldb-dap 18 ignores `singleThread`; lldb-dap 20
 honours it for `next` and `stepIn` but not for `stepOut`, which runs every thread (so with it,
 playback's step outs of library code let frozen threads run: force interleavings with
-`space G n`); lldb-dap 21 answers a `continue` with `singleThread` (`allThreadsContinued: false`)
+`.`); lldb-dap 21 answers a `continue` with `singleThread` (`allThreadsContinued: false`)
 and then runs nothing at all, so with the capability forced on, playback on the engine (which
 continues) stands still while a thread is frozen. An adapter that stops every thread may also report each of them in a `stopped` event
 of its own (lldb-dap does, with the reason of their last stop); those marked `preserveFocusHint`
@@ -1827,7 +2072,7 @@ minus the overhead of a hit (calibrated the same way, on plain continues: the ne
 function at the same depth, no other thread's hit between them) and, with an adapter that stops
 every thread at a hit, the overhead of each other thread's hit on the way. Each time is also kept
 on the [lineline](#the-record) with the thread and the frame (function and depth) it ran in. Labels stay on the lines visited this session, adding up, so the code turns into a rough
-flame graph; `x` clears them. The method:
+flame graph; `X` clears them. The method:
 
 - each request of a step (the step in, then any step out of library code) is timed from when it is
   sent to when the adapter's `stopped` event arrives, stamped as it comes off the connection, not
@@ -1881,13 +2126,13 @@ is fetched again (its line moves, or it is the top). The requests of a stop go o
 level of the tree at a time, at most 16 at once. With lldb-dap and rustc's formatters a stop of the
 example program costs about 15 requests (74 when every frame is fetched) and 50 KB. Recording runs
 in the background, so the screen never waits on it; playback waits for it before its next step (a
-stop's references are only valid until the program moves), which may lower the top speed. `R` opens the capture settings in the panel: depth, collection size and history length
+stop's references are only valid until the program moves), which may lower the top speed. `c` opens the capture settings in the panel: depth, collection size and history length
 (`unlimited` allowed, with a warning), with the cost measured over the last stops (requests per stop,
-memory per stop and in all) or estimated before any. `[` and `]` (`{` `}` by ten) scrub back and
+memory per stop and in all) or estimated before any. `h` and `l` (`{` `}` by ten, in the panel) scrub back and
 forward: the editor and the panel show that stop, read-only, under an unmissable marker,
 `REWIND · step 132/480 · nothing is executing` in the panel and `REWIND 132/480` in the statusline
 (`ui.debug.rewind`), values greyed; `Enter` on a frame shows that frame's variables. Changing values
-and evaluating are refused in rewind. `L`, `]` past the last stop, playing or stepping go back to
+and evaluating are refused in rewind. `p`, `l` past the last stop, playing or stepping go back to
 live.
 
 The defaults are settings (read at startup and when the config is reloaded):
@@ -1969,9 +2214,10 @@ program waits for all of them, as before. The program stops at the first line of
 runs, on whichever thread: that thread is spectated, playback paused (`Stopped at the first line of
 your code that ran`). Switching the follow mode (`e`) sends the whole set again for the
 new mode, and the restore after a full-speed run puts it back, both in the same order (the
-spectated thread's file first) and both letting playback go on once those are in. `space G c` waits
-until a set is complete (it says so). While breakpoints are installed, lifted or restored, the panel's last row
-shows the loading animation (a spinner, a bar that fills as files are done with a glow running along
+spectated thread's file first) and both letting playback go on once those are in. `L` while
+a set goes in (right after a stop, while the hidden breakpoints are put back) runs at full speed once
+it is complete (the note says so). While breakpoints are installed, lifted or restored, the loading animation
+shows in the bar's state (the panel's top row outside debug mode) (a spinner, a bar that fills as files are done with a glow running along
 it, `installing breakpoints · 12/48 files · 3,410 lines`) and the statusline `DBG … · ◜ 12/48`; the
 editor stays usable.
 
@@ -1990,10 +2236,10 @@ editor, which only records them. Then:
   `vortex-view/src/debug/engine.rs`: the breakpoint, the thread, the main thread), which pauses for
   now; a stop at yours on another thread cuts the camera to it, as before. Exceptions, a pause and
   the program's end pause playback as before;
-- `space G n`, `i`, `o` continue the thread and end at its next hit where the step would have: the
-  next line anywhere for `i`, the next line not deeper for `n`, the next line above for `o`.
+- `.`, `i`, `o` continue the thread and end at its next hit where the step would have: the
+  next line anywhere for `i`, the next line not deeper for `.`, the next line above for `o`.
 
-**Full-speed runs.** `space G c` lifts every hidden breakpoint (each covered file sent again with
+**Full-speed runs.** `L` lifts every hidden breakpoint (each covered file sent again with
 yours alone), continues at full speed, and puts them back at the next stop, whatever it is,
 behind the loading animation. The lines run at full speed aren't counted: the lineline gets one
 `full speed` mark with how long it took.
@@ -2064,7 +2310,7 @@ only on the adapter's capabilities and on each value, never on the language:
 
 - An adapter that reads memory (`supportsReadMemoryRequest`) gives the values that live in memory a
   `memoryReference`: those get a `▦` after them in Variables and Watch (`ui.debug.memory`), and `M`
-  (`space G M` from the editor) opens their memory, in a split, the cursor on their address in the
+  in the panel (`m` in debug mode) opens their memory, in a split, the cursor on their address in the
   middle. `M` on another value says `<name> has no memory to show`. Without the capability there
   is no `▦` anywhere, and `M` or `:debug-memory` say `this debugger (<name>) doesn't support viewing
   memory`. Messages only: no popup, nothing greyed out.
@@ -2094,7 +2340,7 @@ only on the adapter's capabilities and on each value, never on the language:
   shows. Memory is never a file: `:w <path>` is refused.
 - **Rewind**: at each recorded stop, every open memory view of the session records the bytes it
   shows and 512 bytes on each side, at most `capture-memory` bytes (4 KiB by default) around the
-  middle of what it shows; the capture settings (`R`) have a `memory window` row and count the views
+  middle of what it shows; the capture settings (`c`) have a `memory window` row and count the views
   in the cost estimate. In REWIND a memory view shows those bytes, the ones that changed since the
   recorded stop before highlighted, and anything outside them as `··` (`ui.hex.unrecorded`): never
   live memory. A memory view opened after a stop wasn't recorded at it.
@@ -2114,7 +2360,7 @@ breakpoints, and keeps its own ids and verification.
 An adapter can ask for a child session (`startDebugging`), as js-debug does for the program it
 runs: the child connects to the same socket (or starts the adapter again, for one on stdio), its
 launch goes in the background, and the panel follows the session that last stopped. A child's end
-gives the panel back to its parent; the root's end ends it all. `space G t` ends a launched
+gives the panel back to its parent; the root's end ends it all. `S` ends a launched
 program (`terminate`, else `disconnect` with it) and detaches from an attached one, which keeps
 running. When a session ends, the adapter process Vortex started is stopped if it doesn't exit by
 itself (js-debug's server doesn't).
@@ -2189,21 +2435,33 @@ default `outFiles`, and breakpoints in TypeScript sources land only after the co
 | `ui.debug.value.changed` | a value that changed since the last stop | bold `warning` |
 | `ui.debug.console.input`, `.info`, `.error` | evaluated expressions, the adapter's messages, stderr and errors | `ui.text.focus`, `ui.text.info`, `error` |
 | `ui.statusline.debug.running`, `.stopped`, `.exited`, `.failed`, `.playing` | `DBG ...` | yellow, red, green, red, cyan |
-| `ui.debug.rewind` | the REWIND marker, in the panel and the statusline | bold reversed `warning`; black on yellow |
+| `ui.debug.rewind` | the REWIND marker, in the panel and the statusline; `ui.modebar.state.rewind` falls back to it | bold reversed `warning`; black on yellow |
 | `ui.debug.frozen` | `❄ frozen` | `info` |
-| `ui.debug.hint` | the keys at the bottom of the panel | `ui.text.inactive` |
 | `ui.virtual.step-time` | the time per line | `ui.virtual.inline-blame`, then `ui.virtual.inlay-hint` |
 | `ui.debug.memory` | `▦`, a value whose memory can be shown | `info` |
 | `ui.debug.carried` | `carried from step 128`, a frame rewind reused from an earlier stop | `ui.text.inactive`, italic |
 | `ui.debug.loading`, `.bar`, `.glow`, `.track` | the [engine](#engine)'s loading animation: its spinner and text, the bar's filled part, the glow running along it, the empty part | `ui.debug.active` (else `ui.text.focus`); its color; bold; `ui.text.inactive` |
+| `ui.modebar.state.idle`, `.playing`, `.paused`, `.rewind`, `.loading` | debug mode's state on the [bar](#the-bar): no session, playing, paused, rewind, the loading animation | `ui.modebar.state` (`.rewind`: `ui.debug.rewind`) |
+| `ui.modebar.lineline` | the lineline's density, and its base style | `ui.modebar.info` |
+| `ui.modebar.lineline.playhead` | the rewind playhead `┃` | `ui.debug.active` |
+| `ui.modebar.lineline.dead` | `─`, where the spectated thread didn't exist | `error` |
+| `ui.modebar.lineline.gap` | a full-speed gap, `┄full speed┄` | `ui.text.inactive` |
+| `ui.modebar.lineline.now` | the last column: the live playhead, the end of the record | `ui.text.inactive` |
+| `ui.modebar.lineline.breakpoint` | `●` | `ui.debug.breakpoint`, then `error` |
+| `ui.modebar.lineline.exception` | `✕` | `error` |
+| `ui.modebar.lineline.pause` | `‖` | `ui.debug.active` |
+| `ui.modebar.lineline.switch` | `⇄` | `info` |
+| `ui.modebar.lineline.end` | `■` | `ui.text` |
+| `ui.modebar.lineline.covered` | `✓` | `hint` |
+| `ui.modebar.lineline.read`, `.write` | `▿`, `▾` | `info`, `warning` |
 | `ui.hex.changed`, `ui.hex.unreadable`, `ui.hex.unrecorded` | in a [memory view](#memory): bytes the program changed since the stop before, `??`, `··` | bold `ui.debug.value.changed` (else `warning`); `ui.text.inactive`; `ui.virtual.whitespace` |
 
-The vortex theme sets them all.
+The vortex theme sets them all; the Matrix theme sets the debug mode ones.
 
 ### Practice
 
-The debugger doesn't change text, so it has no `:practice` exercise; it is in the tutor's "THE
-DEBUGGER" section.
+The debugger doesn't change text, so it has no `:practice` exercise; debug mode is in the tutor's
+"THE DEBUGGER" section.
 
 ### Limitations
 
@@ -2211,7 +2469,12 @@ DEBUGGER" section.
   internal and evaluated code) show `no source` and don't open.
 - js-debug reports no exit code (only a `Process exited with code N` line in the console), so the
   statusline says `ended`.
-- One session (and its children) at a time.
+- One session (and its children) at a time, so one lineline.
+- Debug mode: in view mode `h j k l w b e f x` are the mode's keys, not the editor's; move with the
+  arrows, `Ctrl-d` and `Ctrl-u`, the `g` menu and search. While a session plays outside debug mode
+  the camera doesn't follow (you are editing). The lineline's density is sampled (24 hits for each
+  cell), so a cell is a good picture of a long run, not an exact count. The read and write marks
+  are reserved for the variables' history and aren't recorded yet.
 - Breakpoints don't follow edits made while debugging (upstream's behaviour).
 - The console's results are text: an object evaluated there doesn't open (watch it to open it).
 - Long values are cut at the panel's width (`y` yanks the whole value).
@@ -2807,6 +3070,10 @@ is meant: `:goto` looks around, the watch commands keep watch mode, any other co
 `:open`, ...) leaves it first. Scrolling or clicking with the mouse looks around. The `space` and
 other menus still open; a command picked in them is held like its key.
 
+**Other modes.** One mode at a time. Starting watch mode (`:watch`, `vx --watch`) leaves
+[debug mode](#debug-mode), and entering debug mode (`space G`) ends watch mode: the session's changes
+stay, as after `Esc`. A [debugger](#the-debugger) session keeps running either way.
+
 **Leaving.** `Esc` (or `:watch-stop`, `:watch`) leaves watch mode. The session's markers, `n`/`N`
 and `:watch-changes` stay until the next `:watch` or `:watch-clear`; the working tree is no longer
 watched, so they show the changes up to then.
@@ -2992,7 +3259,7 @@ rule in `vortex_view::history::records`):
   - the dashboard (`:dashboard`, `:vortex`, and the one at startup), drawn over an empty buffer;
   - the side by side diff, every kind of it: `Space =` on a file, `Enter` or `Ctrl-g` in the
     changed files picker, a file of the uncommitted changes or of a commit from the commit log;
-  - the debug panel, once focused (`Ctrl-g`, a `Space G` key that focuses it, a click in it);
+  - the debug panel, once focused (`Ctrl-g`, `Tab` or `V` in debug mode, a click in it);
   - the hex view and a debugged program's memory: they are buffers, so they are places like any
     buffer;
 - going to a bookmark (`Ctrl-i`, `Ctrl-o`, `Space j`).
@@ -3051,8 +3318,9 @@ in the order it was built.
 
 **The gutter** shows bookmarks in the column of diagnostics and breakpoints: the number, `1` to
 `9`, then `◆` from the tenth on, so the order is visible at a glance. With a diagnostic on the
-same line the bookmark is drawn in the diagnostic's color, so the warning isn't lost. A
-breakpoint on the same line wins while a debug session runs; otherwise the bookmark does. Theme
+same line the bookmark is drawn in the diagnostic's color, so the warning isn't lost. In
+[debug mode](#debug-mode) the column is the breakpoints' and bookmarks aren't drawn; outside it
+breakpoints aren't drawn. Theme
 scope: `ui.gutter.bookmark` (falls back to `ui.linenr.selected`).
 
 ### Removed

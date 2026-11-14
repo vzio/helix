@@ -11,6 +11,15 @@ use vortex_view::{
 
 use crate::job;
 
+/// Breakpoints are set in debug mode only: outside it, says so and returns `true`.
+pub fn outside_debug_mode(editor: &mut Editor) -> bool {
+    if editor.debug.mode_on() {
+        return false;
+    }
+    editor.set_error("breakpoints are set in debug mode");
+    true
+}
+
 /// A breakpoint as sent: the line it had in the editor (its identity until the answer comes)
 /// and what the adapter got.
 pub type Sent = (usize, SourceBreakpoint);

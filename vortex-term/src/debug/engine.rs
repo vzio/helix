@@ -45,7 +45,7 @@ use vortex_view::{
     Editor,
 };
 
-use super::{breakpoints, breakpoints::Sent, playback};
+use super::{breakpoints, breakpoints::Sent, playback, threads};
 use crate::job;
 
 /// How long `breakpointLocations` may take before a file falls back to verifying a breakpoint
@@ -671,7 +671,7 @@ fn finish(editor: &mut Editor, session: DebugAdapterId, token: u64, kind: TaskKi
         TaskKind::Install | TaskKind::Reinstall if off => {
             let text = "No line breakpoints verified in your code: playback steps instead";
             editor.debug.console.line(LineKind::Info, text.to_owned());
-            editor.set_status(text);
+            crate::debug::mode::say(editor, text);
         }
         TaskKind::Install | TaskKind::Reinstall => {
             let text = format!(
@@ -688,6 +688,14 @@ fn finish(editor: &mut Editor, session: DebugAdapterId, token: u64, kind: TaskKi
     if kind != TaskKind::Lift && editor.debug.engine.refollow {
         editor.debug.engine.refollow = false;
         follow_changed(editor);
+    }
+    if kind != TaskKind::Lift {
+        if let Some(key) = editor.debug.engine.pending_full_speed.take() {
+            if !full_speed(editor, key) {
+                threads::continue_thread(editor, key);
+            }
+            return;
+        }
     }
     if kind != TaskKind::Lift && std::mem::take(&mut editor.debug.engine.pending_advance) {
         let spectator = &editor.debug.spectator;
@@ -793,7 +801,7 @@ fn warn_capped(editor: &mut Editor, capped: bool) {
              config narrows the folders)"
         );
         editor.debug.console.line(LineKind::Info, text.clone());
-        editor.set_status(text);
+        crate::debug::mode::say(editor, text);
     }
 }
 
@@ -1036,20 +1044,18 @@ fn drop_strays_soon(editor: &mut Editor, path: PathBuf) {
 // Full-speed runs
 // ---------------------------------------------------------------------------------------------
 
-/// `Space G c`: lifts every hidden breakpoint of the session, continues `key` at full speed, and
+/// Debug mode's `L` (the engine's continue): lifts every hidden breakpoint of the session, continues `key` at full speed, and
 /// puts them back at the next stop. Returns false when the session has no hidden breakpoints in
 /// place (the caller continues as usual).
 pub fn full_speed(editor: &mut Editor, key: ThreadKey) -> bool {
+    if editor.debug.engine.task.is_some() && editor.debug.engine.is_on(key.session) {
+        // a continue now would only reach the next hidden breakpoint: it runs once the set is in
+        editor.debug.engine.pending_full_speed = Some(key);
+        crate::debug::mode::say(editor, "full speed once the hidden breakpoints are in");
+        return true;
+    }
     if !editor.debug.engine.is_ready(key.session) {
         return false;
-    }
-    if let Some(task) = &editor.debug.engine.task {
-        // a continue would only reach the next hidden breakpoint: wait for the set
-        editor.set_error(format!(
-            "Hidden breakpoints are still going in ({}/{} files)",
-            task.files_done, task.files_total
-        ));
-        return true;
     }
     let session = key.session;
     let files: Vec<PathBuf> = editor.debug.engine.sessions[&session]
@@ -1316,11 +1322,28 @@ pub fn on_stopped(
         // breakpoints in place that happens at every hit, and says nothing new
         return Outcome::Done(false);
     }
-    end_full_speed(editor, session);
+    // a full-speed run ends at a stop that stays: not at a stray hit, nor at a hit of one of your
+    // breakpoints whose type doesn't match (both are continued)
     if body.reason == "breakpoint" && !ids.is_empty() {
         let kind = editor.debug.engine.classify(session, &ids, |id| {
             my_breakpoint(editor, session, id).is_some()
         });
+        // during a full-speed run, a hit of a breakpoint nobody knows is a hidden one's that was on
+        // its way when they were lifted (run to cursor's temporary one isn't set then): a stray
+        let lifted = editor
+            .debug
+            .engine
+            .full_speed
+            .as_ref()
+            .is_some_and(|run| run.session == session)
+            && editor.debug.spectator.run_to.is_none();
+        let kind = match kind {
+            HitKind::Unknown if lifted => HitKind::Stray,
+            kind => kind,
+        };
+        if !matches!(kind, HitKind::Stray | HitKind::Mine(_)) {
+            end_full_speed(editor, session);
+        }
         match kind {
             HitKind::Stray => {
                 continue_hit(editor, key);
@@ -1355,7 +1378,10 @@ pub fn on_stopped(
                     LineDecision::Spectate => {
                         editor.debug.spectator.spectated = Some(key);
                         sync_watch(editor);
-                        editor.set_status("Stopped at the first line of your code that ran");
+                        crate::debug::mode::say(
+                            editor,
+                            "Stopped at the first line of your code that ran",
+                        );
                     }
                     LineDecision::Stop => {}
                 }
@@ -1371,7 +1397,11 @@ pub fn on_stopped(
                         engine::breakpoint_pauses(breakpoint, key, main)
                     })
                 });
-                // a stop at yours takes the camera: the switch is marked at this hit
+                // a stop at yours ends a full-speed run (its gap is marked before this hit), and
+                // takes the camera: the switch is marked at this hit
+                if pauses {
+                    end_full_speed(editor, session);
+                }
                 let watched = if pauses { Some(key) } else { spectated };
                 let at = editor.debug.engine.record.hit(
                     key,
@@ -1392,6 +1422,7 @@ pub fn on_stopped(
     }
     // an exception, a pause, a step, the entry: recorded, placed once its frames load (a
     // breakpoint neither yours nor hidden is run to cursor's temporary one)
+    end_full_speed(editor, session);
     editor.debug.engine.manual = None;
     let why = match Why::from_reason(&reason) {
         Why::Breakpoint => Why::Other,
@@ -1522,7 +1553,7 @@ pub fn advance_kind(editor: &Editor, key: ThreadKey, top: Option<&StackFrame>) -
     }
 }
 
-/// A manual step (`Space G n`, `i`, `o`) of `key` with the hidden breakpoints in place: the
+/// A manual step (debug mode's `.`, `i`, `o`) of `key` with the hidden breakpoints in place: the
 /// thread continues and its next hits end the step where a step would have. Returns false when
 /// the engine doesn't take it (the caller sends the step).
 pub fn manual_step(editor: &mut Editor, key: ThreadKey, kind: StepKind) -> bool {

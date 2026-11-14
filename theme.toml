@@ -189,6 +189,25 @@ hint = { fg = "n_8", bg = "n_1" }
 "ui.modebar.info" = { fg = "n_9", bg = "n_2" }
 "ui.modebar.key" = { fg = "n_11", bg = "purple", modifiers = ["bold"] }
 "ui.modebar.label" = { fg = "n_10", bg = "n_2" }
+# debug mode's bar: its states, and the lineline
+"ui.modebar.state.idle" = { fg = "n_9", bg = "n_3", modifiers = ["bold"] }
+"ui.modebar.state.playing" = { fg = "n_11", bg = "purple_mid", modifiers = ["bold"] }
+"ui.modebar.state.paused" = { fg = "n_11", bg = "purple", modifiers = ["bold"] }
+"ui.modebar.state.rewind" = { fg = "background", bg = "red_faded", modifiers = ["bold"] }
+"ui.modebar.state.loading" = { fg = "purple_light", bg = "n_2", modifiers = ["bold"] }
+"ui.modebar.lineline" = { fg = "purple_soft", bg = "n_2" }
+"ui.modebar.lineline.playhead" = { fg = "n_11", modifiers = ["bold"] }
+"ui.modebar.lineline.dead" = "red"
+"ui.modebar.lineline.gap" = "n_6"
+"ui.modebar.lineline.now" = "n_5"
+"ui.modebar.lineline.breakpoint" = "red"
+"ui.modebar.lineline.exception" = { fg = "red_light", modifiers = ["bold"] }
+"ui.modebar.lineline.pause" = "purple_light"
+"ui.modebar.lineline.switch" = "n_10"
+"ui.modebar.lineline.end" = "n_9"
+"ui.modebar.lineline.covered" = "n_7"
+"ui.modebar.lineline.read" = "purple_light"
+"ui.modebar.lineline.write" = "red_faded"
 
 # Terminal panel and its SH indicator
 "ui.terminal" = { fg = "text", bg = "background" }
@@ -218,7 +237,6 @@ hint = { fg = "n_8", bg = "n_1" }
 "ui.statusline.debug.playing" = { fg = "n_11", bg = "purple_mid", modifiers = ["bold"] }
 "ui.debug.rewind" = { fg = "background", bg = "red_faded", modifiers = ["bold"] }
 "ui.debug.frozen" = "purple_soft"
-"ui.debug.hint" = "n_6"
 "ui.debug.memory" = "purple_soft"
 "ui.debug.carried" = { fg = "n_6", modifiers = ["italic"] }
 "ui.debug.loading" = "purple_light"

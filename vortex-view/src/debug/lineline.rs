@@ -124,8 +124,16 @@ pub enum MarkKind {
     /// since the last follow switch or full-speed run), lines of the files not done yet weren't
     /// hit, nor counted: the program ran while they went in.
     Covered,
-    // Room for the selected variable's reads and writes (debug mode's variables): they are
-    // marks at the hits that read or wrote it, added once they are known.
+    /// The selected variable was read at this hit. Not recorded yet: debug mode's variables
+    /// (selecting a variable highlights where it is read and written) add these, and the
+    /// lineline has a glyph and a theme scope for them.
+    Read {
+        thread: u16,
+    },
+    /// The selected variable was written at this hit (see [`MarkKind::Read`]).
+    Write {
+        thread: u16,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -503,6 +511,17 @@ impl Lineline {
 
     pub fn threads(&self) -> &[ThreadInfo] {
         &self.threads
+    }
+
+    /// The index of `key` in the thread table, if the lineline saw it.
+    pub fn thread_index(&self, key: ThreadKey) -> Option<u16> {
+        self.thread_ids.get(&key).copied()
+    }
+
+    /// The thread index of the hit at `at`, if it is kept: cheaper than [`Lineline::get`].
+    pub fn thread_at(&self, at: Counter) -> Option<u16> {
+        let index = at.checked_sub(self.base)? as usize;
+        self.hits.get(index).map(|hit| hit.thread)
     }
 
     /// The thread at index `id` of the thread table.

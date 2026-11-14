@@ -408,6 +408,41 @@ impl History {
         }
     }
 
+    /// Shows stop `index` (debug mode's seeks: a click on the lineline, `H`, `L`): the last stop
+    /// is the live one, so it ends rewind. Returns whether it is rewinding.
+    pub fn seek(&mut self, index: usize) -> bool {
+        if index + 1 >= self.stops.len() {
+            self.live();
+            return false;
+        }
+        if self.at != Some(index) {
+            self.frame = 0;
+        }
+        self.at = Some(index);
+        true
+    }
+
+    /// The index of the recorded stop nearest the lineline's `counter`, among the stops of `key`
+    /// when it has any (else among all of them); the earlier on a tie.
+    pub fn nearest(
+        &self,
+        counter: super::lineline::Counter,
+        key: Option<ThreadKey>,
+    ) -> Option<usize> {
+        let placed = |snapshot: &Snapshot| snapshot.counter.is_some();
+        let of_key = |snapshot: &Snapshot| key.is_none_or(|key| snapshot.key == key);
+        let any_of_key = self
+            .stops
+            .iter()
+            .any(|snapshot| placed(snapshot) && of_key(snapshot));
+        self.stops
+            .iter()
+            .enumerate()
+            .filter(|(_, snapshot)| placed(snapshot) && (!any_of_key || of_key(snapshot)))
+            .min_by_key(|(_, snapshot)| snapshot.counter.unwrap_or(0).abs_diff(counter))
+            .map(|(index, _)| index)
+    }
+
     /// Back to the live position.
     pub fn live(&mut self) {
         self.at = None;

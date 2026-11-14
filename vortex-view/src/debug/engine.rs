@@ -185,18 +185,20 @@ pub fn decide_line(
 }
 
 /// Whether a stop at one of your breakpoints pauses playback: the breakpoint, the thread that hit
-/// it and the program's main thread (the first thread the adapter reported). Every hit pauses
-/// for now; debug mode's breakpoint types (any thread, the main thread only, sub-threads only)
-/// filter here, and a hit that doesn't match is continued.
+/// it and the program's main thread (the first thread the adapter reported). A breakpoint's kind
+/// (debug mode's `B`: any thread, the main thread only, sub-threads only) filters here; a hit that
+/// doesn't match is recorded and continued, and doesn't move the camera. Until a main thread is
+/// known, every thread counts as the main one.
 pub fn breakpoint_pauses(
-    _breakpoint: &Breakpoint,
-    _thread: ThreadKey,
-    _main_thread: Option<ThreadKey>,
+    breakpoint: &Breakpoint,
+    thread: ThreadKey,
+    main_thread: Option<ThreadKey>,
 ) -> bool {
-    true
+    let is_main = main_thread.is_none_or(|main| main == thread);
+    breakpoint.kind.matches(is_main)
 }
 
-/// A manual step (`Space G n`, `i`, `o`) while the hidden breakpoints are in place: the thread
+/// A manual step (debug mode's `n`, `i`, `o`) while the hidden breakpoints are in place: the thread
 /// continues, and its hits end the step where a step would have.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ManualStep {
@@ -311,6 +313,9 @@ pub struct Engine {
     pub unplaced: Option<(ThreadKey, Counter)>,
     /// Playback waits for the hidden breakpoints to be back before its next advance.
     pub pending_advance: bool,
+    /// A full-speed run asked for while hidden breakpoints were going in (debug mode's `L` right
+    /// after a stop, while they are put back): it starts once they are in.
+    pub pending_full_speed: Option<ThreadKey>,
     /// The follow mode changed during a task: reinstall after it.
     pub refollow: bool,
     /// Files to send again without their strays.
@@ -338,6 +343,7 @@ impl Engine {
         self.last_stop = None;
         self.unplaced = None;
         self.pending_advance = false;
+        self.pending_full_speed = None;
         self.refollow = false;
         self.redo.clear();
         self.stop_animation();
@@ -367,6 +373,7 @@ impl Engine {
         self.task = None;
         self.stop_animation();
         self.pending_advance = false;
+        self.pending_full_speed = None;
         self.full_speed = None;
         self.manual = None;
         for session in self.sessions.values_mut() {

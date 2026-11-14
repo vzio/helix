@@ -144,17 +144,18 @@ impl Env {
             .await;
     }
 
+    /// Debug mode on, the editor focused: playback and rewind keys are its own.
     async fn focus(&mut self) -> anyhow::Result<()> {
-        self.h.keys("<C-g>").await?;
-        assert!(self.h.app.editor.debug.is_focused());
+        self.h.keys("<space>G").await?;
+        assert!(self.h.app.editor.debug.mode_on());
         Ok(())
     }
 
-    /// `n` in the focused panel, `steps` times, waiting for each step to be recorded.
+    /// `l` (one playback step) in debug mode, `steps` times, waiting for each step to be recorded.
     async fn advance(&mut self, steps: usize) -> anyhow::Result<()> {
         for _ in 0..steps {
             let next = self.h.app.editor.debug.spectator.history.stops.len() + 1;
-            self.h.keys("n").await?;
+            self.h.keys("l").await?;
             self.settled(next).await;
         }
         Ok(())
@@ -508,7 +509,7 @@ async fn rewind_says_a_frame_was_carried_from_the_step_that_fetched_it() -> anyh
         Some("Locals")
     );
 
-    e.h.keys("[").await?;
+    e.h.keys("h").await?;
     assert!(e.h.app.editor.debug.is_rewinding());
     // the top frame was fetched at this stop
     let top = texts(&e.h.app, Section::Variables);
@@ -530,7 +531,8 @@ async fn rewind_says_a_frame_was_carried_from_the_step_that_fetched_it() -> anyh
         assert_eq!(e.h.app.editor.debug.shown_carried(), Some(1));
     }
     // and back at a stop that fetched everything, there is none
-    e.h.keys("{").await?;
+    // the focused panel rewinds by ten (`Tab` focuses it in debug mode)
+    e.h.keys("<tab>{").await?;
     rewind::select_frame(&mut e.h.app.editor, 1);
     let rows = texts(&e.h.app, Section::Variables);
     assert_eq!(rows, ["Locals", "at = mid#1"], "step 1 fetched it itself");

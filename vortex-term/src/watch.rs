@@ -113,6 +113,8 @@ pub fn start(editor: &mut Editor) -> anyhow::Result<()> {
     }
 
     clear(editor);
+    // one mode at a time
+    crate::debug::mode::leave(editor);
     let baseline = Arc::new(Baseline::new(
         work_dir.clone(),
         git_dir,
@@ -488,9 +490,9 @@ pub(crate) fn leave(editor: &mut Editor) {
     }
 }
 
-/// What a command is to watch mode.
+/// What a command is to watch mode (and, through [`effect_of`], to debug mode).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Effect {
+pub(crate) enum Effect {
     /// Runs either way: the watch commands, the command line, the palette, focusing the
     /// terminal panel, a bookmark.
     None,
@@ -512,6 +514,8 @@ const NONE: &[&str] = &[
     "watch_prev_change",
     "watch_changes",
     "watch_leave",
+    // entering debug mode ends watch mode (one mode at a time)
+    "debug_mode",
     "normal_mode",
     "command_mode",
     "command_palette",
@@ -619,6 +623,11 @@ const OPENS: &[&str] = &[
     "goto_next_tabstop",
     "goto_prev_tabstop",
 ];
+
+/// What a static command is, by name: debug mode sorts commands the same way.
+pub(crate) fn effect_of(name: &str) -> Effect {
+    effect(name)
+}
 
 /// What a static command does to watch mode, by name.
 fn effect(name: &str) -> Effect {
@@ -766,6 +775,7 @@ pub(crate) fn bar(editor: &Editor, keys: &ReverseKeymap) -> Option<modebar::Bar>
                 left: vec![state],
                 middle: vec![Segment::info(middle.join(" · "))],
                 right: vec![Segment::info(activity)],
+                line: None,
             },
             Row {
                 left: vec![

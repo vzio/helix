@@ -66,6 +66,7 @@ FLAGS:
     -w, --working-dir <path>       Specify an initial working directory
     -p, --plain                    Start without the dashboard, whatever the config says
     --watch [folder]               Start in watch mode, in the folder if one is given
+    --debug [program] [-- args]    Start in debug mode, launching the program with its arguments
     +[N]                           Open the first given file at line number N, or the last line, if
                                    N is not specified.
 ",

@@ -11,7 +11,7 @@ use vortex_view::{
     debug::{
         self,
         history::{format_bytes, Setting},
-        spectator::{Mode, ThreadKey},
+        spectator::ThreadKey,
         Role, Row, Section, StackSession, Target, Tree, VarPath, Watch,
     },
     editor::Action,
@@ -188,22 +188,8 @@ pub fn handle_key(editor: &mut Editor, key: KeyEvent) -> Handled {
     }
 
     match key.code {
-        // spectator mode
-        Char(' ') if plain => playback::toggle(editor),
-        Char('+') | Char('=') if plain => {
-            editor.debug.spectator.faster();
-            let speed = editor.debug.spectator.speed_label();
-            editor.set_status(format!("Playback speed: {speed}"));
-        }
-        Char('-') if plain => {
-            editor.debug.spectator.slower();
-            let speed = editor.debug.spectator.speed_label();
-            editor.set_status(format!("Playback speed: {speed}"));
-        }
-        Char('n') if plain => playback::step_once(editor),
-        Char('>') if plain => threads::cycle(editor, 1),
-        Char('<') if plain => threads::cycle(editor, -1),
-        Char('e') if plain => cycle_follow(editor),
+        // playback's keys are debug mode's (`Space`, `f`, `r`, `e`, `<` `>`...): the keys the
+        // panel doesn't take go to debug mode while it is on (see the end)
         Char('u') if plain => cycle_granularity(editor),
         Char('z') if plain => {
             if let Some(key) = threads::selected_or_spectated(editor) {
@@ -216,24 +202,8 @@ pub fn handle_key(editor: &mut Editor, key: KeyEvent) -> Handled {
                 threads::pause_or_continue(editor, key);
             }
         }
-        Char('r') if plain => playback::run_to_cursor(editor),
-        Char('f') if plain => {
-            if editor.debug.spectator.mode == Mode::FastForward {
-                playback::pause(editor);
-            } else {
-                playback::play(editor, Mode::FastForward);
-            }
-        }
-        Char('L') if plain => rewind::to_live(editor),
-        Char('[') if plain => rewind::back(editor, 1),
-        Char(']') if plain => rewind::forward(editor, 1),
         Char('{') if plain => rewind::back(editor, 10),
         Char('}') if plain => rewind::forward(editor, 10),
-        Char('R') if plain => editor.debug.spectator.settings = Some(0),
-        Char('x') if plain => {
-            editor.debug.spectator.timing.clear_labels();
-            editor.set_status("Time labels cleared");
-        }
         Char('*') if plain => toggle_mark(editor),
         Char('M') if plain => super::memory::open_selected(editor),
         Char('?') if plain => return Handled::Prompt(Box::new(key_help())),
@@ -255,6 +225,8 @@ pub fn handle_key(editor: &mut Editor, key: KeyEvent) -> Handled {
         }
         Char('q') if plain => editor.debug.unfocus(),
         Tab if key.modifiers == KeyModifiers::SHIFT => editor.debug.select(section.cycle(-1)),
+        // in debug mode, `Tab` brought you here and takes you back
+        Tab if plain && editor.debug.mode_on() => editor.debug.unfocus(),
         Tab | Char('w') if plain => editor.debug.select(section.cycle(1)),
         Char('b') if plain => editor.debug.select(section.cycle(-1)),
         Char(digit @ '1'..='5') if plain => editor
@@ -289,6 +261,8 @@ pub fn handle_key(editor: &mut Editor, key: KeyEvent) -> Handled {
         Char('d') if plain => delete(editor),
         Char('t') if plain => toggle_breakpoint(editor),
         Char('y') if plain => yank(editor),
+        // not the panel's: debug mode's, while it is on
+        _ if editor.debug.mode_on() => return Handled::No,
         _ => {}
     }
     Handled::Yes
@@ -303,7 +277,10 @@ fn key_help() -> crate::ui::keyhelp::KeyHelp {
                 "panel",
                 vec![
                     ("j k, gg G, C-d C-u", "move"),
-                    ("Tab S-Tab, w b, 1-5", "next, previous, a given section"),
+                    (
+                        "Tab S-Tab, w b, 1-5",
+                        "next, previous, a given section (in debug mode Tab goes back)",
+                    ),
                     ("Enter", "open or close, select a frame, go to a breakpoint"),
                     ("l h", "open, close"),
                     ("s", "search the section (Esc clears)"),
@@ -320,17 +297,12 @@ fn key_help() -> crate::ui::keyhelp::KeyHelp {
                 ],
             ),
             (
-                "playback",
+                "playback (debug mode's keys go through: Space, f, r, e, < >...)",
                 vec![
-                    ("Space", "play or pause"),
-                    ("n, + -", "one step, faster, slower"),
-                    ("f, r", "fast forward to a change, run to the cursor"),
-                    ("< >", "spectate the previous, next thread"),
                     ("z o p", "freeze, solo, pause or continue a thread"),
-                    ("e u", "what playback steps into, the step's unit"),
+                    ("u", "the step's unit"),
                     ("*", "mark a variable for fast forward"),
-                    ("[ ] { } L", "rewind one, ten, back to live"),
-                    ("R, x", "capture settings, clear time labels"),
+                    ("{ }", "rewind ten stops back, forward"),
                 ],
             ),
             ("help", vec![("?", "these keys")]),
@@ -637,7 +609,7 @@ fn add_watch(editor: &mut Editor) -> Handled {
                 });
                 editor.debug.generation += 1;
                 load::reload_frame(editor);
-                editor.set_status("Watching it");
+                crate::debug::mode::say(editor, "Watching it");
                 return Handled::Yes;
             }
             _ => String::new(),
@@ -708,7 +680,7 @@ fn yank(editor: &mut Editor) {
     if let Some(text) = text {
         let register = editor.config().default_yank_register;
         match editor.registers.write(register, vec![text]) {
-            Ok(()) => editor.set_status(format!("Yanked to register {register}")),
+            Ok(()) => crate::debug::mode::say(editor, format!("Yanked to register {register}")),
             Err(err) => editor.set_error(err.to_string()),
         }
     }
@@ -780,21 +752,6 @@ pub fn cursor_line(editor: &Editor) -> Option<(PathBuf, usize)> {
     Some((doc.path()?.to_owned(), line))
 }
 
-/// `e`: what playback steps into, std -> lib -> own.
-fn cycle_follow(editor: &mut Editor) {
-    let spectator = &mut editor.debug.spectator;
-    spectator.follow = spectator.follow.next();
-    let text = match spectator.follow {
-        debug::spectator::Follow::Std => {
-            "Playback steps into everything, the runtime included (std)"
-        }
-        debug::spectator::Follow::Lib => "Playback steps into libraries, not the runtime (lib)",
-        debug::spectator::Follow::Own => "Playback stays in your own code (own)",
-    };
-    editor.set_status(text);
-    super::engine::follow_changed(editor);
-}
-
 /// `u`: the step granularity, when the adapter offers one.
 fn cycle_granularity(editor: &mut Editor) {
     let session = playback::spectated(editor)
@@ -807,7 +764,7 @@ fn cycle_granularity(editor: &mut Editor) {
     let spectator = &mut editor.debug.spectator;
     spectator.granularity = spectator.granularity.next();
     let label = spectator.granularity.label();
-    editor.set_status(format!("Steps go by {label}"));
+    crate::debug::mode::say(editor, format!("Steps go by {label}"));
 }
 
 /// `*`: marks the variable under the cursor for fast forward (or unmarks it).
@@ -824,9 +781,9 @@ fn toggle_mark(editor: &mut Editor) {
     let marked = &mut editor.debug.spectator.marked;
     if !marked.remove(&path.names) {
         marked.insert(path.names.clone());
-        editor.set_status("Marked: fast forward stops when it changes");
+        crate::debug::mode::say(editor, "Marked: fast forward stops when it changes");
     } else {
-        editor.set_status("Unmarked");
+        crate::debug::mode::say(editor, "Unmarked");
     }
 }
 

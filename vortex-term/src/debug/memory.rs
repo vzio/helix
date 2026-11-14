@@ -109,11 +109,11 @@ fn session_of_panel(editor: &Editor) -> Option<DebugAdapterId> {
 /// `M` in the panel: the memory of the value under the cursor, in Variables or Watch.
 pub fn open_selected(editor: &mut Editor) {
     let Some(session) = session(editor) else {
-        editor.set_status("No debug session");
+        crate::debug::mode::say(editor, "No debug session");
         return;
     };
     if !supports_read(editor, session) {
-        editor.set_status(unsupported(editor, session));
+        crate::debug::mode::say(editor, unsupported(editor, session));
         return;
     }
     let node = match panel::current_target(editor) {
@@ -125,12 +125,12 @@ pub fn open_selected(editor: &mut Editor) {
         return;
     };
     if editor.debug.is_rewinding() {
-        editor.set_status(REWIND_OPEN);
+        crate::debug::mode::say(editor, REWIND_OPEN);
         return;
     }
     match node.memory_reference {
         Some(reference) => open(editor, session, reference, node.name),
-        None => editor.set_status(format!("{} has no memory to show", node.name)),
+        None => crate::debug::mode::say(editor, format!("{} has no memory to show", node.name)),
     }
 }
 
@@ -148,11 +148,11 @@ pub fn command(editor: &mut Editor, input: Option<&str>) -> anyhow::Result<()> {
         anyhow::bail!("No debug session");
     };
     if !supports_read(editor, session) {
-        editor.set_status(unsupported(editor, session));
+        crate::debug::mode::say(editor, unsupported(editor, session));
         return Ok(());
     }
     if editor.debug.is_rewinding() {
-        editor.set_status(REWIND_OPEN);
+        crate::debug::mode::say(editor, REWIND_OPEN);
         return Ok(());
     }
     if let Some(address) = input
@@ -181,7 +181,9 @@ pub fn command(editor: &mut Editor, input: Option<&str>) -> anyhow::Result<()> {
         job::dispatch(move |editor, _| match result {
             Ok(response) => match response.memory_reference {
                 Some(reference) => open(editor, session, reference, expression),
-                None => editor.set_status(format!("{expression} doesn't point to memory")),
+                None => {
+                    crate::debug::mode::say(editor, format!("{expression} doesn't point to memory"))
+                }
             },
             Err(err) => editor.set_error(format!("{expression}: {err}")),
         })
@@ -692,7 +694,7 @@ pub fn write(editor: &mut Editor) -> anyhow::Result<()> {
     };
     let runs = hex.edit_runs(None);
     if runs.is_empty() {
-        editor.set_status("no overwritten bytes to write");
+        crate::debug::mode::say(editor, "no overwritten bytes to write");
         return Ok(());
     }
     send(editor, id, runs, None, "wrote");
@@ -781,9 +783,10 @@ fn send(
             // the values in the panel may live in those bytes
             super::load::reload_frame(editor);
             let s = if sent == 1 { "" } else { "s" };
-            editor.set_status(format!(
-                "{what} {sent} byte{s} to memory: the debugger wrote {written}"
-            ));
+            crate::debug::mode::say(
+                editor,
+                format!("{what} {sent} byte{s} to memory: the debugger wrote {written}"),
+            );
         })
         .await;
     });

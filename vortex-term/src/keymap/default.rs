@@ -302,53 +302,7 @@ pub fn default() -> HashMap<Mode, KeyTrie> {
                 "K" => swap_view_up,
                 "L" => swap_view_right,
             },
-            "G" => { "Debug (experimental)" sticky=true
-                ["session"]
-                "l" => dap_launch,
-                "r" => dap_restart,
-                "t" => dap_terminate,
-                "p" => debug_panel,
-                ["breakpoints"]
-                "b" => dap_toggle_breakpoint,
-                "C-c" => dap_edit_condition,
-                "C-l" => dap_edit_log,
-                "e" => dap_enable_exceptions,
-                "E" => dap_disable_exceptions,
-                ["stepping"]
-                "c" => dap_continue,
-                "h" => dap_pause,
-                "i" => dap_step_in,
-                "o" => dap_step_out,
-                "n" => dap_next,
-                ["inspect"]
-                "v" => dap_variables,
-                "w" => dap_watch,
-                "x" => dap_evaluate,
-                "M" => dap_memory,
-                "s" => { "Switch"
-                    "t" => dap_switch_thread,
-                    "f" => dap_switch_stack_frame,
-                    // sl, sb
-                },
-                ["playback"]
-                "space" => dap_play,
-                "." => dap_play_step,
-                "+" => dap_faster,
-                "-" => dap_slower,
-                "f" => dap_fast_forward,
-                "g" => dap_run_to_cursor,
-                "m" => dap_follow_mode,
-                "[" => dap_rewind_back,
-                "]" => dap_rewind_forward,
-                "L" => dap_live,
-                "R" => dap_capture_settings,
-                "X" => dap_clear_time_labels,
-                ["threads"]
-                ">" => dap_next_thread,
-                "<" => dap_previous_thread,
-                "z" => dap_freeze_thread,
-                "a" => dap_solo_thread,
-            },
+            "G" => debug_mode,
             ["commands"]
             "?" => command_palette,
         },
@@ -490,7 +444,58 @@ pub fn layers() -> HashMap<Layer, KeyTrie> {
         "c" => watch_changes,
         "esc" => watch_leave,
     });
+    // the groups are the `?` box's
+    let debug = keymap!({ "Debug mode"
+        ["playback"]
+        "space" => debug_play_pause,
+        "l" => debug_line_forward,
+        "h" => debug_line_back,
+        "L" => debug_breakpoint_forward,
+        "H" => debug_breakpoint_back,
+        "k" => dap_faster,
+        "j" => dap_slower,
+        "p" => dap_live,
+        "f" => dap_fast_forward,
+        "r" => dap_run_to_cursor,
+        "e" => dap_follow_mode,
+        ["stepping"]
+        "." => dap_next,
+        "i" => dap_step_in,
+        "o" => dap_step_out,
+        ["threads"]
+        ">" => dap_next_thread,
+        "<" => dap_previous_thread,
+        "t" => dap_switch_thread,
+        "F" => dap_switch_stack_frame,
+        "z" => dap_freeze_thread,
+        "a" => dap_solo_thread,
+        ["view and breakpoints"]
+        "v" => debug_view,
+        "b" => dap_toggle_breakpoint,
+        "B" => debug_breakpoint_kind,
+        "C" => dap_edit_condition,
+        "M" => dap_edit_log,
+        "E" => dap_toggle_exceptions,
+        ["session"]
+        "s" => dap_launch,
+        "S" => dap_terminate,
+        "R" => dap_restart,
+        ["inspect"]
+        "x" => dap_evaluate,
+        "w" => dap_watch,
+        "V" => dap_variables,
+        "m" => dap_memory,
+        "c" => dap_capture_settings,
+        "X" => dap_clear_time_labels,
+        ["panel"]
+        "tab" | "C-g" => debug_panel_focus,
+        "P" => debug_panel,
+        ["mode"]
+        "?" => debug_help,
+        "esc" => debug_leave,
+    });
     hashmap!(
         Layer::Watch => watch,
+        Layer::Debug => debug,
     )
 }

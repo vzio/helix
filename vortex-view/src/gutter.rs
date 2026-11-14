@@ -309,8 +309,7 @@ pub fn breakpoints<'doc>(
                 write!(out, "○").unwrap();
                 return Some(disabled);
             }
-            let sym = if breakpoint.verified { "●" } else { "◯" };
-            write!(out, "{}", sym).unwrap();
+            write!(out, "{}", breakpoint.kind.glyph(breakpoint.verified)).unwrap();
             Some(style)
         },
     )
@@ -360,20 +359,20 @@ pub fn diagnostics_or_breakpoints<'doc>(
     let mut breakpoints = breakpoints(editor, doc, view, theme, is_focused);
     let mut execution_pause_indicator = execution_pause_indicator(editor, doc, theme, is_focused);
     let mut bookmarks = bookmarks(editor, doc, view, theme, is_focused);
-    // a breakpoint wins over a bookmark while a debug session runs (this fork)
-    let debugging = editor.debug_adapters.get_active_client().is_some();
+    // the column is debug mode's breakpoints while it is on, the bookmarks otherwise (this fork):
+    // breakpoints aren't drawn outside debug mode, bookmarks aren't in it
+    let debug_mode = editor.debug.mode_on();
 
     Box::new(move |line, selected, first_visual_line: bool, out| {
-        execution_pause_indicator(line, selected, first_visual_line, out).or_else(|| {
-            if debugging {
-                breakpoints(line, selected, first_visual_line, out)
-                    .or_else(|| bookmarks(line, selected, first_visual_line, out))
-            } else {
-                bookmarks(line, selected, first_visual_line, out)
-                    .or_else(|| breakpoints(line, selected, first_visual_line, out))
-            }
+        execution_pause_indicator(line, selected, first_visual_line, out)
+            .or_else(|| {
+                if debug_mode {
+                    breakpoints(line, selected, first_visual_line, out)
+                } else {
+                    bookmarks(line, selected, first_visual_line, out)
+                }
+            })
             .or_else(|| diagnostics(line, selected, first_visual_line, out))
-        })
     })
 }
 

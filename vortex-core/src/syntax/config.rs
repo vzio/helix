@@ -482,6 +482,18 @@ pub struct DebugTemplate {
     #[serde(default)]
     pub completion: Vec<DebugConfigCompletion>,
     pub args: HashMap<String, Value>,
+    /// What the program the template launches is (fork feature, `vx --debug <program>`): an
+    /// executable, or a source file of its language. Unset: either.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub takes: Option<ProgramKind>,
+}
+
+/// What a launch template's program is (see [`DebugTemplate::takes`]).
+#[derive(Debug, PartialEq, Eq, Clone, Copy, Deserialize, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum ProgramKind {
+    Executable,
+    Source,
 }
 
 #[derive(Debug, PartialEq, Eq, Clone, Deserialize, Serialize)]

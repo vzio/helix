@@ -35,6 +35,11 @@ impl KeyHelp {
         }
     }
 
+    /// A box of an infobox already laid out (a keymap's: debug mode's keys as configured).
+    pub fn from_info(info: Info) -> Self {
+        Self { info }
+    }
+
     /// The text of the box, its lines (for tests).
     pub fn text(&self) -> &str {
         &self.info.text
@@ -68,8 +73,33 @@ impl Component for KeyHelp {
             .unwrap_or(text_style);
         let title_width =
             vortex_core::unicode::width::UnicodeWidthStr::width(self.info.title.as_ref()) as u16;
-        let width = (self.info.width.max(title_width) + 4).min(area.width);
-        let height = (self.info.height + 2).min(area.height);
+        let lines: Vec<&str> = self.info.text.lines().collect();
+        // too tall for the screen (debug mode's keys): two columns, split at the group nearest the
+        // middle, when they fit side by side
+        let split = (self.info.height + 2 > area.height
+            && self.info.width * 2 + 3 + 4 <= area.width)
+            .then(|| {
+                let middle = lines.len() / 2;
+                self.info
+                    .separators
+                    .iter()
+                    .map(|&line| line as usize)
+                    .filter(|&line| line > 0)
+                    .min_by_key(|&line| line.abs_diff(middle))
+            })
+            .flatten();
+        let columns: Vec<(&[&str], usize)> = match split {
+            Some(at) => vec![(&lines[..at], 0), (&lines[at..], at)],
+            None => vec![(&lines[..], 0)],
+        };
+        let body_height = columns
+            .iter()
+            .map(|(column, _)| column.len())
+            .max()
+            .unwrap_or(0) as u16;
+        let body_width = self.info.width * columns.len() as u16 + 3 * (columns.len() as u16 - 1);
+        let width = (body_width.max(title_width) + 4).min(area.width);
+        let height = (body_height + 2).min(area.height);
         let box_area = Rect::new(
             area.x + (area.width - width) / 2,
             area.y + (area.height - height) / 2,
@@ -82,12 +112,24 @@ impl Component for KeyHelp {
             .border_style(popup_style);
         let inner = block.inner(box_area).inner(Margin::horizontal(1));
         block.render(box_area, surface);
-        Paragraph::new(&Text::from(self.info.text.as_str()))
-            .style(text_style)
-            .render(inner, surface);
-        for &line in &self.info.separators {
-            if line < inner.height {
-                surface.set_style(Rect::new(inner.x, inner.y + line, inner.width, 1), dim);
+        for (index, (column, first)) in columns.iter().enumerate() {
+            let x = inner.x + index as u16 * (self.info.width + 3);
+            let area = Rect::new(
+                x,
+                inner.y,
+                self.info.width.min(inner.right().saturating_sub(x)),
+                inner.height,
+            );
+            Paragraph::new(&Text::from(column.join("\n")))
+                .style(text_style)
+                .render(area, surface);
+            for &line in &self.info.separators {
+                let Some(row) = (line as usize).checked_sub(*first) else {
+                    continue;
+                };
+                if row < column.len() && (row as u16) < area.height {
+                    surface.set_style(Rect::new(area.x, area.y + row as u16, area.width, 1), dim);
+                }
             }
         }
     }

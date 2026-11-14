@@ -393,7 +393,7 @@ pub struct DebugState {
     /// top frame and the values by path.
     pub previous: Option<(String, HashMap<VarPath, String>)>,
     pub console: Console,
-    /// The exception filters chosen with `Space G e` / `Space G E`; `None`: the adapter's
+    /// The exception filters chosen with debug mode's `E`; `None`: the adapter's
     /// defaults. Every new session gets them.
     pub exception_filters: Option<Vec<String>>,
     /// The variables shown are the top frame's (changes are marked against them).
@@ -408,6 +408,17 @@ pub struct DebugState {
     pub spectator: Spectator,
     /// The per-line breakpoint engine, and the lineline.
     pub engine: engine::Engine,
+    /// Debug mode (this fork): on while `Some`. Its keys come first, and its bar shows.
+    pub mode: Option<DebugMode>,
+}
+
+/// Debug mode's own state: following the spectated thread, or looking around.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct DebugMode {
+    /// View mode (`v`): your own cursor, drawn as in select mode; the stops don't move the view.
+    pub viewing: bool,
+    /// What the last key did, or why it waited, for the bar.
+    pub note: Option<String>,
 }
 
 /// The threads of one session.
@@ -438,6 +449,28 @@ impl DebugState {
 
     pub fn is_focused(&self) -> bool {
         self.visible && self.focused
+    }
+
+    /// Whether debug mode is on.
+    pub fn mode_on(&self) -> bool {
+        self.mode.is_some()
+    }
+
+    /// Debug mode is on and follows the spectated thread: the stops move the view.
+    pub fn following(&self) -> bool {
+        self.mode.as_ref().is_some_and(|mode| !mode.viewing)
+    }
+
+    /// Debug mode is on, in view mode: your own cursor.
+    pub fn viewing(&self) -> bool {
+        self.mode.as_ref().is_some_and(|mode| mode.viewing)
+    }
+
+    /// Sets the note on debug mode's bar (nothing outside debug mode).
+    pub fn note(&mut self, note: impl Into<String>) {
+        if let Some(mode) = &mut self.mode {
+            mode.note = Some(note.into());
+        }
     }
 
     pub fn cursor(&self, section: Section) -> Cursor {
@@ -1112,17 +1145,18 @@ pub fn breakpoint_rows(breakpoints: &HashMap<PathBuf, Vec<Breakpoint>>, cwd: &Pa
     all.sort_by(|a, b| a.0.cmp(b.0).then(a.1.line.cmp(&b.1.line)));
     if all.is_empty() {
         return vec![Row::hint(
-            "No breakpoints: Space G b sets one on the cursor's line",
+            "No breakpoints: in debug mode, b sets one on the cursor's line",
         )];
     }
     all.into_iter()
         .map(|(path, breakpoint)| {
+            let symbol = breakpoint.kind.glyph(breakpoint.verified);
             let (symbol, role) = if breakpoint.disabled {
                 ("○", Role::Disabled)
             } else if breakpoint.verified {
-                ("●", Role::Breakpoint)
+                (symbol, Role::Breakpoint)
             } else {
-                ("◯", Role::Unverified)
+                (symbol, Role::Unverified)
             };
             let shown = path.strip_prefix(cwd).unwrap_or(path);
             let mut parts = vec![
@@ -1136,6 +1170,9 @@ pub fn breakpoint_rows(breakpoints: &HashMap<PathBuf, Vec<Breakpoint>>, cwd: &Pa
                     },
                 ),
             ];
+            if breakpoint.kind != crate::editor::BreakpointKind::Any {
+                parts.push((format!("  {}", breakpoint.kind.label()), Role::Dim));
+            }
             if let Some(condition) = &breakpoint.condition {
                 parts.push(("  if ".into(), Role::Dim));
                 parts.push((condition.clone(), Role::Value));

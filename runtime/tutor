@@ -424,35 +424,48 @@
 =================================================================
 
  With a debug adapter for the language (see vx --health; Vortex
- installs none), space G is a mode that stays until Esc, so one
- key steps at a time. A panel opens below your splits while the
- program runs: its variables, your watches, the call stack, the
- breakpoints and a console. The statusline says DBG and what the
- program does.
+ installs none), the debugger is a mode: it has its own keys and
+ a bar of three rows above the message area, like a video
+ player. The first row says what the program does (DEBUG paused,
+ playing...) and has the transport: |< << > >> >|. The second is
+ the timeline of the run, which you can click to go back to a
+ moment. The third lists the keys. A panel opens below your
+ splits while the program runs: its variables, your watches, the
+ call stack, the breakpoints and a console.
 
-  space G l      launch the program (space G r: restart it)
-  space G b      add or remove a breakpoint on this line
-  space G C-c    a condition for the breakpoint
-  space G C-l    a log message for it instead of a stop
-  space G c      continue at full speed to your next breakpoint
-  space G h      pause
-  space G n      step to the next line
-  space G i  o   step into the call, out of the function
-  space G p      show or hide the panel
-  space G v      the panel's variables
-  space G w      watch an expression
-  space G x      evaluate an expression; the console shows it
-  space G s t    switch thread; space G s f, stack frame
-  space G e  E   stop on exceptions, or don't
-  space G t      end the session
-  C-g            give the keys to the panel, or back
+  space G        debug mode: the debugger as a video player
+  Esc            leave debug mode; the program keeps running
+  ?              in debug mode, every key, in groups
+  vx --debug PROGRAM
+                 start Vortex in debug mode, launching PROGRAM
 
- In the panel, j and k move, Tab or 1 to 5 change section, Enter
- opens a value (or jumps to a frame or breakpoint), c changes it,
- a watches it, s searches. Space there plays the program (next
- chapter): there is no space menu while the panel has the keys.
- Esc goes back to the editor, where space is the menu again; Esc
- again in normal mode hides the panel.
+ In debug mode:
+
+  s              start: pick how to launch the program
+  Space          play or pause the program, line by line
+  l  h           the next line, the previous line (back in time)
+  L  H           the next breakpoint, the previous one
+  b              add or remove a breakpoint on this line
+  B              its type: any thread, the main thread only,
+                 or the other threads only
+  C  M           a condition for the breakpoint; a log message
+                 for it instead of a stop
+  v              view mode: look around with your own cursor
+                 while the program goes on; v again follows it
+  x  w           evaluate an expression; watch one
+  S              end the session
+
+ The view follows the program: the line it stands at stays in
+ the middle of the screen, and the movement keys wait for v
+ (the bar says so). Breakpoints are set only in debug mode, and
+ only there they are in the gutter.
+
+ In the panel, j and k move, Tab goes back to the editor, 1 to 5
+ change section, Enter opens a value (or jumps to a frame or
+ breakpoint), c changes it, a watches it, s searches. The keys
+ the panel doesn't use, like Space and L, are debug mode's.
+ Ctrl-g gives the keys to the panel from anywhere, and Esc goes
+ back to the editor; Esc again in normal mode hides the panel.
 
  Where the adapter reads memory, a value that lives in memory
  has a ▦ after it, and M shows its bytes in the hex view, in a
@@ -463,7 +476,7 @@
  ones back. A byte that can't be read shows ??.
 
   M              in the panel, the memory of the value
-  space G M      the same, from the editor
+  m              the same, in debug mode
   :debug-memory  the memory of an expression, or at 0x7ffe…
 
 
@@ -474,49 +487,45 @@
 
  Watch the program like a video: it plays line by line at a
  speed you choose, following one thread, and every stop is kept
- so you can scrub back to what you missed.
+ so you can scrub back to what you missed. It is what debug mode
+ does when you press Space.
 
  When the session starts, Vortex puts a hidden breakpoint on
- every line of your code (the panel shows them going in), so the
+ every line of your code (the bar shows them going in), so the
  program stops at the first line of yours that runs. Playing
  continues it to its next line, wherever that is; the other
- threads run on. space G c runs at full speed to your next
- breakpoint. e to lib or std hides them in the libraries too: a
- work in progress, and absurdly slow. With engine = "stepping"
- under [editor.debugger], playback steps instead.
+ threads run on. L runs at full speed to your next breakpoint.
+ e to lib or std hides them in the libraries too: a work in
+ progress, and absurdly slow. With engine = "stepping" under
+ [editor.debugger], playback steps instead.
 
- In the panel (C-g):
+ In debug mode:
 
-  space          play or pause; n makes one step
-  + -            faster, slower: 0.5 to 25 lines a second
+  Space          play or pause; l makes one step
+  k  j           faster, slower: 0.5 to 25 lines a second
   e              what it steps into: own code (the default),
                  lib (libraries too), std (the runtime too)
   f              fast forward until a watch (or a variable you
-                 marked with *) changes, and show old -> new
+                 marked with * in the panel) changes, and show
+                 old -> new
   r              run, or play, to the cursor's line
   < >            follow the previous, the next thread
-  z              freeze the thread under the cursor: it never
-                 runs until z again; o: only the followed thread
-                 runs; p: continue or pause the thread
-  [ ]            back and forward through the recorded stops,
-                 read-only, under REWIND; L comes back to live
-  R              what each stop records: depth, size, history
-  x              clear the time labels
+  t  F           pick a thread, a stack frame
+  z              freeze the followed thread: it never runs
+                 until z again; a: only it runs
+  h  H           back through the recorded stops, or to the
+                 previous breakpoint, read-only, under REWIND;
+                 l and L go forward, p comes back to live
+  c              what each stop records: depth, size, history
+  X              clear the time labels
 
- A step that doesn't come back shows "blocked in" and a timer;
- space pauses it where it waits. After each step the line it
+ The timeline is the second row of the bar: denser cells are
+ where the thread ran most, marks show breakpoints, pauses and
+ switches of thread, and a click on it goes to that moment. A
+ step that doesn't come back shows "blocked in" and a timer;
+ Space pauses it where it waits. After each step the line it
  left shows how long it took, greyed at its end, so slow lines
- stand out. From the editor:
-
-  space G space  play or pause; space G . makes one step
-  space G + -    faster, slower
-  space G f      fast forward; space G g runs to the cursor
-  space G < >    follow the previous, the next thread
-  space G m      what playback steps into
-  space G z      freeze the followed thread; space G a: only
-                 it runs
-  space G [ ]    rewind back, forward; space G L: live
-  space G R      the capture settings; space G X clears times
+ stand out.
 
 
 

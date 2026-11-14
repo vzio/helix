@@ -113,17 +113,38 @@ impl Env {
             .await;
     }
 
+    /// Debug mode on, the editor focused: playback, speed, thread and rewind keys are its own.
     async fn focus(&mut self) -> anyhow::Result<()> {
-        self.h.keys("<C-g>").await?;
+        if !self.h.app.editor.debug.mode_on() {
+            self.h.keys("<space>G").await?;
+        }
+        assert!(self.h.app.editor.debug.mode_on());
+        Ok(())
+    }
+
+    /// The panel focused (`Tab` in debug mode): its data keys, `jjl`, `{`, `p`...
+    async fn to_panel(&mut self) -> anyhow::Result<()> {
+        if !self.h.app.editor.debug.is_focused() {
+            self.h.keys("<tab>").await?;
+        }
         assert!(self.h.app.editor.debug.is_focused());
         Ok(())
     }
 
-    /// `n` in the focused panel, and waits for the step to be recorded.
+    /// The editor focused again (`Tab` from the panel in debug mode).
+    async fn to_editor(&mut self) -> anyhow::Result<()> {
+        if self.h.app.editor.debug.is_focused() {
+            self.h.keys("<tab>").await?;
+        }
+        assert!(!self.h.app.editor.debug.is_focused());
+        Ok(())
+    }
+
+    /// `l` (one playback step) in debug mode, and waits for the step to be recorded.
     async fn advance(&mut self, steps: usize) -> anyhow::Result<()> {
         for _ in 0..steps {
             let next = self.h.app.editor.debug.spectator.history.stops.len() + 1;
-            self.h.keys("n").await?;
+            self.h.keys("l").await?;
             self.settled(next).await;
         }
         Ok(())
@@ -203,16 +224,16 @@ fn single_thread_cap(script: Script) -> Script {
 // Playback
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn space_plays_and_pauses_in_the_panel_and_opens_the_menu_in_the_editor() -> anyhow::Result<()>
+async fn space_plays_and_pauses_in_debug_mode_and_opens_the_menu_outside_it() -> anyhow::Result<()>
 {
     let mut e = env(|p| run(p, 12)).await?;
     e.launch()?;
     e.settled(1).await;
 
-    // from the editor Space opens the space menu: nothing plays until `G Space`
+    // outside debug mode Space opens the space menu: nothing plays until `G Space`
     e.h.keys("<space><esc>").await?;
     assert_eq!(spectator(&e.h.app).mode, Mode::Paused);
-    e.h.keys("<space>G<space><esc>").await?;
+    e.h.keys("<space>G<space>").await?;
     assert_eq!(
         spectator(&e.h.app).mode,
         Mode::Playing,
@@ -220,10 +241,15 @@ async fn space_plays_and_pauses_in_the_panel_and_opens_the_menu_in_the_editor() 
     );
     e.h.until("a step", |app| spectator(app).steps >= 1).await;
 
-    // in the panel Space toggles; two in a row prove it never opened a menu
-    e.focus().await?;
+    // in debug mode Space toggles; two in a row prove it never opened a menu
     e.h.keys("<space>").await?;
     assert_eq!(spectator(&e.h.app).mode, Mode::Paused);
+    e.h.keys("<space>").await?;
+    assert_eq!(spectator(&e.h.app).mode, Mode::Playing);
+    e.h.keys("<space>").await?;
+    assert_eq!(spectator(&e.h.app).mode, Mode::Paused);
+    // and through the focused panel, which gives it to debug mode
+    e.h.keys("<tab>").await?;
     assert!(e.h.app.editor.debug.is_focused());
     e.h.keys("<space>").await?;
     assert_eq!(spectator(&e.h.app).mode, Mode::Playing);
@@ -247,7 +273,7 @@ async fn playback_at_25_lines_a_second_takes_40_ms_a_step_and_pauses_at_a_breakp
     e.launch()?;
     e.settled(1).await;
     e.focus().await?;
-    e.h.keys("++++++++").await?;
+    e.h.keys("kkkkkkkk").await?;
     assert_eq!(spectator(&e.h.app).speed_label(), "25 l/s");
 
     let start = Instant::now();
@@ -280,12 +306,12 @@ async fn playback_at_25_lines_a_second_takes_40_ms_a_step_and_pauses_at_a_breakp
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn n_makes_exactly_one_playback_step() -> anyhow::Result<()> {
+async fn l_makes_exactly_one_playback_step() -> anyhow::Result<()> {
     let mut e = env(|p| run(p, 6)).await?;
     e.launch()?;
     e.settled(1).await;
     e.focus().await?;
-    e.h.keys("n").await?;
+    e.h.keys("l").await?;
     e.settled(2).await;
     e.h.pump_for(Duration::from_millis(400)).await;
     // on the engine a playback step is a continue to the next line
@@ -409,8 +435,8 @@ async fn a_frozen_thread_never_runs_and_its_neighbour_steps_alone() -> anyhow::R
 
     // the frozen thread can't be stepped or continued
     e.h.keys("<gt>").await?;
-    e.h.keys("n").await?;
-    e.h.keys("p").await?;
+    e.h.keys("l").await?;
+    e.h.keys("<tab>p<tab>").await?; // the panel's `p` pauses or continues the thread
     e.h.pump_for(Duration::from_millis(200)).await;
     assert_eq!(
         e.motion().len(),
@@ -420,7 +446,7 @@ async fn a_frozen_thread_never_runs_and_its_neighbour_steps_alone() -> anyhow::R
     assert_eq!(e.fake.advanced(2), 1);
 
     // solo: the spectated thread runs alone although nothing is frozen
-    e.h.keys("z<lt>o").await?; // thaw 2, spectate 1, solo
+    e.h.keys("z<lt>a").await?; // thaw 2, spectate 1, solo
     assert!(!thread2(&e.h.app));
     assert!(spectator(&e.h.app).solo);
     e.advance(1).await?;
@@ -430,7 +456,7 @@ async fn a_frozen_thread_never_runs_and_its_neighbour_steps_alone() -> anyhow::R
         .any(|t| t.starts_with("1 main") && t.contains("alone")));
 
     // solo off and nothing frozen: no singleThread
-    e.h.keys("o").await?;
+    e.h.keys("a").await?;
     assert!(!spectator(&e.h.app).solo);
     e.advance(1).await?;
     assert_eq!(e.motion_threads()[2], ("continue".to_string(), 1, false));
@@ -448,7 +474,7 @@ async fn without_single_thread_support_freeze_and_solo_are_refused() -> anyhow::
     assert!(e.errors_have("no singleThread support"), "{:?}", e.h.errors);
     assert!(spectator(&e.h.app).frozen.is_empty());
     e.h.errors.clear();
-    e.h.keys("o").await?;
+    e.h.keys("a").await?;
     assert!(e.errors_have("no singleThread support"), "{:?}", e.h.errors);
     assert!(!spectator(&e.h.app).solo);
     e.h.keys("<lt>").await?;
@@ -492,7 +518,7 @@ async fn a_forced_interleaving_gives_the_stops_in_the_order_it_was_driven() -> a
     e.h.keys("<gt>z<lt>z<gt>").await?;
     e.advance(2).await?;
     // thaw A and continue it
-    e.h.keys("<lt>zp").await?;
+    e.h.keys("<lt>z<tab>p<tab>").await?;
     e.h.until("A's last stop", |_| e.fake.stops_sent().len() >= 6)
         .await;
     e.settled(5).await;
@@ -594,7 +620,7 @@ async fn a_thread_joining_is_listed_and_the_status_line_says_nothing() -> anyhow
     e.launch()?;
     e.settled(1).await;
     e.focus().await?;
-    e.h.keys("n").await?;
+    e.h.keys("l").await?;
     e.h.until("two threads", |app| {
         app.editor.debug.all_threads().len() == 2
     })
@@ -607,6 +633,12 @@ async fn a_thread_joining_is_listed_and_the_status_line_says_nothing() -> anyhow
             .is_none_or(|(m, _)| !m.contains("joined") && !m.contains("to spectate")),
         "{:?}",
         e.h.app.editor.get_status()
+    );
+    let note = e.h.app.editor.debug.mode.as_ref().unwrap().note.clone();
+    assert!(
+        note.as_ref()
+            .is_none_or(|n| !n.contains("joined") && !n.contains("to spectate")),
+        "{note:?}"
     );
     e.h.finish().await
 }
@@ -650,7 +682,8 @@ async fn a_blocking_step_shows_blocked_and_space_pauses_the_thread() -> anyhow::
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn a_slow_step_labels_the_line_it_left_and_x_clears_the_labels() -> anyhow::Result<()> {
+async fn a_slow_step_labels_the_line_it_left_and_capital_x_clears_the_labels() -> anyhow::Result<()>
+{
     // lines 2..: 8 quick steps, then the step off line 10 takes 250 ms
     let mut e = env(|p| {
         let script = run(p, 9);
@@ -665,7 +698,7 @@ async fn a_slow_step_labels_the_line_it_left_and_x_clears_the_labels() -> anyhow
     // noise from the test machine is not a slow line
     e.h.app.editor.debug.spectator.timing.threshold = Duration::from_millis(15);
     e.focus().await?;
-    e.h.keys("++++++++").await?;
+    e.h.keys("kkkkkkkk").await?;
     e.h.keys("<space>").await?;
     let path = e.path.clone();
     e.h.until("the label", |app| {
@@ -694,7 +727,7 @@ async fn a_slow_step_labels_the_line_it_left_and_x_clears_the_labels() -> anyhow
         spectator(app).step.is_none()
     })
     .await;
-    e.h.keys("x").await?;
+    e.h.keys("X").await?;
     assert!(spectator(&e.h.app).timing.lines.is_empty());
     e.h.finish().await
 }
@@ -776,7 +809,7 @@ async fn the_capture_settings_change_the_caps_and_a_smaller_history_trims() -> a
     e.advance(4).await?;
     assert_eq!(spectator(&e.h.app).history.stops.len(), 5);
 
-    e.h.keys("R").await?;
+    e.h.keys("c").await?;
     assert_eq!(spectator(&e.h.app).settings, Some(0));
     e.h.keys("l").await?; // depth 3 -> 4
     assert_eq!(spectator(&e.h.app).caps.depth, Some(4));
@@ -838,8 +871,9 @@ async fn a_value_never_expanded_live_shows_in_rewind_without_a_request() -> anyh
     );
     let before = e.fake.requests_named("variables").len();
 
-    e.h.keys("[").await?;
+    e.h.keys("h").await?;
     assert!(rewind_active(&e.h.app));
+    e.to_panel().await?;
     assert_eq!(
         texts(&e.h.app, Section::Variables),
         ["Locals", "x = 1", "p = Point"]
@@ -874,7 +908,8 @@ async fn expanding_beyond_the_capture_depth_in_rewind_sends_nothing() -> anyhow:
     e.h.pump_for(Duration::from_millis(200)).await;
     let before = e.fake.requests_named("variables").len();
 
-    e.h.keys("[").await?;
+    e.h.keys("h").await?;
+    e.to_panel().await?;
     e.h.keys("jjl").await?; // v1
     e.h.keys("jl").await?; // v2
     e.h.keys("jl").await?; // v3: its children weren't recorded
@@ -910,15 +945,18 @@ async fn scrubbing_shows_the_marker_and_refuses_edits_until_live() -> anyhow::Re
     let marker_is = |app: &Application, step: usize| {
         marker(app).as_deref() == Some(&format!("REWIND · step {step}/6 · nothing is executing"))
     };
-    e.h.keys("[").await?;
+    e.h.keys("h").await?;
     assert!(marker_is(&e.h.app, 5), "{:?}", marker(&e.h.app));
-    e.h.keys("[").await?;
+    e.h.keys("h").await?;
     assert!(marker_is(&e.h.app, 4));
-    e.h.keys("]").await?;
+    e.h.keys("l").await?;
     assert!(marker_is(&e.h.app, 5));
+    // the focused panel rewinds by ten
+    e.to_panel().await?;
     e.h.keys("{").await?;
+    e.to_editor().await?;
     assert!(marker_is(&e.h.app, 1), "10 back stops at the first");
-    e.h.keys("]]").await?;
+    e.h.keys("ll").await?;
     assert!(marker_is(&e.h.app, 3));
     // the panel's tab bar shows it
     let bar = render_panel_top(&mut e.h.app);
@@ -927,6 +965,7 @@ async fn scrubbing_shows_the_marker_and_refuses_edits_until_live() -> anyhow::Re
 
     // nothing is executed in rewind
     e.h.errors.clear();
+    e.to_panel().await?;
     e.h.keys("c").await?;
     assert_eq!(
         e.h.errors.last().map(String::as_str),
@@ -946,17 +985,18 @@ async fn scrubbing_shows_the_marker_and_refuses_edits_until_live() -> anyhow::Re
     assert_eq!(err.to_string(), rewind::READ_ONLY);
     assert!(e.fake.requests_named("setVariable").is_empty());
 
-    // } past the end, and L, go back to live
+    // } past the end, and p, go back to live
     e.h.keys("}").await?;
     assert_eq!(marker(&e.h.app), None, "}} goes forward to live");
-    e.h.keys("[[").await?;
+    e.to_editor().await?;
+    e.h.keys("hh").await?;
     assert!(rewind_active(&e.h.app));
-    e.h.keys("L").await?;
+    e.h.keys("p").await?;
     assert_eq!(marker(&e.h.app), None);
     assert!(!render_panel_top(&mut e.h.app).contains("REWIND"));
 
     // Space plays, which also returns to live
-    e.h.keys("[").await?;
+    e.h.keys("h").await?;
     assert!(rewind_active(&e.h.app));
     e.h.keys("<space>").await?;
     assert_eq!(marker(&e.h.app), None);
@@ -989,7 +1029,10 @@ fn x_scope(x: &str) -> Scope {
 
 /// A watch on `x`, with its value shown.
 async fn watch_x(e: &mut Env, value: &str) -> anyhow::Result<()> {
-    e.h.keys("2ax<ret>").await?;
+    e.to_editor().await?;
+    // the prompt opens when the callback ran: the text goes in a call of its own
+    e.h.keys("w").await?;
+    e.h.keys("x<ret>").await?;
     let prefix = format!("x = {value}");
     e.h.until("the watch", |app| {
         texts(app, Section::Watch)
@@ -1041,12 +1084,9 @@ async fn fast_forward_stops_on_the_first_change_of_a_watched_value() -> anyhow::
             .find(|t| t.contains("Fast forward stopped"))
             .expect("a console line");
     assert!(text.contains("1 -> 2"), "{text}");
-    assert!(e
-        .h
-        .app
-        .editor
-        .get_status()
-        .is_some_and(|(m, _)| m.contains("1 -> 2")));
+    // debug mode is on: the note says it, not the status line
+    let note = e.h.app.editor.debug.mode.as_ref().unwrap().note.clone();
+    assert!(note.is_some_and(|note| note.contains("1 -> 2")));
     // 4 steps to the change (three without one), no more
     assert_eq!(e.fake.stops_sent().len(), 5);
     e.h.pump_for(Duration::from_millis(200)).await;
@@ -1121,8 +1161,8 @@ async fn run_to_cursor_uses_a_temporary_breakpoint_that_goes_away() -> anyhow::R
     e.stepping();
     e.launch()?;
     e.settled(1).await;
-    // the cursor is on line 2; go to line 8 and run there
-    e.h.keys("6j<space>Gg<esc>").await?;
+    // the cursor is on line 2 (the stop); debug mode, view mode, to line 8, run to the cursor
+    e.h.keys("<space>Gv6jr<esc>").await?;
     e.h.until("the stop at line 8", |_| {
         e.fake.stops_sent().iter().any(|s| s.1 == 8)
     })
@@ -1161,7 +1201,7 @@ async fn run_to_cursor_while_playing_plays_until_that_line() -> anyhow::Result<(
     e.settled(1).await;
     e.h.app.editor.debug.spectator.speed = 7;
     // line 2 -> line 6; play, and run to the cursor in the same keys
-    e.h.keys("4j<space>G<space>g<esc>").await?;
+    e.h.keys("<space>Gv4j<space>r<esc>").await?;
     e.h.until("the line", |app| {
         spectator(app).mode == Mode::Paused && spectator(app).run_to.is_none()
     })

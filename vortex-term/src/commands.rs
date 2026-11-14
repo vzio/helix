@@ -278,9 +278,11 @@ impl MappableCommand {
                 }
             }
             Self::Static { name, fun, .. } => {
-                // in watch mode, moving waits until you look around, and editing until you
-                // leave it
-                if crate::watch::before_command(cx.editor, name) {
+                // in watch mode and debug mode, moving waits until you look around, and editing
+                // until you leave it
+                if crate::watch::before_command(cx.editor, name)
+                    && crate::debug::mode::before_command(cx.editor, name)
+                {
                     (fun)(cx)
                 }
             }
@@ -647,6 +649,17 @@ impl MappableCommand {
         dap_clear_time_labels, "Clear the time-per-line labels",
         dap_memory, "Show the memory of the value under the debug panel's cursor",
         dap_evaluate, "Evaluate an expression in the debug console",
+        dap_toggle_exceptions, "Stop on exceptions (the adapter's filters), or don't",
+        debug_mode, "Enter debug mode: the debugger as a video player",
+        debug_leave, "Leave debug mode (the session goes on)",
+        debug_view, "Debug mode: look around with your own cursor, or follow again",
+        debug_play_pause, "Debug mode: play or pause",
+        debug_line_forward, "Debug mode: the next line (in rewind, the next recorded stop)",
+        debug_line_back, "Debug mode: the previous line (a recorded stop back)",
+        debug_breakpoint_forward, "Debug mode: the next breakpoint (live, at full speed)",
+        debug_breakpoint_back, "Debug mode: the previous breakpoint hit",
+        debug_breakpoint_kind, "Debug mode: the breakpoint's type: any thread, main only, sub-threads only",
+        debug_help, "Debug mode: its keys",
         shell_pipe, "Pipe selections through shell command",
         shell_pipe_to, "Pipe selections into shell command ignoring output",
         shell_insert_output, "Insert shell command output before selections",
@@ -3625,6 +3638,85 @@ fn watch_changes(cx: &mut Context) {
 
 fn watch_leave(cx: &mut Context) {
     crate::watch::leave(cx.editor);
+}
+
+fn debug_mode(cx: &mut Context) {
+    crate::debug::mode::enter(cx.editor);
+}
+
+fn debug_leave(cx: &mut Context) {
+    crate::debug::mode::leave(cx.editor);
+}
+
+fn debug_view(cx: &mut Context) {
+    crate::debug::mode::toggle_view(cx.editor);
+}
+
+fn debug_play_pause(cx: &mut Context) {
+    crate::debug::mode::play_pause(cx.editor, |editor| {
+        // the spectated thread, else the one the panel shows, else the first
+        let key = crate::debug::playback::spectated(editor).or_else(|| {
+            let client = editor.debug_adapters.get_active_client()?;
+            let thread = client
+                .thread_id
+                .or_else(|| editor.debug.threads_of(client.id()).first().map(|t| t.id))?;
+            Some(crate::debug::spectator_key(client.id(), thread))
+        });
+        if let Some(key) = key {
+            crate::debug::playback::pause_thread(editor, key);
+        }
+    });
+}
+
+fn debug_line_forward(cx: &mut Context) {
+    crate::debug::mode::line_forward(cx.editor);
+}
+
+fn debug_line_back(cx: &mut Context) {
+    crate::debug::mode::line_back(cx.editor);
+}
+
+fn debug_breakpoint_forward(cx: &mut Context) {
+    if cx.editor.debug.is_rewinding() || !crate::debug::bar::has_session(cx.editor) {
+        crate::debug::mode::breakpoint_forward(cx.editor, |_| {});
+    } else {
+        dap_continue(cx);
+    }
+}
+
+fn debug_breakpoint_back(cx: &mut Context) {
+    crate::debug::mode::breakpoint_back(cx.editor);
+}
+
+fn debug_breakpoint_kind(cx: &mut Context) {
+    if crate::debug::breakpoints::outside_debug_mode(cx.editor) {
+        return;
+    }
+    crate::debug::mode::cycle_breakpoint_kind(cx.editor);
+}
+
+fn debug_help(cx: &mut Context) {
+    cx.callback.push(Box::new(|compositor, _cx| {
+        let Some(view) = compositor.find::<ui::EditorView>() else {
+            return;
+        };
+        let Some(mut info) = view
+            .keymaps
+            .layer_infobox(crate::keymap::Layer::Debug, " Debug mode · any key closes ")
+        else {
+            return;
+        };
+        // in its own box, "Debug mode: " goes without saying
+        info.text = info.text.replace("Debug mode: ", "");
+        info.width = info
+            .text
+            .lines()
+            .filter(|line| !line.starts_with('─'))
+            .map(|line| vortex_core::unicode::width::UnicodeWidthStr::width(line) as u16)
+            .max()
+            .unwrap_or(info.width);
+        compositor.push(Box::new(ui::keyhelp::KeyHelp::from_info(info)));
+    }));
 }
 
 /// How the palette remembers a command it ran (this fork): `:name` for a typed command.

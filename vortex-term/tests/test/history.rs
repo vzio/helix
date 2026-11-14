@@ -1250,8 +1250,11 @@ async fn a_diagnostic_without_a_bookmark_is_a_dot() -> anyhow::Result<()> {
     h.finish().await
 }
 
+/// The gutter's column is the bookmarks' outside debug mode (breakpoints aren't drawn there),
+/// and the breakpoints' in debug mode (bookmarks aren't drawn there).
 #[tokio::test(flavor = "multi_thread")]
-async fn a_bookmark_wins_over_a_breakpoint_without_a_debug_session() -> anyhow::Result<()> {
+async fn the_gutter_shows_bookmarks_outside_debug_mode_and_breakpoints_in_it() -> anyhow::Result<()>
+{
     let f = files()?;
     let mut h = H::file(&f.alpha)?;
     let path = {
@@ -1274,24 +1277,32 @@ async fn a_bookmark_wins_over_a_breakpoint_without_a_debug_session() -> anyhow::
         ],
     );
     assert!(h.app.editor.debug_adapters.get_active_client().is_none());
-    // a breakpoint alone
-    assert_eq!(cell(&h.app, 1).unwrap().0, "●");
-    assert_eq!(cell(&h.app, 2).unwrap().0, "●");
+    // outside debug mode a breakpoint isn't drawn
+    assert_eq!(cell(&h.app, 1), None);
+    assert_eq!(cell(&h.app, 2), None);
     // a bookmark on line 2 only
     h.keys("j<C-s>").await;
-    assert_eq!(cell(&h.app, 1).unwrap().0, "1", "the bookmark wins");
+    assert_eq!(cell(&h.app, 1).unwrap().0, "1", "the bookmark shows");
+    assert_eq!(cell(&h.app, 2), None, "the other line's breakpoint doesn't");
+    // in debug mode the breakpoints own the column
+    h.keys("<space>G").await;
+    assert!(h.app.editor.debug.mode_on());
     assert_eq!(
-        cell(&h.app, 2).unwrap().0,
+        cell(&h.app, 1).unwrap().0,
         "●",
-        "the breakpoint of the other line stays"
+        "the breakpoint, not the bookmark"
     );
+    assert_eq!(cell(&h.app, 2).unwrap().0, "●");
+    h.keys("<esc>").await;
+    assert_eq!(cell(&h.app, 1).unwrap().0, "1", "the bookmark again");
     h.finish().await
 }
 
 /// The gutter of a line with a breakpoint and a bookmark while a debug session is active: the
-/// breakpoint wins (the fake adapter of the debug tests is the session).
+/// bookmark outside debug mode, the breakpoint in it (the fake adapter of the debug tests is the
+/// session).
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn a_breakpoint_wins_over_a_bookmark_while_a_debug_session_is_active() -> anyhow::Result<()> {
+async fn in_a_debug_session_the_gutter_follows_debug_mode() -> anyhow::Result<()> {
     use vortex_core::syntax::config::DebugAdapterConfig;
     use vortex_view::debug::Status;
 
@@ -1357,14 +1368,22 @@ async fn a_breakpoint_wins_over_a_bookmark_while_a_debug_session_is_active() -> 
 
     assert_eq!(
         cell(&h.app, 2).unwrap().0,
+        "1",
+        "a session outside debug mode: the bookmark"
+    );
+    h.keys("<space>G").await;
+    assert_eq!(
+        cell(&h.app, 2).unwrap().0,
         "●",
-        "the breakpoint wins in a session"
+        "debug mode: the breakpoint"
     );
     assert_eq!(
-        cell(&h.app, 4).unwrap().0,
-        "2",
-        "a bookmark alone is still its number"
+        cell(&h.app, 4),
+        None,
+        "a bookmark alone isn't drawn in debug mode"
     );
+    h.keys("<esc>").await;
+    assert_eq!(cell(&h.app, 4).unwrap().0, "2", "outside it again");
     assert_eq!(h.numbers(), [(2, 1), (4, 2)], "the bookmarks are kept");
     h.finish().await
 }
