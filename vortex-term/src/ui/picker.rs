@@ -427,6 +427,10 @@ impl<'a, T: Send + Sync + 'static> Rows<'a, T> {
 }
 
 impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
+    /// The columns the prompt keeps beyond what is typed in it, before the info on its row takes
+    /// the rest (this fork).
+    const PROMPT_ROOM: u16 = 16;
+
     pub fn stream(
         columns: impl IntoIterator<Item = Column<T, D>>,
         editor_data: D,
@@ -1432,9 +1436,17 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
         );
 
         let area = inner.clip_left(1).with_height(1);
-        // the info (this fork) before the count, cut to leave the prompt half the row
+        // the info (this fork) before the count: the rest of the row once the prompt has room
+        // for what is typed and some more, cut if it doesn't fit
         let info = self.info.as_deref().map(|info| {
-            let room = (area.width / 2).saturating_sub(count.len() as u16 + 2);
+            let typed =
+                vortex_core::unicode::width::UnicodeWidthStr::width(self.prompt.line().as_str())
+                    as u16;
+            let prompt = typed + 2 + Self::PROMPT_ROOM;
+            let room = area
+                .width
+                .saturating_sub(count.len() as u16 + 3)
+                .saturating_sub(prompt);
             crate::ui::modebar::cut(info, room)
         });
         let info_width = info.as_deref().map_or(0, |info| {

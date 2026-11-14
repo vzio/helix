@@ -306,7 +306,9 @@ Menus and key help change core files: `KeyTrieNode` has the groups of its keys a
 `tie_rank`, and opens the key help on `?` in normal mode; `Picker::render_picker` draws the info
 before the count.
 
-The status line rule changes the fork's messages (see the PR's audit); `:watch-stop` and `:watch`
+The status line rule changes the fork's messages in the files that print them (the commit log,
+line history, the lists of changes, hunks, the diff view, the file tree, the hex view, the
+worktrees, bookmarks, files changed on disk, the debugger, practice); `:watch-stop` and `:watch`
 ending watch mode print `Watch ended: N changes`.
 
 The dashboard's startup changes core files: `dashboard` is a `DashboardStartup` (`"auto"`, `true`,
@@ -472,7 +474,7 @@ Inside the diff:
 | `q`, `Esc` | Close |
 
 The footer shows the current hunk (e.g. `hunk 2/5`), whether it is staged, the number of the file
-in a diff opened from a list of files (`file 1/3`) and the keys; the line numbers of the current
+in a diff opened from a list of files (`file 1/3`); `?` lists the keys. The line numbers of the current
 hunk are bold. The last line of the screen stays the editor's, for its messages. New files
 (untracked or staged) only have a right side, and deleted files only have a left side. Renamed files
 are compared with their old path in HEAD.
@@ -546,10 +548,10 @@ theme scope `ui.picker.divider` if the theme has it, else `ui.text.inactive`, el
 
 | Keys | Action |
 | --- | --- |
-| `space l`, `:git-log` | Open the commit picker, in normal mode, with the cursor on its first row, the [uncommitted changes](#uncommitted-changes-live). The status line shows `s filter, v extend, w/b section, enter files`. |
+| `space l`, `:git-log` | Open the commit picker, in normal mode, with the cursor on its first row, the [uncommitted changes](#uncommitted-changes-live). `?` lists its keys. |
 | `s` | Filter mode: typing filters by summary, and by hash: a query of 4 hex digits or more (`a1b2c3`) lists the commits whose hash starts with it first, then the commits whose summary matches it. `%commit`, `%author`, `%date` filter by the other columns. `Esc` goes back to normal mode and keeps the query. |
 | `j`/`k`, `Down`/`Up`, `C-n`/`C-p`, `Tab`/`S-Tab`, `C-d`/`C-u`/`PageDown`/`PageUp`, `gg`/`ge`/`G`, `Home`/`End` | Move. The keys that aren't letters work in filter mode too. |
-| `Enter` in the commit picker | List the changes of the commit, or of the selected commits, or the uncommitted changes, on top of the commit picker: one row per hunk, under a divider per file ([Lists of changes](#lists-of-changes)). The status line shows the commit or the range and the totals: `a1b2c3d: 12 changes in 4 files, +80 -31 · Fix the parser`. The changes of a commit or range are read in the background: the log stays usable meanwhile, and the status line says `Loading changes of a1b2c3d…` if it takes more than a tenth of a second. Moving on and pressing `Enter` on another row, or closing the log, drops the list being read. |
+| `Enter` in the commit picker | List the changes of the commit, or of the selected commits, or the uncommitted changes, on top of the commit picker: one row per hunk, under a divider per file ([Lists of changes](#lists-of-changes)). Its prompt row shows the commit or the range and the totals: `a1b2c3d: 12 changes in 4 files, +80 -31 · Fix the parser`. The changes of a commit or range are read in the background: the log stays usable meanwhile, and its prompt row says `Loading changes of a1b2c3d…` if it takes more than a tenth of a second. Moving on and pressing `Enter` on another row, or closing the log, drops the list being read. |
 | `v`, `A-v` | Toggle extend mode: while it's on, every movement extends the selection from the commit where it started to the commit under the cursor. `A-v` works in filter mode too. |
 | `w`, `e` | Extend the selection down (older) to the oldest commit of the section the cursor is in, and put the cursor on it. Pressed again they do nothing, they never go past the divider. |
 | `b` | Extend the selection up (newer) to the newest commit of the section the cursor is in, and put the cursor on it. |
@@ -576,7 +578,7 @@ and the selection has every commit between (see below).
 ### Ranges
 
 The selected commits are shown in the rows with the style of `ui.selection` (the commit under the
-cursor keeps the style of the cursor), and in the status line, oldest to newest, with `[extend]`
+cursor keeps the style of the cursor), and on the prompt row, oldest to newest, with `[extend]`
 in front when extend mode is on:
 
 ```
@@ -711,16 +713,15 @@ the commit log: the same columns, branch sections and dividers, modal keys and s
   base branch, with the same rules); the last one, which added the lines, is marked `(added)`.
   The first row is the uncommitted changes when any of the lines has uncommitted changes, staged
   or not, saved or not.
-- **Status line**: what's followed and the count, then the keys:
-  `src/main.rs:12-14 · 7 commits · s filter, v extend, w/b section, enter diff, o commit`. While
-  it searches it says how far it is: `searching… 1,240 commits` (the commits looked at). Several
-  ranges read `src/main.rs:3,12-14`.
+- **Prompt row**: what's followed and the count: `src/main.rs:12-14 · 7 commits`. While it
+  searches it says how far it is: `searching… 1,240 commits` (the commits looked at). Several
+  ranges read `src/main.rs:3,12-14`. `?` lists the keys.
 - **Preview**: the hunks of the commit that touched the lines, each under its place and counts
   (`src/main.rs:12-14 · +3 -1`) with a few lines of context, as the lists of changes preview
   hunks.
 - **No picker**, but a message, for a buffer without a file, a file outside a git repository, or
   one git doesn't track (or that has no commit yet). When none of the lines is committed (they were
-  all added since HEAD), the status line says `these lines aren't committed yet` and the only row
+  all added since HEAD), the prompt row says `these lines aren't committed yet` and the only row
   is the uncommitted changes.
 
 ### From the buffer to HEAD
@@ -764,7 +765,7 @@ log does.
 with gix, which lists commits as it finds them:
 
 - **The picker opens at once**, with the uncommitted changes when they're there, and fills as
-  commits are found, newest first. The walk runs on a thread of its own; the status line shows
+  commits are found, newest first. The walk runs on a thread of its own; the prompt row shows
   its progress.
 - **A commit costs a lookup of the file in its tree**: when the file is the same blob as in the
   parent, the lines pass on without reading anything. Only the commits that changed the file are
@@ -845,10 +846,8 @@ context. Rows are sorted by path, then by line, with lockfiles last.
   instead, closing the log.
 - `C-s`, `C-v` and the like open the file at the change, closing the log.
 
-The status line says how much there is: `Uncommitted changes: 6 changes in 5 files, +80 -31, 2
-unsaved` (a file without hunk rows is one change). The totals follow the list as it changes, but
-never hide another message: while the status line shows something else (a hunk action's message
-in a diff, an error), they wait until the diff is closed and the list is shown again.
+The prompt row says how much there is: `Uncommitted changes: 6 changes in 5 files, +80 -31, 2
+unsaved` (a file without hunk rows is one change). The totals follow the list as it changes.
 
 While the commit log, or anything opened from it, is open, the working tree is watched, and what
 is on screen follows it:
@@ -856,7 +855,7 @@ is on screen follows it:
 - the count of the first row;
 - the list of uncommitted changes, also while buffers are edited: the cursor stays on the same
   hunk (the same file and line), or on the first change of the same file, or at the same place
-  when the file is gone; and its totals in the status line;
+  when the file is gone; and its totals on the prompt row;
 - the diff of an uncommitted file: the line at the top of the screen stays there, and so does the
   horizontal scroll. A diff with no changes left stays open, empty, with `no changes` in the
   footer;
@@ -915,9 +914,6 @@ A binary lockfile (`bun.lockb`) shows `(binary)` instead of counts.
   a range of tens of thousands a few seconds, during which the log stays usable. They don't
   stream in as they are read. The uncommitted changes are still read on the main thread when
   their list opens (they are refreshed in the background).
-- The totals of the uncommitted changes wait while the status line shows another message: when
-  something else clears it (a hunk action's message is replaced by nothing), they come back at
-  the next change of the list or when a diff opened from it is closed.
 - The cursor never rests on the divider of a file that has hunk rows, as in the commit log: the
   file's first hunk is where `w`/`b` go, and Enter there opens the diff at it.
 - A buffer with unsaved edits is listed by its path: a buffer without a file (a scratch buffer)
@@ -945,7 +941,7 @@ unstaged and reverted:
 | `u`, `U` | Unstage the hunk, the file (back to its version in HEAD; a new file becomes untracked) |
 | `r`, `R` | Revert the hunk, the file, to its version in the index |
 
-The footer shows them, and the state of the current hunk: `hunk 2/5 staged`. On the separator
+The footer shows the state of the current hunk, `hunk 2/5 staged`, and `?` lists the keys. On the separator
 between the two sides, a staged hunk is marked `┃` and a partly staged one `╏` (the colors of
 `diff.plus` and `diff.delta`), and the background of a staged hunk is quieter.
 
@@ -958,9 +954,10 @@ between the two sides, a staged hunk is marked `┃` and a partly staged one `�
 - **Reverting** is an edit: the file's buffer (opened in the background if it isn't open) gets one
   transaction, and is written. `u` in that buffer undoes it, and a whole file is one undo step.
   It goes back to the index, like `git restore`: what is staged is kept, so a staged hunk has
-  nothing to revert (`u` unstages it first).
+  nothing to revert (`The hunk is staged: unstage it first`).
 - An **untracked file** has no version to go back to: reverting it deletes it, after asking
-  (`y` deletes it, any other key keeps it), since git can't bring it back.
+  (`Delete untracked x.rs? (y/n)`: `y` deletes it, any other key keeps it), since git can't bring
+  it back.
 - A buffer with unsaved changes can't be staged or reverted (write it first): the diff shows the
   buffer, which is not what is on disk.
 - After an action the diff is built again at once; in the commit log it also follows changes made
@@ -969,8 +966,7 @@ between the two sides, a staged hunk is marked `┃` and a partly staged one `�
 `n`/`N` go through the hunks of every file of the entry the diff was opened from: the uncommitted
 changes, a commit, or a range of commits. Past the last hunk of a file, `n` opens the diff of the
 next file at its first hunk (`N`: the previous file at its last hunk), and the cursor of the list of
-files follows. At the end of the list they go around to the first (last) file, with `Wrapped
-around to the first file` in the statusline. Lockfiles and files that can't be shown (binary) are
+files follows. At the end of the list they go around to the first (last) file. Lockfiles and files that can't be shown (binary) are
 skipped.
 
 ### Limitations
@@ -1000,7 +996,7 @@ depends on the buffer:
 | The buffer | What happens |
 | --- | --- |
 | has no unsaved changes | It is reloaded silently, as one undoable step (`u` brings the old text back). Cursors and selections are mapped through the change, so they stay on the same text when it is still there |
-| has unsaved changes | The statusline warns once, `<file> changed on disk: :reload to load it, or :write! to overwrite it`. `:write` (and `:wq`, `:wa`...) refuses with the same message until `:reload` (the disk wins, undoable) or `:write!` (the buffer wins) |
+| has unsaved changes | The statusline warns once, `<file> changed on disk`. `:write` (and `:wq`, `:wa`...) refuses with the same message until `:reload` (the disk wins, undoable) or `:write!` (the buffer wins) |
 
 A change is a change of content: the modification time and size are compared first, and when they
 differ the file is read and hashed, so `touch` or a checkout that rewrites the same bytes changes
@@ -1154,7 +1150,7 @@ other letters do nothing; `s` enters filter mode, where the keys go to the promp
 | `d`, then `y` | Delete the selected file or directory (directories are deleted recursively). Any other key cancels. |
 | `R` | Read the whole tree from disk again. |
 | `H` | Show/hide git ignored files for this session. |
-| `?` | Show the keys in the status line. |
+| `?` | List the keys in a box over the tree; any key closes it. |
 | `Esc` | Clear the filter if there is one, otherwise close the tree. |
 | `q`, `C-c` | Close the tree. |
 
@@ -1793,8 +1789,8 @@ until that line.
 **Threads.** Playback follows one thread, `◉ spectating` in the call stack (where every thread of
 every session is, under its session's name when there are several: js-debug runs each worker in a
 session of its own) and `T2 name` in the statusline. `<` and `>` cut to the previous and next
-thread; `Enter` on a thread spectates it. A thread starting or exiting says so in the status line
-(`Thread 4 joined · < / > to spectate`). To force a suspected race by hand, schedule the threads
+thread; `Enter` on a thread spectates it. A thread starting or exiting shows in the call stack
+(and the log), not in the status line. To force a suspected race by hand, schedule the threads
 yourself: `z` freezes a thread (`❄ frozen`: it never runs during steps, continues or playback
 until thawed, and a running thread is paused as it freezes), `o` makes steps and continues run only
 the spectated thread, and `p` continues or pauses the thread under the cursor. For example: step
@@ -1971,7 +1967,7 @@ as without the engine). When the last file is in, the lineline gets a `covered` 
 coverage was partial. When none of the files is one of those (nothing open, no breakpoint), the
 program waits for all of them, as before. The program stops at the first line of your code that
 runs, on whichever thread: that thread is spectated, playback paused (`Stopped at the first line of
-your code that ran: Space plays`). Switching the follow mode (`e`) sends the whole set again for the
+your code that ran`). Switching the follow mode (`e`) sends the whole set again for the
 new mode, and the restore after a full-speed run puts it back, both in the same order (the
 spectated thread's file first) and both letting playback go on once those are in. `space G c` waits
 until a set is complete (it says so). While breakpoints are installed, lifted or restored, the panel's last row
@@ -2307,7 +2303,7 @@ deletes a byte, and it never loads the file: a file of several GB opens at once.
 
 `:`, `space` and the keys with `Ctrl` or `Alt` the view doesn't use go to the keymap as in any
 buffer: `:q`, `:w`, the pickers, the windows (`Ctrl-w`), the bookmarks (`Ctrl-o`/`Ctrl-i`)... Any
-other character is refused in read-only mode with `read-only, i to overwrite`.
+other character is refused in read-only mode with `read-only` (`?` lists the keys: `i` overwrites).
 
 ### Overwrite mode
 
@@ -3032,7 +3028,7 @@ in the order it was built.
 | `Ctrl-s` | Sets a bookmark on the cursor's line, or removes the one there; with several cursors, on each cursor's line. Normal and select mode (in insert mode it is still the undo checkpoint) |
 | `Ctrl-i` (`Tab`) | The next bookmark, in the order they were set; past the last, the first |
 | `Ctrl-o` | The previous bookmark |
-| `Space j` | The bookmark picker: number, file and line, the line's text, in the order they were set; `Enter` goes to one, `Ctrl-x` removes it |
+| `Space j` | The bookmark picker: number, file and line, the line's text, in the order they were set. It opens in normal mode like the fork's other lists (`s` filters, `?` lists the keys); `Enter` goes to one, `Ctrl-x` removes it |
 
 - **The order is the order they were set**, not file and line: the ring goes the way the working
   set was built, across files. A bookmark's number is its rank, so removing one closes the gap
@@ -3092,9 +3088,9 @@ screen" is this: screens are places.
 - **A bookmark is a line**, stored as the start of the line: text typed at the very start of the
   line, or a line opened above it, leaves it on its line. Of two bookmarks joined onto one line
   (`J`), the older stays.
-- **In watch mode**, `ga`, `gA`, `C-i`, `C-o` and `space j` end it, as opening a file yourself
-  does (also from the keys that bypass the keymap: the sticky state, the hex view, a diff);
-  `C-s` changes nothing.
+- **In watch mode**, `ga`, `gA`, `C-i`, `C-o` and `space j` do nothing until `Esc` leaves watch
+  mode, as opening a file yourself does (also from the keys that bypass the keymap: the sticky
+  state, the hex view, a diff); `C-s` changes nothing.
 - **`Ctrl-x` removes a bookmark** in the picker: no picker or prompt key uses it.
 - **`◆`** marks the bookmarks past the ninth; numbers are drawn in `ui.gutter.bookmark`, bold
   purple in the vortex theme, bold honey in upstream's.

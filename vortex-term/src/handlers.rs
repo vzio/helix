@@ -32,7 +32,10 @@ mod snippet;
 mod workspace_trust;
 
 pub fn setup(config: Arc<ArcSwap<Config>>) -> Handlers {
-    events::register();
+    // once per process: the registry panics on an event registered twice, and the unit tests that
+    // build an editor each set the handlers up
+    static EVENTS: std::sync::Once = std::sync::Once::new();
+    EVENTS.call_once(events::register);
 
     let event_tx = completion::CompletionHandler::new(config).spawn();
     let signature_hints = SignatureHelpHandler::new().spawn();
