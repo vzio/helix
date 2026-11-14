@@ -24,6 +24,8 @@ pub struct Harness {
     running: bool,
     /// Every error the status line showed, as seen between two steps of the event loop.
     pub errors: Vec<String>,
+    /// Every message of another severity the status line showed (debug mode shows none).
+    pub infos: Vec<String>,
 }
 
 impl Harness {
@@ -35,15 +37,25 @@ impl Harness {
             rx: UnboundedReceiverStream::new(rx),
             running: true,
             errors: Vec::new(),
+            infos: Vec::new(),
         })
     }
 
     fn note_errors(&mut self) {
-        if let Some((message, Severity::Error)) = self.app.editor.get_status() {
-            let message = message.to_string();
-            if self.errors.last() != Some(&message) {
-                self.errors.push(message);
+        match self.app.editor.get_status() {
+            Some((message, Severity::Error)) => {
+                let message = message.to_string();
+                if self.errors.last() != Some(&message) {
+                    self.errors.push(message);
+                }
             }
+            Some((message, _)) => {
+                let message = message.to_string();
+                if self.infos.last() != Some(&message) {
+                    self.infos.push(message);
+                }
+            }
+            None => {}
         }
     }
 

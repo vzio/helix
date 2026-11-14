@@ -128,11 +128,36 @@ impl Env {
         self.h.keys(keys).await
     }
 
-    /// `n` in the panel `steps` times, waiting for each stop to be recorded.
+    /// Keys of debug mode (playback, rewind, capture settings) typed in the editor: leaves the
+    /// panel, enters debug mode when it is off and leaves it again after the keys, so the editing
+    /// that follows is outside it. `c` opens the capture settings and stays in debug mode.
+    async fn editor(&mut self, keys: &str) -> anyhow::Result<()> {
+        let entered = !self.h.app.editor.debug.mode_on();
+        if self.h.app.editor.debug.is_focused() {
+            self.h.keys(if entered { "<C-g>" } else { "<tab>" }).await?;
+        }
+        if entered {
+            // one batch, so the program has no time to answer between the keys
+            let leave = if keys.starts_with('c') { "" } else { "<esc>" };
+            self.h.keys(&format!("<space>G{keys}{leave}")).await
+        } else {
+            self.h.keys(keys).await
+        }
+    }
+
+    /// Debug mode on in view mode, for the rest of the test: the bar's rows are there when the
+    /// memory view's size is measured, and the stops don't move the view away from it.
+    async fn stay_in_debug_mode(&mut self) -> anyhow::Result<()> {
+        self.h.keys("<space>Gv").await?;
+        assert!(self.h.app.editor.debug.mode.as_ref().unwrap().viewing);
+        Ok(())
+    }
+
+    /// `l` (one playback step) `steps` times, waiting for each stop to be recorded.
     async fn step(&mut self, steps: usize) -> anyhow::Result<()> {
         for _ in 0..steps {
             let next = self.h.app.editor.debug.spectator.history.stops.len() + 1;
-            self.panel("n").await?;
+            self.editor("l").await?;
             self.settled(next).await;
         }
         Ok(())
@@ -701,7 +726,7 @@ async fn while_running_the_view_keeps_the_last_stops_bytes_and_says_so() -> anyh
         assert_eq!(debug::memory::note(&e.h.app.editor, doc), None);
     }
 
-    e.panel("n").await?;
+    e.editor("l").await?;
     e.h.until("running", |app| {
         matches!(app.editor.debug.status, Status::Running)
     })
@@ -923,8 +948,7 @@ async fn writes_are_refused_while_running_and_in_rewind() -> anyhow::Result<()> 
     open_read(&mut e, 0x1010).await?;
     e.step(1).await?;
     // rewind: nothing executes
-    e.panel("[").await?;
-    e.h.keys("<C-g>").await?;
+    e.editor("h").await?;
     assert!(e.h.app.editor.debug.is_rewinding());
     refused(
         &mut e,
@@ -932,8 +956,7 @@ async fn writes_are_refused_while_running_and_in_rewind() -> anyhow::Result<()> 
     )
     .await?;
     // back live, it is allowed again
-    e.panel("L").await?;
-    e.h.keys("<C-g>").await?;
+    e.editor("p").await?;
     e.h.keys("i").await?;
     e.h.until("overwriting", |app| {
         let (view, doc) = current_ref!(app.editor);
@@ -943,7 +966,7 @@ async fn writes_are_refused_while_running_and_in_rewind() -> anyhow::Result<()> 
     e.h.keys("<esc>").await?;
 
     // running
-    e.panel("n").await?;
+    e.editor("l").await?;
     e.h.until("running", |app| {
         matches!(app.editor.debug.status, Status::Running)
             && memory_doc(app)
@@ -951,7 +974,6 @@ async fn writes_are_refused_while_running_and_in_rewind() -> anyhow::Result<()> 
                 .is_some_and(|note| note.starts_with("running"))
     })
     .await;
-    e.h.keys("<C-g>").await?;
     refused(
         &mut e,
         "the program is running: pause it to overwrite memory",
@@ -993,29 +1015,27 @@ async fn writes_are_refused_while_playing_and_fast_forwarding() -> anyhow::Resul
             .any(|t| t.starts_with("x = "))
     })
     .await;
-    e.panel("<space>").await?;
+    e.editor("<space>").await?;
     e.h.until("playing", |app| {
         app.editor.debug.spectator.mode == Mode::Playing
     })
     .await;
-    e.h.keys("<C-g>").await?;
     refused(&mut e, "playing: pause to overwrite memory").await?;
     // pause
-    e.panel("<space>").await?;
+    e.editor("<space>").await?;
     e.h.until("paused", |app| {
         app.editor.debug.spectator.mode == Mode::Paused
     })
     .await;
 
-    e.panel("f").await?;
+    e.editor("f").await?;
     e.h.until("fast forwarding", |app| {
         app.editor.debug.spectator.mode == Mode::FastForward
     })
     .await;
-    e.h.keys("<C-g>").await?;
     refused(&mut e, "fast forwarding: stop it to overwrite memory").await?;
     assert!(e.fake.requests_named("writeMemory").is_empty());
-    e.panel("f").await?;
+    e.editor("f").await?;
     e.h.finish().await
 }
 
@@ -1066,6 +1086,7 @@ fn original(address: u64) -> u8 {
 async fn every_stop_records_the_window_of_each_memory_view_with_a_margin() -> anyhow::Result<()> {
     let mut e = env(recorded_program).await?;
     e.start().await?;
+    e.stay_in_debug_mode().await?;
     assert!(last_windows(&e.h.app).is_empty(), "no memory view yet");
     e.open(0x12000).await?;
     e.has_byte(0x12000, Cell::Byte(original(0x12000))).await;
@@ -1106,6 +1127,7 @@ async fn every_stop_records_the_window_of_each_memory_view_with_a_margin() -> an
 async fn rewind_shows_the_recorded_bytes_and_never_live_memory() -> anyhow::Result<()> {
     let mut e = env(recorded_program).await?;
     e.start().await?;
+    e.stay_in_debug_mode().await?;
     e.open(0x12000).await?;
     e.has_byte(0x12000, Cell::Byte(original(0x12000))).await;
     let (top, height) = shown(&e.h.app);
@@ -1119,7 +1141,7 @@ async fn rewind_shows_the_recorded_bytes_and_never_live_memory() -> anyhow::Resu
     let reads = e.fake.memory_reads().len();
 
     // stop 3: the window is there, the byte that changed is marked
-    e.panel("[").await?;
+    e.editor("h").await?;
     assert!(e.h.app.editor.debug.is_rewinding());
     e.h.until("the recorded stop 3", |app| {
         memory(app).recorded.as_ref().is_some_and(|r| r.step == 3)
@@ -1143,7 +1165,6 @@ async fn rewind_shows_the_recorded_bytes_and_never_live_memory() -> anyhow::Resu
     assert_eq!(cells(&e.h.app, end - 1, 1), bytes(&[original(end - 1)]));
     // what is shown is all in the window
     assert!(!screen_has(&e.h.app, "··"));
-    e.h.keys("<C-g>").await?;
     {
         let doc = memory_doc(&e.h.app).unwrap();
         let note = debug::memory::note(&e.h.app.editor, doc).unwrap();
@@ -1157,7 +1178,7 @@ async fn rewind_shows_the_recorded_bytes_and_never_live_memory() -> anyhow::Resu
     .await;
 
     // stop 2: the same bytes, nothing marked
-    e.panel("[").await?;
+    e.editor("h").await?;
     e.h.until("the recorded stop 2", |app| {
         memory(app).recorded.as_ref().is_some_and(|r| r.step == 2)
     })
@@ -1168,7 +1189,7 @@ async fn rewind_shows_the_recorded_bytes_and_never_live_memory() -> anyhow::Resu
     );
 
     // stop 1 was before the view: nothing recorded for it
-    e.panel("[").await?;
+    e.editor("h").await?;
     e.h.until("the recorded stop 1", |app| {
         memory(app).recorded.as_ref().is_some_and(|r| r.step == 1)
     })
@@ -1187,12 +1208,12 @@ async fn rewind_shows_the_recorded_bytes_and_never_live_memory() -> anyhow::Resu
     e.h.until("·· on screen", |app| screen_has(app, "··")).await;
 
     // forward again, and live: the last stop is the live one
-    e.panel("]]").await?;
+    e.editor("ll").await?;
     e.h.until("the recorded stop 3", |app| {
         memory(app).recorded.as_ref().is_some_and(|r| r.step == 3)
     })
     .await;
-    e.panel("]").await?;
+    e.editor("l").await?;
     e.h.until("live", |app| memory(app).recorded.is_none())
         .await;
     e.cells_are(0x12003, &[Cell::Byte(0xee)]).await;
@@ -1200,13 +1221,12 @@ async fn rewind_shows_the_recorded_bytes_and_never_live_memory() -> anyhow::Resu
     assert_eq!(e.fake.memory_reads().len(), reads);
 
     // L from anywhere
-    e.panel("[[").await?;
+    e.editor("hh").await?;
     e.h.until("rewinding", |app| memory(app).recorded.is_some())
         .await;
-    e.panel("L").await?;
+    e.editor("p").await?;
     e.h.until("live", |app| memory(app).recorded.is_none())
         .await;
-    e.h.keys("<C-g>").await?;
     e.h.until("no marker", |app| !screen_has(app, "REWIND"))
         .await;
     e.h.finish().await
@@ -1217,7 +1237,7 @@ async fn opening_memory_in_rewind_is_refused() -> anyhow::Result<()> {
     let mut e = env(program).await?;
     e.start().await?;
     e.step(1).await?;
-    e.panel("[").await?;
+    e.editor("h").await?;
     assert!(e.h.app.editor.debug.is_rewinding());
     let why = "REWIND: a recorded stop's memory can't be read any more";
     e.h.keys(":debug-memory<space>0x1000<ret>").await?;
@@ -1257,13 +1277,14 @@ async fn the_memory_window_setting_changes_the_cap_and_the_recorded_windows() ->
         ["depth", "collection size", "history", "memory window"]
     );
     e.start().await?;
+    e.stay_in_debug_mode().await?;
     e.open(0x12000).await?;
     e.has_byte(0x12000, Cell::Byte(original(0x12000))).await;
     let (top, height) = shown(&e.h.app);
     assert_eq!(memory_cap(&e.h.app), Some(4096), "the default");
 
     // the settings have the row, on its default
-    e.panel("R").await?;
+    e.editor("c").await?;
     let rows = settings_texts(&e.h.app);
     assert!(
         rows.iter()
@@ -1287,14 +1308,16 @@ async fn the_memory_window_setting_changes_the_cap_and_the_recorded_windows() ->
     assert_eq!(window.bytes, e.fake.memory_at(window.start, 1024));
 
     // 256
-    e.panel("Rjjjh").await?;
+    e.editor("c").await?;
+    e.h.keys("jjjh").await?;
     assert_eq!(memory_cap(&e.h.app), Some(256));
     e.h.keys("<esc>").await?;
     e.step(1).await?;
     assert_eq!(last_windows(&e.h.app)[0].bytes.len(), 256);
 
     // off: no windows
-    e.panel("Rjjjh").await?;
+    e.editor("c").await?;
+    e.h.keys("jjjh").await?;
     assert_eq!(memory_cap(&e.h.app), Some(0));
     assert!(settings_texts(&e.h.app)
         .iter()
@@ -1304,7 +1327,8 @@ async fn the_memory_window_setting_changes_the_cap_and_the_recorded_windows() ->
     assert!(last_windows(&e.h.app).is_empty());
 
     // unlimited: all that is shown and the margins
-    e.panel("Rjjjllllll").await?;
+    e.editor("c").await?;
+    e.h.keys("jjjllllll").await?;
     assert_eq!(memory_cap(&e.h.app), None);
     e.h.keys("<esc>").await?;
     e.step(1).await?;
@@ -1319,7 +1343,8 @@ async fn the_cost_estimate_counts_memory_views() -> anyhow::Result<()> {
     let mut e = env(recorded_program).await?;
     e.start().await?;
     // an estimate is for a history without stops: turn it off (history row, down to off)
-    e.panel("Rjjhhhhh").await?;
+    e.editor("c").await?;
+    e.h.keys("jjhhhhh").await?;
     assert_eq!(e.h.app.editor.debug.spectator.caps.history, Some(0));
     assert!(e.h.app.editor.debug.spectator.history.stops.is_empty());
     let cost = |app: &Application| {
@@ -1353,7 +1378,7 @@ async fn the_cost_estimate_counts_memory_views() -> anyhow::Result<()> {
     assert_eq!(requests(&one), requests(&without) + 4, "{one} / {without}");
 
     // a bigger window costs more requests; none, none
-    e.panel("R").await?;
+    e.editor("c").await?;
     e.h.keys("jjjl").await?;
     assert_eq!(memory_cap(&e.h.app), Some(16384));
     assert_eq!(requests(&cost(&e.h.app)), requests(&without) + 16);

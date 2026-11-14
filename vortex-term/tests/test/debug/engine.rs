@@ -95,7 +95,7 @@ impl Env {
         )
     }
 
-    /// Your breakpoint on `line` (1-based), as the editor's `Space G b` makes it.
+    /// Your breakpoint on `line` (1-based), as debug mode's `b` makes it.
     fn breakpoint(&mut self, line: usize) {
         debug::breakpoints::toggle(&mut self.h.app.editor, self.path.clone(), line - 1);
     }
@@ -122,15 +122,18 @@ impl Env {
         Ok(())
     }
 
-    async fn focus(&mut self) -> anyhow::Result<()> {
-        self.h.keys("<C-g>").await?;
-        assert!(self.h.app.editor.debug.is_focused());
+    /// Debug mode on, the editor focused: playback, speed and thread keys are its own.
+    async fn debug_mode(&mut self) -> anyhow::Result<()> {
+        if !self.h.app.editor.debug.mode_on() {
+            self.h.keys("<space>G").await?;
+        }
+        assert!(self.h.app.editor.debug.mode_on());
         Ok(())
     }
 
     /// Speed 25 lines a second.
     async fn fast(&mut self) -> anyhow::Result<()> {
-        self.h.keys("++++++++").await?;
+        self.h.keys("kkkkkkkk").await?;
         assert_eq!(spectator(&self.h.app).speed_label(), "25 l/s");
         Ok(())
     }
@@ -223,6 +226,17 @@ fn texts(app: &Application, section: Section) -> Vec<String> {
         .iter()
         .map(|row| row.text())
         .collect()
+}
+
+/// Whether the debugger said `text`: on debug mode's note while it is on, else on the status line.
+fn said(app: &Application, text: &str) -> bool {
+    match &app.editor.debug.mode {
+        Some(mode) => mode.note.as_ref().is_some_and(|note| note.contains(text)),
+        None => app
+            .editor
+            .get_status()
+            .is_some_and(|(message, _)| message.contains(text)),
+    }
 }
 
 fn is_stopped(app: &Application, reason: &str) -> bool {
@@ -387,7 +401,7 @@ async fn your_breakpoints_and_the_hidden_ones_go_in_one_request_yours_first() ->
     assert!(rows[0].ends_with(":5"), "{rows:?}");
 
     // playing reaches it: playback pauses there, as for any breakpoint
-    e.focus().await?;
+    e.debug_mode().await?;
     e.fast().await?;
     e.h.keys("<space>").await?;
     e.h.until("your breakpoint", |app| is_stopped(app, "breakpoint"))
@@ -397,12 +411,7 @@ async fn your_breakpoints_and_the_hidden_ones_go_in_one_request_yours_first() ->
     })
     .await;
     assert_eq!(e.stop_lines(), [2, 3, 4, 5]);
-    assert!(e
-        .h
-        .app
-        .editor
-        .get_status()
-        .is_some_and(|(m, _)| m.contains("Playback paused: breakpoint")));
+    assert!(said(&e.h.app, "Playback paused: breakpoint"));
     let hits: Vec<_> = engine(&e.h.app).record.iter().map(|h| h.why).collect();
     assert_eq!(hits, [Why::Line, Why::Line, Why::Line, Why::Breakpoint]);
     e.h.pump_for(Duration::from_millis(200)).await;
@@ -447,7 +456,7 @@ async fn a_false_condition_skips_and_a_logpoint_prints_and_neither_stops_playbac
     assert_eq!(&sets[0][..2], [4, 6], "yours first");
     assert_eq!(sets[0].len(), 30);
 
-    e.focus().await?;
+    e.debug_mode().await?;
     e.fast().await?;
     e.h.keys("<space>").await?;
     e.h.until("the end", |app| {
@@ -503,7 +512,7 @@ async fn the_spectated_thread_is_paced_and_every_line_is_recorded() -> anyhow::R
     );
     assert_eq!(spectator(&e.h.app).history.stops.len(), 1);
 
-    e.focus().await?;
+    e.debug_mode().await?;
     e.fast().await?;
     let start = Instant::now();
     e.h.keys("<space>").await?;
@@ -591,7 +600,7 @@ async fn the_hits_of_another_thread_are_continued_at_once_and_only_recorded() ->
     assert!(hits.iter().all(|hit| hit.3 == Why::Line));
 
     // playing thread 1 goes on being paced and shown, and thread 2 has nothing left to say
-    e.focus().await?;
+    e.debug_mode().await?;
     e.fast().await?;
     e.h.keys("<space>").await?;
     e.h.until("thread 1 ran out", |app| {
@@ -621,7 +630,7 @@ async fn an_all_stop_continue_runs_the_other_thread_along_unseen() -> anyhow::Re
         1,
         "thread 2 is stopped at its first line, silently"
     );
-    e.focus().await?;
+    e.debug_mode().await?;
     e.fast().await?;
     e.h.keys("<space>").await?;
     e.h.until("thread 1's last line", |app| engine(app).record.len() >= 4)
@@ -675,7 +684,7 @@ async fn a_breakpoint_of_yours_on_another_thread_cuts_the_camera_to_it() -> anyh
         spectator(&e.h.app).spectated.map(|k| k.thread.to_string()),
         Some("1".into())
     );
-    e.focus().await?;
+    e.debug_mode().await?;
     e.h.keys("<space>").await?;
     assert_eq!(spectator(&e.h.app).mode, Mode::Playing);
     // thread 2 reaches your breakpoint: playback pauses and the camera goes to it
@@ -687,12 +696,7 @@ async fn a_breakpoint_of_yours_on_another_thread_cuts_the_camera_to_it() -> anyh
         spectator(&e.h.app).spectated.map(|k| k.thread.to_string()),
         Some("2".into())
     );
-    assert!(e
-        .h
-        .app
-        .editor
-        .get_status()
-        .is_some_and(|(m, _)| m.contains("Playback paused: breakpoint")));
+    assert!(said(&e.h.app, "Playback paused: breakpoint"));
     let record = &engine(&e.h.app).record;
     let last = record.iter().last().unwrap();
     assert_eq!(
@@ -722,7 +726,7 @@ async fn a_frozen_thread_is_respected_continues_are_single_thread_and_it_never_a
     // the camera ends on thread 2 (your breakpoint), the other thread is stopped at its line
     e.h.until("thread 2's breakpoint", |app| is_stopped(app, "breakpoint"))
         .await;
-    e.focus().await?;
+    e.debug_mode().await?;
     assert_eq!(e.fake.advanced(2), 1);
     // freeze it and watch thread 1 again
     e.h.keys("z<lt>").await?;
@@ -772,7 +776,7 @@ async fn a_frozen_thread_stays_put_in_an_all_stop_session_while_another_threads_
     })
     .await?;
     e.start().await?;
-    e.focus().await?;
+    e.debug_mode().await?;
     assert_eq!(
         spectator(&e.h.app).spectated.map(|k| k.thread.to_string()),
         Some("1".into())
@@ -845,7 +849,7 @@ async fn the_record_counts_every_hit_of_every_thread_and_marks_what_happened() -
     let mut e = env(interleaved).await?;
     e.breakpoint(6);
     e.start().await?;
-    e.focus().await?;
+    e.debug_mode().await?;
     e.fast().await?;
     e.h.keys("<space>").await?;
     e.h.until("the breakpoint", |app| is_stopped(app, "breakpoint"))
@@ -950,7 +954,7 @@ async fn switching_the_spectated_thread_is_marked() -> anyhow::Result<()> {
     .await?;
     e.breakpoint(10);
     e.start().await?;
-    e.focus().await?;
+    e.debug_mode().await?;
     e.fast().await?;
     e.h.keys("<space>").await?;
     e.h.until("thread 2's breakpoint", |app| is_stopped(app, "breakpoint"))
@@ -974,7 +978,7 @@ async fn only_the_last_hits_are_kept_within_the_cap() -> anyhow::Result<()> {
     let mut e = env(|p| lines(p, 12)).await?;
     e.h.app.editor.debug.engine.record.set_cap(Some(5));
     e.start().await?;
-    e.focus().await?;
+    e.debug_mode().await?;
     e.fast().await?;
     e.h.keys("<space>").await?;
     e.h.until("the end", |app| {
@@ -1010,7 +1014,7 @@ async fn continuing_at_full_speed_lifts_the_hidden_breakpoints_and_puts_them_bac
     assert_eq!(engine(&e.h.app).record.counter(), 1, "the first line");
 
     // Space G c: only your breakpoints stay while the program runs to the next one
-    e.h.keys("<space>Gc<esc>").await?;
+    e.h.keys("<space>GL<esc>").await?;
     e.h.until("your breakpoint", |app| is_stopped(app, "breakpoint"))
         .await;
     e.h.until("the engine ready again", is_ready).await;
@@ -1076,7 +1080,7 @@ async fn changing_the_follow_mode_installs_the_set_again() -> anyhow::Result<()>
     assert_eq!(e.sets().len(), 1);
 
     // lib -> own is one press: the set for own is sent again
-    e.focus().await?;
+    e.debug_mode().await?;
     e.h.keys("e").await?;
     assert_eq!(spectator(&e.h.app).follow, Follow::Own);
     let (fake, path) = (&e.fake, e.path.clone());
@@ -1118,8 +1122,8 @@ async fn the_stepping_engine_sends_no_hidden_breakpoints_and_steps_in() -> anyho
     // yours alone
     assert_eq!(e.sets(), [vec![30]]);
 
-    e.focus().await?;
-    e.h.keys("n").await?;
+    e.debug_mode().await?;
+    e.h.keys("l").await?;
     e.settled(2).await;
     e.fast().await?;
     e.h.keys("<space>").await?;
@@ -1212,7 +1216,7 @@ async fn a_manual_step_over_ends_at_the_next_line_not_deeper() -> anyhow::Result
     })
     .await;
     // Space G n: the two lines of the call are passed over
-    e.h.keys("<space>Gn<esc>").await?;
+    e.h.keys("<space>G.<esc>").await?;
     e.settled(2).await;
     e.h.until("the step ended", |app| engine(app).manual.is_none())
         .await;

@@ -225,7 +225,7 @@ async fn a_breakpoint_set_before_the_launch_is_configured_and_the_stop_fills_the
 ) -> anyhow::Result<()> {
     let mut e = env(|p| Script::new(p).stop(Stop::new(3, "breakpoint").scope(simple("1")))).await?;
 
-    // Space G b on line 3, then back to the top: the stop has to move the cursor
+    // debug mode's `b` on line 3, then back to the top: the stop has to move the cursor
     e.h.keys("2j<space>Gb<esc>gg").await?;
     assert_eq!(cursor_line(&e.h.app), 0);
     let list = &e.h.app.editor.breakpoints[&e.path];
@@ -339,8 +339,10 @@ async fn an_expanded_node_is_reloaded_after_a_step_and_changes_are_marked() -> a
     e.h.keys("jj<ret>").await?;
     e.has_row(Section::Variables, "z = 9").await;
 
-    // step from the focused panel; the sticky menu closes with Esc and the panel stays
-    e.h.keys("<space>Gn").await?;
+    // step over in debug mode (the focused panel gives the editor back first); Esc leaves it
+    // and the panel stays
+    e.h.keys("<C-g>").await?;
+    e.h.keys("<space>G.").await?;
     e.h.keys("<esc>").await?;
     e.h.until("the second stop", |app| {
         texts(app, Section::Variables)
@@ -433,7 +435,7 @@ async fn a_watch_is_evaluated_now_and_at_the_next_stop() -> anyhow::Result<()> {
     e.h.keys("<C-g>").await?;
 
     // the next stop evaluates it again, in the new frame
-    e.h.keys("<space>Gn").await?;
+    e.h.keys("<space>G.").await?;
     e.h.keys("<esc>").await?;
     e.h.until("the watch at the second stop", |app| {
         app.editor.debug.watches[0]
@@ -535,7 +537,7 @@ async fn running_to_the_end_ends_the_session_and_keeps_the_console() -> anyhow::
     })
     .await;
 
-    e.h.keys("<space>Gc").await?;
+    e.h.keys("<space>GL").await?;
     e.h.keys("<esc>").await?;
     e.h.until("the end of the session", no_sessions).await;
     // the panel hides and the status says how it ended
@@ -635,7 +637,7 @@ async fn a_child_session_is_configured_once_and_the_panel_follows_it() -> anyhow
     .await;
 
     // the child exits, then the parent: the session ends
-    e.h.keys("<space>Gc").await?;
+    e.h.keys("<space>GL").await?;
     e.h.keys("<esc>").await?;
     e.h.until("the end of the session", no_sessions).await;
     let app = &e.h.app;
@@ -653,7 +655,7 @@ async fn toggling_a_breakpoint_reaches_the_parent_and_the_child_session() -> any
     e.stopped("x = 1").await;
 
     // the cursor is on line 3 (the stop); line 5 gets a breakpoint
-    e.h.keys("2j<space>Gb<esc>").await?;
+    e.h.keys("<space>Gv2jb<esc>").await?;
     let fake = &e.fake;
     e.h.until("setBreakpoints on both sessions", |_| {
         let all = fake.requests_named("setBreakpoints");
@@ -694,7 +696,7 @@ async fn breakpoints_can_be_disabled_and_deleted_from_the_panel() -> anyhow::Res
     e.stopped("x = 1").await;
 
     // lines 5 and 7 (the cursor is on line 3, where the program stopped)
-    e.h.keys("2j<space>Gb<esc>").await?;
+    e.h.keys("<space>Gv2jb").await?;
     let lines_of = |args: &Value| -> Vec<u64> {
         args["breakpoints"]
             .as_array()
@@ -705,7 +707,7 @@ async fn breakpoints_can_be_disabled_and_deleted_from_the_panel() -> anyhow::Res
     };
     let (_, args) = e.request("setBreakpoints", 1).await;
     assert_eq!(lines_of(&args), [5]);
-    e.h.keys("2j<space>Gb<esc>").await?;
+    e.h.keys("2jb<esc>").await?;
     let (_, args) = e.request("setBreakpoints", 2).await;
     assert_eq!(lines_of(&args), [5, 7]);
     e.h.until("both verified", |app| {
@@ -813,38 +815,41 @@ async fn focus_and_keys_of_the_panel() -> anyhow::Result<()> {
     e.h.keys("k").await?;
     assert_eq!(e.h.app.editor.debug.cursor(Section::Variables).row, 0);
 
-    // n steps from the focused panel (Space plays there: no space menu)
-    e.h.keys("n").await?;
+    // debug mode, from the editor: `l` is one playback step (the focused panel takes `l`
+    // for itself), and the view follows it
+    e.h.keys("<C-g>").await?;
+    assert!(!e.h.app.editor.debug.focused);
+    e.h.keys("<space>Gl").await?;
     e.h.until("the step", |app| {
         texts(app, Section::Variables)
             .iter()
             .any(|t| t.starts_with("x = 2"))
     })
     .await;
-    assert!(e.h.app.editor.debug.is_focused());
     assert_eq!(cursor_line(&e.h.app), 4);
-
-    // unfocused: Space G, Esc closes the menu and the panel stays
-    e.h.keys("<C-g>").await?;
+    // Tab focuses the panel in debug mode, and gives the keys back
+    e.h.keys("<tab>").await?;
+    assert!(e.h.app.editor.debug.is_focused());
+    e.h.keys("<tab>").await?;
     assert!(!e.h.app.editor.debug.focused);
+
+    // Esc leaves debug mode and the panel stays
+    e.h.keys("<esc>").await?;
+    assert!(!e.h.app.editor.debug.mode_on());
+    assert!(e.h.app.editor.debug.visible, "Esc left debug mode only");
     e.h.keys("<space>G").await?;
     e.h.keys("<esc>").await?;
-    assert!(e.h.app.editor.debug.visible, "Esc closed the menu only");
-    // a sticky menu (after a command): the same
-    e.h.keys("<space>Gv").await?;
-    assert!(
-        e.h.app.editor.debug.is_focused(),
-        "Space G v focuses Variables"
-    );
+    assert!(e.h.app.editor.debug.visible, "Esc left debug mode only");
+    // V focuses Variables
+    e.h.keys("<space>GV").await?;
+    assert!(e.h.app.editor.debug.is_focused(), "V focuses Variables");
     e.h.keys("<C-g>").await?;
-    e.h.keys("<space>Gp<esc>").await?;
-    assert!(!e.h.app.editor.debug.visible, "Space G p toggled it off");
-    e.h.keys("<space>Gp").await?;
     e.h.keys("<esc>").await?;
-    assert!(
-        e.h.app.editor.debug.visible,
-        "Esc closed the sticky menu only"
-    );
+    e.h.keys("<space>GP").await?;
+    assert!(!e.h.app.editor.debug.visible, "P toggled it off");
+    e.h.keys("P").await?;
+    e.h.keys("<esc>").await?;
+    assert!(e.h.app.editor.debug.visible, "Esc left debug mode only");
 
     // Esc in normal mode with nothing pending hides the visible, unfocused panel
     e.h.keys("<esc>").await?;
@@ -866,8 +871,8 @@ async fn quick_steps_end_with_the_variables_of_the_last_stop() -> anyhow::Result
     e.launch()?;
     e.stopped("x = 1").await;
 
-    // five steps in one go: the menu is sticky, `n` repeats
-    e.h.keys("<space>Gnnnnn").await?;
+    // five steps in one go: debug mode stays on, `.` repeats
+    e.h.keys("<space>G.....").await?;
     e.h.keys("<esc>").await?;
     e.h.until("the last stop's variables", |app| {
         texts(app, Section::Variables)
@@ -939,7 +944,7 @@ async fn the_last_output_of_a_child_session_reaches_the_console() -> anyhow::Res
     e.h.keys("2j<space>Gb<esc>gg").await?;
     e.launch()?;
     e.stopped("x = 1").await;
-    e.h.keys("<space>Gc").await?;
+    e.h.keys("<space>GL").await?;
     e.h.keys("<esc>").await?;
     e.h.until("the end of the session", no_sessions).await;
     assert!(

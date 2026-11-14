@@ -1322,11 +1322,28 @@ pub fn on_stopped(
         // breakpoints in place that happens at every hit, and says nothing new
         return Outcome::Done(false);
     }
-    end_full_speed(editor, session);
+    // a full-speed run ends at a stop that stays: not at a stray hit, nor at a hit of one of your
+    // breakpoints whose type doesn't match (both are continued)
     if body.reason == "breakpoint" && !ids.is_empty() {
         let kind = editor.debug.engine.classify(session, &ids, |id| {
             my_breakpoint(editor, session, id).is_some()
         });
+        // during a full-speed run, a hit of a breakpoint nobody knows is a hidden one's that was on
+        // its way when they were lifted (run to cursor's temporary one isn't set then): a stray
+        let lifted = editor
+            .debug
+            .engine
+            .full_speed
+            .as_ref()
+            .is_some_and(|run| run.session == session)
+            && editor.debug.spectator.run_to.is_none();
+        let kind = match kind {
+            HitKind::Unknown if lifted => HitKind::Stray,
+            kind => kind,
+        };
+        if !matches!(kind, HitKind::Stray | HitKind::Mine(_)) {
+            end_full_speed(editor, session);
+        }
         match kind {
             HitKind::Stray => {
                 continue_hit(editor, key);
@@ -1380,7 +1397,11 @@ pub fn on_stopped(
                         engine::breakpoint_pauses(breakpoint, key, main)
                     })
                 });
-                // a stop at yours takes the camera: the switch is marked at this hit
+                // a stop at yours ends a full-speed run (its gap is marked before this hit), and
+                // takes the camera: the switch is marked at this hit
+                if pauses {
+                    end_full_speed(editor, session);
+                }
                 let watched = if pauses { Some(key) } else { spectated };
                 let at = editor.debug.engine.record.hit(
                     key,
@@ -1401,6 +1422,7 @@ pub fn on_stopped(
     }
     // an exception, a pause, a step, the entry: recorded, placed once its frames load (a
     // breakpoint neither yours nor hidden is run to cursor's temporary one)
+    end_full_speed(editor, session);
     editor.debug.engine.manual = None;
     let why = match Why::from_reason(&reason) {
         Why::Breakpoint => Why::Other,

@@ -103,11 +103,10 @@ fn follow_now(editor: &mut Editor) {
     let frame = match history.current() {
         Some(snapshot) => snapshot.frames.get(history.frame).cloned(),
         None => editor
-            .debug
-            .spectator
-            .shown_frame
-            .clone()
-            .or_else(|| editor.debug_adapters.current_stack_frame().cloned()),
+            .debug_adapters
+            .current_stack_frame()
+            .cloned()
+            .or_else(|| editor.debug.spectator.shown_frame.clone()),
     };
     if let Some(frame) = frame {
         camera(editor, &frame);
@@ -168,7 +167,8 @@ pub fn seek(editor: &mut Editor, counter: u64) {
     rewind::seek(editor, index);
 }
 
-/// The lineline's position now: the stop shown in rewind, else the live counter.
+/// The lineline's position now: the stop shown in rewind, else the live stop's hit (else the
+/// live counter, past every hit).
 fn position(editor: &Editor) -> u64 {
     let debug = &editor.debug;
     debug
@@ -176,6 +176,7 @@ fn position(editor: &Editor) -> u64 {
         .history
         .current()
         .and_then(|snapshot| snapshot.counter)
+        .or_else(|| debug.engine.last_stop.map(|(_, at)| at))
         .unwrap_or_else(|| debug.engine.record.counter())
 }
 

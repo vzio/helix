@@ -610,10 +610,8 @@ fn keys_row(editor: &Editor, keys: &ReverseKeymap) -> Vec<Segment> {
     if session {
         badges.extend([
             Segment::key("dap_follow_mode", follow, keys),
-            Segment::key("dap_faster", "faster", keys),
-            Segment::key("dap_slower", "slower", keys),
-            Segment::key("dap_fast_forward", "to a change", keys),
-            Segment::key("dap_run_to_cursor", "to cursor", keys),
+            Segment::key("dap_fast_forward", "change", keys),
+            Segment::key("dap_run_to_cursor", "cursor", keys),
             Segment::key("dap_next_thread", "thread", keys),
             Segment::key("dap_terminate", "stop", keys),
         ]);
@@ -649,7 +647,12 @@ pub fn bar(editor: &Editor, keys: &ReverseKeymap, width: u16) -> Bar {
             Row {
                 left: vec![state(editor)],
                 middle: transport(editor, keys),
-                right: vec![Segment::info(speed(editor))],
+                // the speed between its keys: `j −  8 lines/s · own  k +`
+                right: vec![
+                    Segment::key("dap_slower", "−", keys),
+                    Segment::info(speed(editor)),
+                    Segment::key("dap_faster", "+", keys),
+                ],
                 line: None,
             },
             Row {

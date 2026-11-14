@@ -514,6 +514,8 @@ const NONE: &[&str] = &[
     "watch_prev_change",
     "watch_changes",
     "watch_leave",
+    // entering debug mode ends watch mode (one mode at a time)
+    "debug_mode",
     "normal_mode",
     "command_mode",
     "command_palette",
